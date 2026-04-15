@@ -19,14 +19,13 @@ from constants import (
     PRE_RECORD_SEGMENTS,
     REQUIRE_OBJECT_FOR_RECORDING,
     EVENT_COOLDOWN,
-    YOLO_SIZE,
     CONFIDENCE_THRESHOLD_MIN,
     CONFIDENCE_THRESHOLD_MAX,
     MOTION_THRESHOLD_MIN,
     MOTION_THRESHOLD_MAX,
     RENDER_SIZE,
-
 )
+
 LOG_STREAM_DIV = """
     <div class="inner-log" style="
         height: 300px; 
@@ -52,7 +51,6 @@ def _is_night_time(frame, cam_id, brightness_threshold=50):
     mean_brightness = np.mean(hsv[:,:,2])
     
     # If brightness is low, it's likely night time
-    #log_event(f"mean brightness: {mean_brightness}", "info", cam_id)
     return mean_brightness < brightness_threshold
 
 def _keep_overlapping_any(boxes, ref_boxes):
@@ -89,32 +87,24 @@ class GUI:
     def __init__(self, ctx: Context, model: Model, nvr: NVR):
         self.ctx = ctx
         self.classes = ctx.classes
+        self.width = ctx.resolution[0]
+        self.height = ctx.resolution[1]
         self.selected_classes = model.class_to_index(self.classes)
 
         self.motion_threshold = self.ctx.motion_threshold
         self.confidence_threshold = self.ctx.confidence_threshold
         self.model = model
         self.nvr = nvr
-        self.hd_mode_states = {name: False for name, _ in self.ctx.cameras.items()}
-
-        pass
+        nvr.start()
 
     def make_stream_fn(self, name, url):
         active_events = {}
         active_objects = {}
         last_event_time = {}
+
         def stream():
-            cap = cv2.VideoCapture(url, cv2.CAP_FFMPEG)
-            cam_res = (int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)), int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)))
-            cam_fps = cap.get(cv2.CAP_PROP_FPS) or 20.0
-            cam_fourcc = int(cap.get(cv2.CAP_PROP_FOURCC))
-            codec = "".join([chr((cam_fourcc >> 8 * i) & 0xFF) for i in range(4)])
 
-            if not cap.isOpened():
-                log_event("Failed to open stream", "error", name)
-                raise gr.Error(f"Failed to open stream: {url}")
-
-            log_event(f"Stream opened with resolution {cam_res} {cam_fps:.1f}fps codec:{codec}", "info", name)
+            frame_gen = self.nvr.frame_generator(name, self.width, self.height)
 
             prev_gray = None
             motion_frames = 0
@@ -122,20 +112,21 @@ class GUI:
             recording = False
             prev_time = time.time()
 
+            log_event(f"reading from stream", "info", name)
             while True:
-                ret, frame = cap.read()
+                try:
+                    ret, frame = next(frame_gen)
+                except StopIteration:
+                    break
                 if not ret:
                     log_event("Stream read failed, attempting to reconnect...", "warn", name)
-                    cap.release()
-                    time.sleep(2)
-                    cap = cv2.VideoCapture(url)
+                    self.nvr.restart()
                     continue
 
-                small = cv2.resize(frame, YOLO_SIZE)
-                motion_threshold_index = 1 if _is_night_time(small, name, 100) else 0
+                motion_threshold_index = 1 if _is_night_time(frame, name, 100) else 0
 
                 # motion
-                gray = cv2.GaussianBlur(cv2.cvtColor(small, cv2.COLOR_BGR2GRAY),(21,21),0)
+                gray = cv2.GaussianBlur(cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY),(21,21),0)
                 motion_boxes = []
                 overlay = None
 
@@ -147,7 +138,7 @@ class GUI:
                     if score > self.motion_threshold[motion_threshold_index]:
                         #log_event(f"Motion detected score: {score}, threshold: {self.motion_threshold[motion_threshold_index]}", "info", name)                    
                         contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-                        overlay = small.copy()
+                        overlay = frame.copy()
                         for contour in contours:
                             area = cv2.contourArea(contour)
                             x1, y1, w, h = cv2.boundingRect(contour)
@@ -176,7 +167,7 @@ class GUI:
                 classes_in_frame = set()
 
                 if motion_boxes:
-                    result = self.model.model.predict(small, conf=self.confidence_threshold, classes=self.selected_classes if self.selected_classes else None, verbose=False)[0]
+                    result = self.model.model.predict(frame, conf=self.confidence_threshold, classes=self.selected_classes if self.selected_classes else None, verbose=False)[0]
                     boxes = result.boxes.xyxy.reshape(-1, 4)
                     ref_motion_boxes = torch.as_tensor(motion_boxes, dtype=boxes.dtype, device=boxes.device)
                     keep = _keep_overlapping_any(boxes, ref_motion_boxes)
@@ -196,8 +187,6 @@ class GUI:
                     no_motion_frames += 1
 
                 valid_objects = len(classes_in_frame) > 0
-                #if valid_objects:
-                #    log_event(f"Object classes detected: {', '.join(classes_in_frame)}", "info", cam_id)
 
                 # start
                 now = time.time()
@@ -208,7 +197,7 @@ class GUI:
                             active_events[name] = self.nvr.get_segments(name, PRE_RECORD_SEGMENTS)
                             active_objects[name] = set(classes_in_frame)
                             last_event_time[name] = now
-                            log_event(f"Recording start {list(classes_in_frame)}", "record", name)
+                            log_event(f"recording start {list(classes_in_frame)}", "record", name)
 
                 # update
                 if recording:
@@ -233,30 +222,31 @@ class GUI:
 
                         recorded_cap = cv2.VideoCapture(recording_filename)
                         frame_count = recorded_cap.get(cv2.CAP_PROP_FRAME_COUNT)
-                        if frame_count < NO_MOTION_DETECT_FRAME_COUNT + cam_fps and os.path.isfile(recording_filename):
+                        #if frame_count < NO_MOTION_DETECT_FRAME_COUNT + cam_fps and os.path.isfile(recording_filename):
+                        if frame_count < NO_MOTION_DETECT_FRAME_COUNT + 20 and os.path.isfile(recording_filename):
                             os.remove(recording_filename)
-                            log_event(f"Recording auto-deleted {os.path.basename(recording_filename)} with {frame_count} frames", "record", name, file_path=recording_filename)
+                            log_event(f"recording auto-deleted {os.path.basename(recording_filename)} with {frame_count} frames", "record", name, file_path=recording_filename)
                         else:
-                            log_event(f"Recording available {os.path.basename(recording_filename)}", "record", name, file_path=recording_filename)
+                            log_event(f"recording available {os.path.basename(recording_filename)}", "record", name, file_path=recording_filename)
 
                     motion_frames = 0
                     no_motion_frames = 0
 
                 # render
-                img = result.plot() if result else small
+                img = result.plot() if result else frame
                 img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
                 if overlay is not None:
                     img = cv2.addWeighted(img, 0.7, overlay, 0.3, 0)
 
-                if not self.hd_mode_states[name]:
+                if not self.nvr.cameras[name].hd:
                     img = cv2.resize(img, RENDER_SIZE)
 
                 fps = 1/(time.time()-prev_time)
                 prev_time = time.time()
 
                 status = "🔴 REC" if recording else "🟢 LIVE"
-                yield img, f"{status} {"| Night " if motion_threshold_index else ""}| {cam_res[0]}x{cam_res[1]} | FPS {int(fps)}" + (f" | {len(classes_in_frame)} objects" if len(classes_in_frame) > 0 else "")
-
+                yield img, f"{status} {"| Night " if motion_threshold_index else ""}| FPS {int(fps)}" + (f" | {",".join(classes_in_frame)}" if len(classes_in_frame) > 0 else "")
+                
         return stream
 
     # =========================
@@ -264,22 +254,22 @@ class GUI:
     # =========================
     def update_confidence_threshold(self, val):
         self.confidence_threshold = val
-        log_event(f"Confidence updated → {val}")
+        log_event(f"confidence updated → {val}")
 
     def update_day_motion_threshold(self, val):
         self.motion_threshold[0] = val
-        log_event(f"Day motion threshold → {val}")
+        log_event(f"day motion threshold → {val}")
 
     def update_night_motion_threshold(self, val):
         self.motion_threshold[1] = val
-        log_event(f"Night motion threshold → {val}")
+        log_event(f"night motion threshold → {val}")
 
     def update_detection_classes(self, names):
         self.selected_classes = self.model.class_to_index(names)
-        log_event(f"Classes → {names}")
+        log_event(f"classes → {names}")
 
     def update_hd_mode(self, cam, val):
-        self.hd_mode_states[cam] = val    
+        self.nvr.cameras[cam].hd = val    
 
     # =========================
     # UI STREAMS
@@ -369,12 +359,12 @@ class GUI:
                 detection_classes.change(self.update_detection_classes, detection_classes)
 
             outputs = []
-            for i in range(0, len(self.ctx.cameras), 5):
+            for i in range(0, len(self.nvr.cameras), 5):
                 with gr.Row():
-                    for name, camera in self.ctx.cameras.items():
-                        if camera['enabled']:
+                    for name, camera in self.nvr.cameras.items():
+                        if camera.enabled:
                             with gr.Column():
-                                annotated = gr.Image(label=f"{name}", streaming=True)
+                                annotated = gr.Image(label=f"{name} {self.width}x{self.height}", streaming=True)
                                 stats_box = gr.Textbox(
                                     label=f"{name} Stats",
                                     show_label=False,
@@ -384,7 +374,7 @@ class GUI:
                                 # Add HD Mode toggle button
                                 hd_toggle = gr.Checkbox(label="HD Mode", value=False)
                                 hd_toggle.change(fn=self.update_hd_mode, inputs=[gr.State(value=name), hd_toggle],  outputs=[])
-                                outputs.append((annotated, stats_box, name, camera['url']))
+                                outputs.append((annotated, stats_box, name, camera.url))
 
             # recordings HTML
             recordings_box = gr.HTML(label="All Recordings")
@@ -400,8 +390,6 @@ class GUI:
             demo.load(fn=self.recordings_stream, inputs=None, outputs=recordings_box)
             # Event log stream
             demo.load(fn=self.log_stream, inputs=None, outputs=log_box)
-
-
 
         demo.launch(
             #server_name="0.0.0.0",

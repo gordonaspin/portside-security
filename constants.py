@@ -7,7 +7,6 @@ from enum import Enum, auto
 # SETTINGS
 # =========================
 MAX_LOG_LINES = 1000
-YOLO_SIZE = (608, 416)
 RENDER_SIZE = (304, 208)
 
 MOTION_DETECT_FRAME_COUNT = 40

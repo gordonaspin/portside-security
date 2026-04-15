@@ -1,4 +1,5 @@
 {
+    "resolution": [704, 480],
     "yolo": {
         "classes": ["person", "car", "truck", "bus", "bicycle", "motorcycle", "cat", "dog"],
         "model": "yolov8n.pt"
@@ -26,3 +27,4 @@
         }
     }
 }
+

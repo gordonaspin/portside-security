@@ -9,6 +9,7 @@ from nvr import NVR
 from context import Context
 from model import Model
 from gui import GUI
+from camera import Camera
 
 import constants
 from constants import (
@@ -96,9 +97,12 @@ def main(directory: str,
     with open(config_file, 'r', encoding='utf-8') as f:
         config = json.load(f)
 
-    cameras = config['cameras']
     yolo = config['yolo']
-
+    resolution = config['resolution']
+    camera_config = config['cameras']
+    cameras = {}
+    for n, c in camera_config.items():
+        cameras[n] = Camera(n, c['url'], c['enabled'])
 
     ctx = Context(
         directory=directory,
@@ -108,6 +112,7 @@ def main(directory: str,
         motion_threshold=[motion_threshold[0], motion_threshold[1]],
         confidence_threshold=confidence_threshold,
         motion_detect_frame_count=motion_detect_frame_count,
+        resolution=resolution,
         cameras=cameras,
         model='yolov8n.pt',
         classes=yolo['classes'],
@@ -115,9 +120,10 @@ def main(directory: str,
     )
 
     nvr = NVR(ctx)
-    nvr.start()
 
     model = Model(ctx)
+    trained_imgsz = model.model.args['imgsz']
+    logger.info(f"Model was trained with image size: {trained_imgsz}")
     gui = GUI(ctx, model, nvr)
     gui.run()
 
