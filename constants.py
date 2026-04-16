@@ -26,6 +26,11 @@ BUFFER_SECONDS = 120
 EVENT_COOLDOWN = 1
 REQUIRE_OBJECT_FOR_RECORDING = True
 
+PERIODIC_CHECK_INTERVAL = 300 # seconds
+NIGHT_TIME_THRESHOLD = 100
+
+STATUS_UPDATE_INTERVAL = 0.5 # seconds
+
 class ExitCode(Enum):
     """
     ExitCode definitions

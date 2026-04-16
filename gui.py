@@ -17,22 +17,7 @@ from nvr import NVR
 from camera import Camera
 
 
-LOG_STREAM_DIV = """
-    <div class="inner-log" style="
-        height: 300px; 
-        overflow-y: auto; 
-        border: 1px solid #ccc; 
-        padding: 5px; 
-        font-family: monospace;
-        font-size: small;
-        background-color: #1e1e1e; 
-        color: #ffffff;
-        box-sizing: border-box;
-    ">
-    <div style="font-weight: bold; margin-bottom: 8px; font-size: small;">
-        📜 Event Log
-    </div>
-    """
+#LOG_STREAM_DIV = 
 
 def _is_night_time(frame, brightness_threshold=50):
     # Convert to HSV (Hue, Saturation, Value)
@@ -96,14 +81,14 @@ class GUI:
         def stream():
             threading.current_thread().name = f"{camera.name} camera GUI"
 
-            frame_gen = self.nvr.frame_generator(camera, self.width, self.height)
-
             prev_gray = None
             motion_frames = 0
             no_motion_frames = 0
             recording = False
             prev_time = time.time()
+            is_night = False
 
+            frame_gen = self.nvr.frame_generator(camera, self.width, self.height)
             log_event(message=f"reading from stream", level="info", camera=camera)
             while True:
                 try:
@@ -112,10 +97,12 @@ class GUI:
                     break
                 if not ret:
                     log_event(message="stream read failed, attempting to reconnect...", level="warn", camera=camera)
-                    self.nvr.restart()
+                    self.nvr.restart(camera=camera)
                     continue
 
-                motion_threshold_index = 1 if _is_night_time(frame, 100) else 0
+                if time.time() - camera.last_night_time_check > constants.PERIODIC_CHECK_INTERVAL:
+                    is_night = True if _is_night_time(frame, constants.NIGHT_TIME_THRESHOLD) else False
+                    camera.last_night_time_check = time.time()
 
                 # motion
                 gray = cv2.GaussianBlur(cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY),(21,21),0)
@@ -127,29 +114,34 @@ class GUI:
                     _, thresh = cv2.threshold(diff,25,255,cv2.THRESH_BINARY)
                     score = cv2.countNonZero(thresh)
 
-                    if score > self.motion_threshold[motion_threshold_index]:
-                        #log_event(message=f"motion detected score: {score}, threshold: {self.motion_threshold[motion_threshold_index]}", levell="info", camera=camera)                    
+                    if score > self.motion_threshold[1 if is_night else 0]:
+                        # Motion is detected, get contours of moving objects
                         contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-                        overlay = frame.copy()
                         for contour in contours:
                             area = cv2.contourArea(contour)
                             x1, y1, w, h = cv2.boundingRect(contour)
                             x2 = x1 + w
                             y2 = y1 + h
-                            if area < self.motion_threshold[motion_threshold_index] / 10:  # filter small noise
-                                cv2.drawContours(overlay, [contour], -1, (0, 0, 255), 1)
-                                cv2.rectangle(overlay, (x1, y1), (x2, y2), (0, 0, 255), 1)
+                            if area < self.motion_threshold[is_night] / 10:  # filter small noise
+                                # Ignore small motion areas
+                                if self.ctx.debug:
+                                    if overlay is None:
+                                        overlay = frame.copy()
+                                    cv2.drawContours(overlay, [contour], -1, (0, 0, 255), 1)
+                                    cv2.rectangle(overlay, (x1, y1), (x2, y2), (0, 0, 255), 1)
                                 #log_event(message=f"ignoring motion contour rect ({x1}, {y1}), ({x2}, {y2}) with area {area}")
                             else:
-                                cv2.drawContours(overlay, [contour], -1, (0, 255, 0), 1)
-                                cv2.rectangle(overlay, (x1, y1), (x2, y2), (0, 255, 0), 1)
-                                #log_event(message=f"motion contour rect ({x1}, {y1}), ({x2}, {y2}) with area {area}")
                                 motion_boxes.append([x1, y1, x2, y2])
-                            if self.ctx.debug:
-                                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                                tag = "_".join(classes_in_frame) if classes_in_frame else "motion"
-                                image_filename = os.path.join(camera.images_dir, f"{timestamp}_{tag}.jpg")
-                                cv2.imwrite(image_filename, overlay)
+                                if self.ctx.debug:
+                                    if overlay is None:
+                                        overlay = frame.copy()
+                                    cv2.drawContours(overlay, [contour], -1, (0, 255, 0), 1)
+                                    cv2.rectangle(overlay, (x1, y1), (x2, y2), (0, 255, 0), 1)
+                                    #log_event(message=f"motion contour rect ({x1}, {y1}), ({x2}, {y2}) with area {area}")
+                                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                                    tag = "_".join(classes_in_frame) if classes_in_frame else "motion"
+                                    image_filename = os.path.join(camera.images_dir, f"{timestamp}_{tag}.jpg")
+                                    cv2.imwrite(image_filename, overlay)
 
                 prev_gray = gray
 
@@ -157,6 +149,8 @@ class GUI:
                 result = None
                 classes_in_frame = set()
 
+                # if there is large enough motion boxes, run YOLO and see if objects we care about overlap
+                # with the motion boxes (either the object is moving, or something is moving across the object)
                 if motion_boxes:
                     result = self.model.model.predict(frame, conf=self.confidence_threshold, classes=self.selected_classes if self.selected_classes else None, verbose=False)[0]
                     boxes = result.boxes.xyxy.reshape(-1, 4)
@@ -167,39 +161,40 @@ class GUI:
                     #log_event(message=f"keep {keep.shape} {keep}")
                     boxes = result.boxes[keep]
 
+                    # store the name/class of object we saw in the frame that coincides with movement
                     for box in boxes:
                         classes_in_frame.add(self.model.model.names[int(box.cls)])
 
-                # counters
+                # counters, we need motion (or no motion) for a number of consecutive frames to care
                 if motion_boxes:
                     motion_frames += 1
                     no_motion_frames = 0
                 else:
                     no_motion_frames += 1
 
-                valid_objects = len(classes_in_frame) > 0
-
                 # start
                 now = time.time()
                 if motion_frames >= constants.MOTION_DETECT_FRAME_COUNT and not recording:
+                    valid_objects = len(classes_in_frame) > 0
                     if (not constants.REQUIRE_OBJECT_FOR_RECORDING or valid_objects):
                         if now - camera.last_event_time > constants.EVENT_COOLDOWN:
                             recording = True
-                            camera.active_events = self.nvr.get_segments(camera, constants.PRE_RECORD_SEGMENTS)
+                            camera.active_segments = self.nvr.get_segments(camera, constants.PRE_RECORD_SEGMENTS)
                             camera.active_objects = set(classes_in_frame)
                             camera.last_event_time = now
                             log_event(message=f"recording start {",".join(classes_in_frame) if classes_in_frame else ""}", level="info", camera=camera)
 
-                # update
+                # update active segments and objects
                 if recording:
-                    camera.active_events += self.nvr.get_segments(camera,1)
+                    camera.active_segments += self.nvr.get_segments(camera,1)
                     camera.active_objects.update(classes_in_frame)
 
-                # stop
+                # stop recoding when there has been no motion for some time
                 if recording and no_motion_frames >= constants.NO_MOTION_DETECT_FRAME_COUNT:
                     recording = False
-                    segments = list(dict.fromkeys(camera.active_events))
+                    segments = list(dict.fromkeys(camera.active_segments))
 
+                    # if we have segments, merge them into an mp4 file with timestamp and tags
                     if segments:
                         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                         tag = "_".join(camera.active_objects) if camera.active_objects else "motion"
@@ -216,13 +211,13 @@ class GUI:
                         else:
                             log_event(message=f"recording available {os.path.basename(recording_filename)}", level="record", camera=camera, file_path=recording_filename)
 
-                    camera.active_events = {}
+                    camera.active_segments = {}
                     classes_in_frame = {}
                     camera.active_objects = {}
                     motion_frames = 0
                     no_motion_frames = 0
 
-                # render
+                # render YOLO plots on the frame if there was a result
                 img = result.plot() if result else frame
                 img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
                 if overlay is not None:
@@ -235,7 +230,7 @@ class GUI:
                 prev_time = time.time()
 
                 status = "🔴 REC" if recording else "🟢 LIVE"
-                yield img, f"{status} {"| Night " if motion_threshold_index else ""}| FPS {int(fps)}" + (f" | {",".join(classes_in_frame)}" if len(classes_in_frame) > 0 else "")
+                yield img, f"{status} {"| Night " if is_night else ""}| FPS {int(fps)}" + (f" | {",".join(classes_in_frame)}" if len(classes_in_frame) > 0 else "")
                 
         return stream
 
@@ -266,11 +261,25 @@ class GUI:
     # =========================
     # --- Event log streamer ---
     def log_stream(self):
+        html = """
+    <div class="inner-log" style="
+        height: 300px; 
+        overflow-y: auto; 
+        border: 1px solid #ccc; 
+        padding: 5px; 
+        font-family: monospace;
+        font-size: small;
+        background-color: #1e1e1e; 
+        color: #ffffff;
+        box-sizing: border-box;
+    ">
+    <div style="font-weight: bold; margin-bottom: 8px; font-size: small;">
+        📜 Event Log
+    </div>
+    """
         while True:
-            html_content = "".join(event_log)
-            # JS snippet to scroll to bottom
-            scroll_js = "<script>var el=document.currentScript.parentElement; el.scrollTop=el.scrollHeight;</script>"
-            yield LOG_STREAM_DIV +html_content + "</div>" + scroll_js
+            content = "".join(event_log)
+            yield html + content + "</div>" # + scroll_js
             time.sleep(0.5)
 
     def recordings_stream(self):
@@ -289,7 +298,7 @@ class GUI:
 
             html="""
             <div style="
-                height: 200px;
+                height: 300px;
                 overflow-y: auto;
                 border: 1px solid #ccc;
                 padding: 5px;
@@ -371,11 +380,14 @@ class GUI:
                                 hd_toggle.change(fn=self.update_hd_mode, inputs=[gr.State(value=camera.name), hd_toggle],  outputs=[])
                                 outputs.append((annotated, stats_box, camera))
 
-            # recordings HTML
-            recordings_box = gr.HTML(label="All Recordings")
+            with gr.Row():
+                with gr.Column(scale=2):
+                    # Event log HTML
+                    log_box = gr.HTML(label="Event Log")
+                with gr.Column(scale=1):
+                    # recordings HTML
+                    recordings_box = gr.HTML(label="All Recordings")
 
-            # Event log HTML
-            log_box = gr.HTML(label="Event Log", value=LOG_STREAM_DIV+"</div>", elem_classes="scrollable-log")
 
             # --- LAUNCH STREAMS ---
             # Image streams
@@ -387,6 +399,7 @@ class GUI:
             demo.load(fn=self.log_stream, inputs=None, outputs=log_box)
 
         demo.launch(
+            #share=True,
             #server_name="0.0.0.0",
             theme=gr.themes.Soft(),
             allowed_paths=[self.ctx.directory],

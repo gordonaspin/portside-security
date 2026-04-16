@@ -61,11 +61,11 @@ def log_event(message, level="info", camera=None, file_path=None):
         if path.is_file:
             message += f' <a href="/gradio_api/file={file_path}" target="_blank">{path.parent.name}/{path.name}</a>'
 
-    entry = f'<div style="color:{color};font-family:monospace;">[{timestamp}] {camera.name:<8} {message}</div>'
-    event_log.append(entry)
+    entry = f'<div style="color:{color};font-family:monospace;">[{timestamp}] ' + (f"{camera.name:<8} " if camera else "") + f"{message}</div>"
+    event_log.insert(0, entry)
 
     if len(event_log) > constants.MAX_LOG_LINES:
-        event_log.pop(0)
+        event_log.pop()
 
 def setup_logging(config_path: Path) -> Path:
     """Configure logging using a JSON config file.

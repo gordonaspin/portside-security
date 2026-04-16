@@ -37,29 +37,23 @@ class NVR:
                                         )
 
 
-    def start(self, restart=False):
+    def start(self):
         for camera in self.cameras.values():
             if camera.enabled:
                 os.makedirs(camera.recordings_dir, exist_ok=True)
                 os.makedirs(camera.segments_dir, exist_ok=True)
                 os.makedirs(camera.images_dir, exist_ok=True)
                 log_event(message=f"starting recorder", level="info", camera=camera)
-                camera.process = self._start_segment_recorder(camera)
-        if not restart:
-            threading.Thread(target=self._cleanup_segments,daemon=True).start()
+                camera.process = self._start_segment_recorder(camera=camera)
+        threading.Thread(target=self._cleanup_segments,daemon=True).start()
 
-    def restart(self):
-        for camera in self.cameras.values():
-            if camera.enabled:
-                ret = camera.process.poll()
-                if ret is None:
-                    log_event(message=f"stopping recorder", level="info", camera=camera)
-                    camera.process.terminate()
-                    camera.process.kill()
-                    camera.process.wait()
-                else:
-                    log_event(message=f"recorder exited {ret}", level="error", camera=camera)
-        self.start(True)
+    def restart(self, camera):
+        if camera.enabled and camera.process is not None:
+            ret = camera.process.poll()
+            log_event(message=f"restarting recorder with ret {ret}", level="info", camera=camera)
+            camera.process.communicate(input=b'q') 
+            camera.process.wait()
+            camera.process = self._start_segment_recorder(camera=camera)
 
     def _start_segment_recorder(self, camera: Camera):
 
@@ -103,6 +97,7 @@ class NVR:
         ]
         process =  subprocess.Popen(
             ffmpeg_cmd,
+            stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=log_file,
             bufsize=10**8

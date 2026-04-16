@@ -12,5 +12,7 @@ class Camera:
     process: Popen = None
     hd: bool = False
     last_event_time: float = 0.0
+    last_night_time_check: float = 0.0
+    last_status_update: float = 0.0
     active_objects: dict = dataclasses.field(default_factory=dict)
-    active_events: dict = dataclasses.field(default_factory=dict)
+    active_segments: dict = dataclasses.field(default_factory=dict)
