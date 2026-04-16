@@ -12,20 +12,21 @@ from gui import GUI
 from camera import Camera
 
 import constants
-from constants import (
-    CONFIDENCE_THRESHOLD_MIN,
-    CONFIDENCE_THRESHOLD,
-    CONFIDENCE_THRESHOLD_MAX,
-    MOTION_THRESHOLD_MIN,
-    MOTION_THRESHOLD,
-    MOTION_THRESHOLD_MAX,
-)
+#from constants import (
+#    CONFIDENCE_THRESHOLD_MIN,
+#    CONFIDENCE_THRESHOLD,
+#    CONFIDENCE_THRESHOLD_MAX,
+#    MOTION_THRESHOLD_MIN,
+#    MOTION_THRESHOLD,
+#    MOTION_THRESHOLD_MAX,
+#    MOTION_DETECT_FRAME_COUNT
+#)
 
-logger = logging.getLogger("yolo-rtsp-security-cam")
+logger = logging.getLogger("portside-nvrs")
 
 @click.command(
         context_settings={"help_option_names": ["-h", "--help"], "max_content_width": 120},
-        options_metavar="-d <directory> -u <apple-id> [options]",
+        options_metavar="-d <directory> -u -p [options]",
         no_args_is_help=True)
 @click.option("-d", "--directory",
               required=True,
@@ -40,11 +41,11 @@ logger = logging.getLogger("yolo-rtsp-security-cam")
               required=True,
               help="NVR password",
               metavar="<password>")
-@click.option("-c", "--config-file",
+@click.option("-c", "--nvr-config",
               required=True,
               help="NVR config file",
               metavar="<file>",
-              default="cameras.json"
+              default="nvr.json"
               )
 @click.option("--logging-config",
               help="JSON logging config filename (default: logging-config.json)",
@@ -54,17 +55,17 @@ logger = logging.getLogger("yolo-rtsp-security-cam")
 @click.option("--motion-threshold",
               help="threshold for motion detection (day, night)",
               type=click.Tuple([
-                  click.IntRange(min=MOTION_THRESHOLD_MIN[0], max=MOTION_THRESHOLD_MAX[0]),
-                  click.IntRange(min=MOTION_THRESHOLD_MIN[1], max=MOTION_THRESHOLD_MAX[1])
+                  click.IntRange(min=constants.MOTION_THRESHOLD_MIN[0], max=constants.MOTION_THRESHOLD_MAX[0]),
+                  click.IntRange(min=constants.MOTION_THRESHOLD_MIN[1], max=constants.MOTION_THRESHOLD_MAX[1])
                   ]),
               metavar="<threshold>",
-              default=(MOTION_THRESHOLD[0], MOTION_THRESHOLD[1]),
+              default=(constants.MOTION_THRESHOLD[0], constants.MOTION_THRESHOLD[1]),
               show_default=True)
 @click.option("--confidence-threshold",
               help="Confidence threshold for object detection",
-              type=click.FloatRange(min=CONFIDENCE_THRESHOLD_MIN, max=CONFIDENCE_THRESHOLD_MAX),
+              type=click.FloatRange(min=constants.CONFIDENCE_THRESHOLD_MIN, max=constants.CONFIDENCE_THRESHOLD_MAX),
               metavar="<threshold>",
-              default=CONFIDENCE_THRESHOLD,
+              default=constants.CONFIDENCE_THRESHOLD,
               show_default=True)
 @click.option("--motion-detect-frame-count",
               help="number of frames with motion required to start recording",
@@ -82,7 +83,7 @@ logger = logging.getLogger("yolo-rtsp-security-cam")
 def main(directory: str,
          username: str,
          password: str,
-         config_file: str,
+         nvr_config: str,
          logging_config: str,
          motion_threshold: tuple[int, int],
          confidence_threshold: float,
@@ -90,30 +91,26 @@ def main(directory: str,
          debug: bool,
          ) -> int:
     
-    setup_logging("logging-config.json")
+    setup_logging(logging_config)
 
     logger.info(f"Application started with directory={directory} username={username} motion_threshold={motion_threshold} confidence_threshold={confidence_threshold} motion_detect_frame_count={motion_detect_frame_count}")
 
-    with open(config_file, 'r', encoding='utf-8') as f:
+    with open(nvr_config, 'r', encoding='utf-8') as f:
         config = json.load(f)
 
     yolo = config['yolo']
     resolution = config['resolution']
     camera_config = config['cameras']
-    cameras = {}
-    for n, c in camera_config.items():
-        cameras[n] = Camera(n, c['url'], c['enabled'])
 
     ctx = Context(
         directory=directory,
         username=username,
         password=password,
-        logging_config=logging_config,
+        camera_config=camera_config,
         motion_threshold=[motion_threshold[0], motion_threshold[1]],
         confidence_threshold=confidence_threshold,
         motion_detect_frame_count=motion_detect_frame_count,
         resolution=resolution,
-        cameras=cameras,
         model='yolov8n.pt',
         classes=yolo['classes'],
         debug=debug,

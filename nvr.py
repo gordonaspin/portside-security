@@ -8,7 +8,7 @@ import numpy as np
 
 from ffmpeg import FFmpeg
 
-from constants import BUFFER_SECONDS
+import constants
 from context import Context
 from logger import log_event
 from camera import Camera
@@ -18,7 +18,6 @@ from camera import Camera
 # =========================
 class NVR:
     def __init__(self, ctx: Context):
-        self.cameras = ctx.cameras
         self.recordings_dir = ctx.directory
         self.width = ctx.resolution[0]
         self.height = ctx.resolution[1]
@@ -27,37 +26,45 @@ class NVR:
         os.makedirs(self.recordings_dir, exist_ok=True)
         os.makedirs(self.segments_dir, exist_ok=True)
         os.makedirs(self.images_dir, exist_ok=True)
+        self.cameras = {}
+        for name, cfg in ctx.camera_config.items():
+            self.cameras[name] = Camera(name=name,
+                                        url=cfg['url'],
+                                        enabled=cfg['enabled'],
+                                        recordings_dir=os.path.join(self.recordings_dir, name),
+                                        segments_dir=os.path.join(self.segments_dir, name),
+                                        images_dir=os.path.join(self.images_dir, name),
+                                        )
 
 
     def start(self, restart=False):
-        for name, camera in self.cameras.items():
+        for camera in self.cameras.values():
             if camera.enabled:
-                cam_dir = os.path.join(self.recordings_dir, name)
-                seg_dir = os.path.join(self.segments_dir, name)
-                img_dir = os.path.join(self.images_dir, name)
-                os.makedirs(cam_dir, exist_ok=True)
-                os.makedirs(seg_dir, exist_ok=True)
-                os.makedirs(img_dir, exist_ok=True)
-                log_event(f"starting recorder", "info", name)
-                self.cameras[name].process = self._start_segment_recorder(name, seg_dir, camera.url)
+                os.makedirs(camera.recordings_dir, exist_ok=True)
+                os.makedirs(camera.segments_dir, exist_ok=True)
+                os.makedirs(camera.images_dir, exist_ok=True)
+                log_event(message=f"starting recorder", level="info", camera=camera)
+                camera.process = self._start_segment_recorder(camera)
         if not restart:
             threading.Thread(target=self._cleanup_segments,daemon=True).start()
 
     def restart(self):
-        for name, camera in self.cameras.items():
+        for camera in self.cameras.values():
             if camera.enabled:
                 ret = camera.process.poll()
                 if ret is None:
-                    log_event(f"stopping recorder", "info", name)
+                    log_event(message=f"stopping recorder", level="info", camera=camera)
                     camera.process.terminate()
+                    camera.process.kill()
+                    camera.process.wait()
                 else:
-                    log_event(f"recorder exited {ret}", "error", name)
+                    log_event(message=f"recorder exited {ret}", level="error", camera=camera)
         self.start(True)
 
-    def _start_segment_recorder(self, name, dir, url):
+    def _start_segment_recorder(self, camera: Camera):
 
-        filespec = os.path.join(dir, "%Y%m%d_%H%M%S.ts")
-        log_file = open(f"{name}_ffmpeg.log", "w")
+        filespec = os.path.join(camera.segments_dir, "%Y%m%d_%H%M%S.ts")
+        log_file = open(f"{camera.name}_ffmpeg.log", "w")
 
         ffmpeg_cmd = [
             "ffmpeg",
@@ -66,7 +73,7 @@ class NVR:
             "-fflags", "nobuffer",
             "-flags", "low_delay",
             "-use_wallclock_as_timestamps", "1",
-            "-i", url,
+            "-i", camera.url,
 
             # Split + per-branch processing
             "-filter_complex",
@@ -83,7 +90,7 @@ class NVR:
             "-keyint_min", "30",
             "-sc_threshold", "0",
             "-f", "segment",
-            #"-segment_time", "1",
+            "-segment_time", "1",
             "-reset_timestamps", "1",
             "-strftime", "1",
             "-segment_format", "mpegts",
@@ -108,20 +115,20 @@ class NVR:
             
         while True:
             try:
-                for name, camera in self.cameras.items():
+                for camera in self.cameras.values():
                     if camera.enabled:
-                        path = os.path.join(self.segments_dir, name, "*.ts")
+                        path = os.path.join(camera.segments_dir, "*.ts")
                         files = sorted(glob.glob(path))
-                        if len(files) > BUFFER_SECONDS:
-                            for f in files[:-BUFFER_SECONDS]:
+                        if len(files) > constants.BUFFER_SECONDS:
+                            for f in files[:-constants.BUFFER_SECONDS]:
                                 try: os.remove(f)
                                 except: pass
                 time.sleep(1)
             except Exception as e:
-                log_event(f"exception in cleanup_segments {e}", "error")
+                log_event(message=f"exception in cleanup_segments {e}", level="error")
 
-    def get_segments(self, name, n):
-        files = sorted(glob.glob(os.path.join(self.segments_dir, name, "*.ts")))
+    def get_segments(self, camera: Camera, n: int):
+        files = sorted(glob.glob(camera.segments_dir, "*.ts"))
         return files[-n:]
 
     def merge_segments(self, files, output):
@@ -140,7 +147,7 @@ class NVR:
 
         os.remove(list_file)
 
-    def frame_generator(self, name, width, height):
+    def frame_generator(self, camera: Camera, width, height):
         import numpy as np
         import time
 
@@ -148,7 +155,7 @@ class NVR:
 
         while True:
             frame = None
-            raw = self.cameras[name].process.stdout.read(frame_size)
+            raw = self.cameras[camera.name].process.stdout.read(frame_size)
             ok = len(raw) == frame_size
 
             if ok:

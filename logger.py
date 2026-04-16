@@ -11,21 +11,29 @@ Public API
 - `MyJSONFormatter` — JSON formatter for structured logging.
 - `NonErrorFilter`, `KeywordFilter` — helpers to filter or mask logs.
 """
+import sys
+import atexit
+import threading
 from pathlib import Path
 from datetime import datetime
-import atexit
 import datetime as dt
 import json
-import logging
-from logging import Logger, Handler, LogRecord
-import logging.config
-import sys
-import threading
+from logging import (
+    getLogger,
+    Logger,
+    Handler,
+    LogRecord,
+    Formatter,
+    Filter,
+    config,
+    getHandlerByName,
+    INFO
+)
+
 from typing import Any, Type, override
 from types import TracebackType
-from constants import MAX_LOG_LINES
 
-logger = logging.getLogger("yolo-rtsp-security-cam")
+logger = getLogger("portside-nvrs")
 
 import constants
 
@@ -34,13 +42,13 @@ event_log = []
 # =========================
 # LOGGING
 # =========================
-def log_event(message, level="info", camera="", file_path=None):
+def log_event(message, level="info", camera=None, file_path=None):
     timestamp = datetime.now().strftime("%H:%M:%S")
     colors = {"info":"#00c853","debug": "#AA0088", "warn":"#ffd600","error":"#ff5252","record":"#17e8ff"}
     color = colors.get(level,"#fff")
 
     #print(f"[{timestamp}] {camera:<8} {message}")
-    fstr = f"{camera + " " if camera else ""}{message}"
+    fstr = f"{camera.name + " " if camera else ""}{message}"
     match level:
         case "info": logger.info(fstr)
         case "debug": logger.info(fstr)
@@ -53,13 +61,13 @@ def log_event(message, level="info", camera="", file_path=None):
         if path.is_file:
             message += f' <a href="/gradio_api/file={file_path}" target="_blank">{path.parent.name}/{path.name}</a>'
 
-    entry = f'<div style="color:{color};font-family:monospace;">[{timestamp}] {camera:<8} {message}</div>'
+    entry = f'<div style="color:{color};font-family:monospace;">[{timestamp}] {camera.name:<8} {message}</div>'
     event_log.append(entry)
 
-    if len(event_log) > MAX_LOG_LINES:
+    if len(event_log) > constants.MAX_LOG_LINES:
         event_log.pop(0)
 
-def setup_logging(logging_config: Path) -> Path:
+def setup_logging(config_path: Path) -> Path:
     """Configure logging using a JSON config file.
 
     Loads the JSON logging configuration from `logging_config`, ensures any
@@ -71,33 +79,33 @@ def setup_logging(logging_config: Path) -> Path:
     with a `filename`), or raises SystemExit if the config file is missing.
     """
     try:
-        with open(logging_config, encoding="utf-8") as f_in:
-            config: dict[str, Any] = json.load(f_in)
+        with open(config_path, encoding="utf-8") as f_in:
+            json_config: dict[str, Any] = json.load(f_in)
     except FileNotFoundError:
-        print(f"logging config file {logging_config} not found")
+        print(f"logging config file {config_path} not found")
         sys.exit(constants.ExitCode.EXIT_FAILED_CLICK_USAGE.value)
 
     folder_path: Path = Path()
-    for _, handler in config['handlers'].items():
+    for handler in json_config['handlers'].values():
         file: str = handler.get('filename', None)
         if file:
             folder_path = Path(file).parent
             folder_path.mkdir(parents=True, exist_ok=True)
 
     try:
-        logging.config.dictConfig(config)
+        config.dictConfig(json_config)
     except (PermissionError, ValueError) as e:
         print(f"Error {e} in creating/writing to {file}, is the path writable ?")
         sys.exit(constants.ExitCode.EXIT_FAILED_CLICK_USAGE.value)
 
-    queue_handler: Handler = logging.getHandlerByName("queue_handler")
+    queue_handler: Handler = getHandlerByName("queue_handler")
     if queue_handler is not None:
         queue_handler.listener.start()
         atexit.register(queue_handler.listener.stop)
 
     sys.excepthook = handle_unhandled_exception
     threading.excepthook = handle_thread_exception
-    logging.getLogger().info("logging configured")
+    getLogger().info("logging configured")
 
     return folder_path
 
@@ -115,7 +123,7 @@ def handle_unhandled_exception(exc_type: Type[BaseException],
 
     # Log the exception with the traceback
     # Using logger.exception() is a shortcut that automatically adds exc_info
-    logger: Logger = logging.getLogger("unhandled")
+    logger: Logger = getLogger("unhandled")
     logger.critical("unhandled exception occurred",
                     exc_info=(exc_type, exc_value, exc_traceback))
 
@@ -123,7 +131,7 @@ def handle_thread_exception(args: Any) -> None:
     """
     Custom exception hook to handle uncaught exceptions in threads.
     """
-    logger: Logger = logging.getLogger("unhandled")
+    logger: Logger = getLogger("unhandled")
     logger.critical("exception in thread: %s",
                     args.thread.name,
                     exc_info=(args.exc_type, args.exc_value, args.exc_traceback))
@@ -155,7 +163,7 @@ LOG_RECORD_BUILTIN_ATTRS: list[str] = {
 }
 
 
-class MyJSONFormatter(logging.Formatter):
+class MyJSONFormatter(Formatter):
     """Structured JSON formatter for logging records.
 
     The formatter converts `LogRecord` instances to JSON objects, including
@@ -169,7 +177,7 @@ class MyJSONFormatter(logging.Formatter):
         self.fmt_keys: dict[str, str] = fmt_keys if fmt_keys is not None else {}
 
     @override
-    def format(self, record: logging.LogRecord) -> str:
+    def format(self, record: LogRecord) -> str:
         """Format a LogRecord as a JSON string.
 
         This builds a dictionary representation via `_prepare_log_dict` and
@@ -178,7 +186,7 @@ class MyJSONFormatter(logging.Formatter):
         message: dict[str, str | Any] = self._prepare_log_dict(record)
         return json.dumps(message, default=str)
 
-    def _prepare_log_dict(self, record: logging.LogRecord) -> dict[str, str | Any]:
+    def _prepare_log_dict(self, record: LogRecord) -> dict[str, str | Any]:
         """Prepare a dictionary from a LogRecord suitable for JSON serialization.
 
         Extracts configured fields, timestamps, exception and stack traces,
@@ -210,17 +218,17 @@ class MyJSONFormatter(logging.Formatter):
 
         return message
 
-class NonErrorFilter(logging.Filter):
+class NonErrorFilter(Filter):
     """Filter that allows only non-error (INFO and below) records.
 
     Returns True for records at INFO level or below, False otherwise.
     """
     @override
-    def filter(self, record: logging.LogRecord) -> bool | logging.LogRecord:
+    def filter(self, record: LogRecord) -> bool | LogRecord:
         """Return True when the record should be logged (level <= INFO)."""
-        return record.levelno <= logging.INFO
+        return record.levelno <= INFO
 
-class KeywordFilter(logging.Filter):
+class KeywordFilter(Filter):
     """Filter that masks configured keywords in log messages.
 
     Keywords registered via `add_keyword`/`add_keywords` will be replaced with
@@ -232,7 +240,7 @@ class KeywordFilter(logging.Filter):
         super().__init__(name)
 
     @override
-    def filter(self, record: LogRecord) -> bool | logging.LogRecord:
+    def filter(self, record: LogRecord) -> bool | LogRecord:
         """Mask any configured keywords in the record's message and allow it.
 
         Always returns True to let the record pass through after masking.
