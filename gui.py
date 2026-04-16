@@ -281,7 +281,11 @@ class GUI:
                     if x.endswith(".mp4"):
                         files.append(os.path.join(r,x))
 
-            files.sort(key=os.path.getmtime, reverse=True)
+            try:
+                files.sort(key=os.path.getmtime, reverse=True)
+            except FileNotFoundError:
+                time.sleep(2)
+                continue
 
             html="""
             <div style="
