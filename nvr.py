@@ -261,7 +261,7 @@ class NVR:
                                     overlay = frame.copy()
                                 cv2.drawContours(overlay, [contour], -1, (0, 0, 255), 1)
                                 cv2.rectangle(overlay, (x1, y1), (x2, y2), (0, 0, 255), 1)
-                            log_event(message=f"ignoring motion contour rect ({x1}, {y1}), ({x2}, {y2}) with area {area}")
+                                log_event(message=f"ignoring motion contour rect ({x1}, {y1}), ({x2}, {y2}) with area {area}")
                         else:
                             motion_boxes.append([x1, y1, x2, y2])
                             if self.debug:
