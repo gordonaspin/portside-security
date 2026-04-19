@@ -13,7 +13,7 @@ class Context:
     motion_threshold: list[int, int]
     confidence_threshold: float
     motion_detect_frame_count: int
-    resolution: list[int, int]
+    downsize_resolution: list[int, int]
     model: str
     classes: list[str]
     debug: bool

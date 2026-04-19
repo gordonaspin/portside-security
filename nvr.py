@@ -63,8 +63,8 @@ class NVR:
         self.ctx = ctx
         self.model = model
         self.debug = self.ctx.debug
-        self.width = ctx.resolution[0]
-        self.height = ctx.resolution[1]
+        self.width = ctx.downsize_resolution[0]
+        self.height = ctx.downsize_resolution[1]
         self.motion_threshold = self.ctx.motion_threshold
         self.confidence_threshold = self.ctx.confidence_threshold
         self.selected_classes = self.model.class_to_index(ctx.classes)
@@ -115,7 +115,6 @@ class NVR:
 
         filespec = os.path.join(camera.segments_dir, "%Y%m%d_%H%M%S.ts")
         log_file = open(f"{camera.name}_ffmpeg.log", "w")
-
         ffmpeg_cmd = [
             "ffmpeg",
 
@@ -125,20 +124,13 @@ class NVR:
             "-use_wallclock_as_timestamps", "1",
             "-i", camera.url,
 
-            # Split + per-branch processing
+            # Split and reduce scale for raw only for OpenCV
             "-filter_complex",
-            f"[0:v]split=2[v1][v2];"
-            f"[v1]scale={self.width}:{self.height}[enc];"
-            f"[v2]scale={self.width}:{self.height},format=bgr24[raw]",
+            f"[0:v]scale={self.width}:{self.height},format=bgr24[raw]",
 
-            # ---- TS segments (encoded) ----
-            "-map", "[enc]",
-            "-c:v", "libx264",
-            "-preset", "veryfast",
-            "-tune", "zerolatency",
-            "-g", "30",
-            "-keyint_min", "30",
-            "-sc_threshold", "0",
+            # ---- TS segments (NO RE-ENCODE) ----
+            "-map", "0:v",
+            "-c", "copy",
             "-f", "segment",
             "-segment_time", "1",
             "-reset_timestamps", "1",
@@ -151,6 +143,7 @@ class NVR:
             "-f", "rawvideo",
             "pipe:1"
         ]
+
         process =  subprocess.Popen(
             ffmpeg_cmd,
             stdin=subprocess.PIPE,
@@ -202,7 +195,6 @@ class NVR:
         threading.current_thread().name = f"{camera.name} _frame_reader"
 
         frame_size = self.width * self.height * 3
-        prev_time = time.time()
 
         while camera.running:
             raw = self._read_exact(camera.process.stdout, frame_size)

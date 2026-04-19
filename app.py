@@ -119,7 +119,7 @@ def main(directory: str,
         config = json.load(f)
 
     yolo = config['yolo']
-    resolution = config['resolution']
+    downsize_resolution = config['downsize_resolution']
     camera_config = config['cameras']
     for camera in camera_config.values():
         camera['url'] = replace_url_credentials(camera['url'], username, password)    
@@ -133,7 +133,7 @@ def main(directory: str,
         motion_threshold=[motion_threshold[0], motion_threshold[1]],
         confidence_threshold=confidence_threshold,
         motion_detect_frame_count=motion_detect_frame_count,
-        resolution=resolution,
+        downsize_resolution=downsize_resolution,
         model='yolov8n.pt',
         classes=yolo['classes'],
         debug=debug,
