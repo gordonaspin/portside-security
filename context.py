@@ -9,6 +9,7 @@ class Context:
     username: str
     password: str
     camera_config: dict
+    bind_address: str
     motion_threshold: list[int, int]
     confidence_threshold: float
     motion_detect_frame_count: int

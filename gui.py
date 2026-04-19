@@ -210,7 +210,7 @@ class GUI:
         demo.queue()
         demo.launch(
             #share=True,
-            #server_name="0.0.0.0",
+            server_name=self.ctx.bind_address,
             theme=gr.themes.Soft(),
             allowed_paths=[self.ctx.directory],
             css="""
