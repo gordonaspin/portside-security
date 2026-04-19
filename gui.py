@@ -237,6 +237,12 @@ class GUI:
        font-family: 'Courier New', monospace !important;
         font-size: small !important;
     }
+    .gradio-container > footer,
+    .gradio-container footer,
+    footer,
+    div:has(> .footer) {
+        display: none !important;
+    }
     """,
             )
         

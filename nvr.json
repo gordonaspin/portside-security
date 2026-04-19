@@ -14,7 +14,7 @@
             "enabled": true
 
         },
-        "B5Lot": {
+        "B45Lot": {
             "url": "rtsp://username:password@portsideshed.noip.me:554/cam/realmonitor?channel=3&subtype=1",
             "enabled": true
         },
