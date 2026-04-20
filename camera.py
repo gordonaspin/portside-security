@@ -4,6 +4,7 @@ import numpy as np
 from queue import Queue
 
 from collections import deque
+from model import Model
 
 class RollingAverage:
     def __init__(self, window_size=100):
@@ -33,6 +34,7 @@ class Camera:
     recordings_dir: str
     segments_dir: str
     images_dir: str
+    model: Model
 
     # stream state
     process: Popen = None
@@ -52,7 +54,7 @@ class Camera:
     last_frame_time: float = 0.0
 
     # UI / metadata
-    hd: bool = False
+    hd: bool = True
     status: str = "Not streaming"
 
     # logic state

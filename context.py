@@ -1,6 +1,5 @@
 """ Context manager for the application. """
 import dataclasses
-from camera import Camera
 
 @dataclasses.dataclass
 class Context:
@@ -17,3 +16,4 @@ class Context:
     model: str
     classes: list[str]
     debug: bool
+    debug_files: bool = False

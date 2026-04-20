@@ -1,6 +1,5 @@
 import os
 from pathlib import Path
-import time
 from logging import getLogger
 import gradio as gr
 import html
@@ -52,8 +51,11 @@ class GUI:
 
     def update_debug(self, val):
         self.nvr.debug = val
-        log_event(message=f"Debug {"on" if val else "off"}")
+        log_event(message=f"Detections {"on" if val else "off"}")
 
+    def update_debug_files(self, val):
+        self.nvr.debug_files = val
+        log_event(message=f"Debug files {"on" if val else "off"}")
     # =========================
     # UI STREAMS
     # =========================
@@ -161,17 +163,19 @@ class GUI:
 
                     with gr.Column(scale=4):
                         detection_classes = gr.CheckboxGroup(label="Objects",
-                                                             choices=self.classes,
-                                                             value=self.classes,
-                                                             )
+                                                            choices=self.classes,
+                                                            value=self.classes,
+                                                            )
                     with gr.Column(scale=1):
-                        debug_checkbox = gr.Checkbox(label="Debug", value=False, elem_classes="custom-checkbox")
+                        debug_checkbox = gr.Checkbox(label="Show Detections", value=self.ctx.debug, elem_classes="custom-checkbox")
+                        files_checkbox = gr.Checkbox(label="Produce Debug Images", value=self.ctx.debug_files, elem_classes="custom-checkbox")
 
                 confidence_threshold_slider.change(self.update_confidence_threshold, confidence_threshold_slider)
                 day_motion_threshold_slider.change(self.update_day_motion_threshold, day_motion_threshold_slider)
                 night_motion_threshold_slider.change(self.update_night_motion_threshold, night_motion_threshold_slider)
                 detection_classes.change(self.update_detection_classes, detection_classes)
                 debug_checkbox.change(fn=self.update_debug, inputs=debug_checkbox,  outputs=[])
+                files_checkbox.change(fn=self.update_debug_files, inputs=files_checkbox,  outputs=[])
 
             outputs = []
             for i in range(0, int(len(self.nvr.cameras)/5)):
@@ -180,7 +184,7 @@ class GUI:
                     for camera in d.values():
                         if camera.enabled:
                             with gr.Column():
-                                annotated = gr.Image(label=f"{camera.name}")
+                                annotated = gr.Image(label=f"{camera.name}", buttons=['fullscreen'])
                                 stats_box = gr.Textbox(label=f"{camera.name} Stats",
                                                        show_label=False,
                                                        interactive=False,
@@ -188,7 +192,7 @@ class GUI:
                                 )
                                 # Add HD Mode toggle button
                                 hd_checkbox = gr.Checkbox(label="HD Mode",
-                                                          value=False,
+                                                          value=camera.hd,
                                                           elem_classes="custom-checkbox")
                                 hd_checkbox.change(fn=self.update_hd, inputs=[gr.State(value=camera.name), hd_checkbox],  outputs=[])
                                 outputs.append((annotated, stats_box, camera))
@@ -215,16 +219,14 @@ class GUI:
                     inputs=None,
                     outputs=[annotated, stats]
                     )
-            # Recordings stream
-            #demo.load(fn=self.recordings_stream, inputs=None, outputs=recordings_box)
-            # Event log stream
-            #demo.load(fn=self.log_stream, inputs=None, outputs=log_box)
+
             demo.load(fn=self.on_load)
 
 
         demo.queue()
         demo.launch(
             #share=True,
+            #auth=[self.ctx.username, self.ctx.password],
             server_name=self.ctx.bind_address,
             theme=gr.themes.Soft(),
             allowed_paths=[self.ctx.directory],
