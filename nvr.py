@@ -2,6 +2,7 @@ import os
 import glob
 import time
 import subprocess
+import atexit
 import threading
 import queue
 from datetime import datetime, timedelta
@@ -152,7 +153,7 @@ class NVR:
             stderr=log_file,
             bufsize=10**8
         )
-
+        atexit.register(process)
         return process
 
     def _cleanup_segments(self):
