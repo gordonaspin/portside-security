@@ -31,37 +31,45 @@ class GUI:
     # UI HANDLERS
     # =========================
     def update_confidence_threshold(self, val):
+        """ modifies the object detection confidence threshold of the NVR YOLO model """
         self.nvr.confidence_threshold = val
         log_event(message=f"confidence updated → {val}")
 
     def update_day_motion_threshold(self, val):
+        """ modifies the motion detection threshold of the NVR """
         self.nvr.motion_threshold[0] = val
         log_event(message=f"day motion threshold → {val}")
 
     def update_night_motion_threshold(self, val):
+        """ modifies the night motion threshold of the NVR """
         self.nvr.motion_threshold[1] = val
         log_event(message=f"night motion threshold → {val}")
 
     def update_detection_classes(self, names):
+        """ updates the set of object class indexes to detect in the NVR """
         self.nvr.selected_classes = self.nvr.model.class_to_index(names)
         log_event(message=f"classes → {names}")
 
     def update_hd(self, name, val):
+        """ updates the HD option for viewing the camera image """
         self.nvr.cameras[name].hd = val
         log_event(message=f"HD mode {"on" if val else "off"}", camera=self.nvr.cameras[name])
 
     def update_debug(self, val):
+        """" updates the debug option of the NVR """
         self.nvr.debug = val
         log_event(message=f"Detections {"on" if val else "off"}")
 
     def update_debug_files(self, val):
+        """ updates the debug_files option of the NVR """
         self.nvr.debug_files = val
         log_event(message=f"Debug files {"on" if val else "off"}")
+
     # =========================
     # UI STREAMS
     # =========================
-    # --- Event log streamer ---
     def get_log_html(self):
+        """ writes the HTML for the log view """
         content = "".join(x for x in event_log[-constants.MAX_LOG_LINES:])
 
         return f"""
@@ -83,6 +91,7 @@ class GUI:
         """
 
     def get_recordings_html(self):
+        """ writes the list of links of recordings """
         files = []
 
         for r, _, f in os.walk(self.nvr.recordings_dir):
@@ -131,7 +140,8 @@ class GUI:
         return html_content
 
     def on_load(self):
-        log_event(f"A browser has connected to the app")
+        """ called when the GUI loads for a client """
+        log_event(f"A browser has connected")
 
     def run(self, auth=True):
         # BUILD UI

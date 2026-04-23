@@ -9,12 +9,10 @@ from urllib.parse import urlparse, urlunparse
 import click
 from click import version_option
 
-from camera import Camera
 import constants
 from context import Context
 from gui import GUI
 from logger import setup_logging, log_event, KeywordFilter
-from model import Model
 from nvr import NVR
 
 _NVR = None
@@ -76,7 +74,7 @@ def replace_url_credentials(url, new_username, new_password):
 @click.option("--bind-address",
               help="bind address for gradio GUI",
               metavar="<ip address>",
-              default="127.0.0.0",
+              default="0.0.0.0", # all interfaces
               show_default=True)
 @click.option("--logging-config",
               help="JSON logging config filename (default: logging-config.json)",
@@ -164,10 +162,7 @@ def main(directory: str,
         debug=debug,
     )
 
-    model = Model(ctx)
-    logger.info(f"Model was trained with image size: {model.model.args['imgsz']}")
-
-    _NVR = nvr = NVR(ctx, model)
+    _NVR = nvr = NVR(ctx)
     nvr.start()
     atexit.register(nvr.stop)
 

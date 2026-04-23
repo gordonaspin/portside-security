@@ -21,10 +21,15 @@ from model import Model
 logger = getLogger("nvr")
 
 def _is_night_time(frame, brightness_threshold=50):
-    # Convert to HSV (Hue, Saturation, Value)
+    """
+    determines if we are looking at a night time image.
+    Converts the frame to HSV and computes the mean value of intensity channel
+    it's night time if below the threshold, else it's day time
+    """
+    # Convert to HSV (Hue, Saturation, Intensity)
     hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
     
-    # Calculate average brightness (V channel)
+    # Calculate average brightness (V channel - Intensity)
     mean_brightness = np.mean(hsv[:,:,2])
     
     # If brightness is low, it's likely night time
@@ -32,6 +37,8 @@ def _is_night_time(frame, brightness_threshold=50):
 
 def _keep_overlapping_any(boxes, ref_boxes):
     """
+    compute the pairwise intersection of the motion boxes and object boxes.
+    Return the filter so caller can weed out YOLO objects to draw/not draw
     boxes: YOLO r.boxes.xyxy  -> (N, 4)
     ref_boxes: cv2.boundingRect -> (M, 4) in (x, y, x1, y1)
     """
@@ -58,9 +65,9 @@ def _keep_overlapping_any(boxes, ref_boxes):
 # NVR ENGINE
 # =========================
 class NVR:
-    def __init__(self, ctx: Context, model: Model):
+    def __init__(self, ctx: Context):
         self.ctx = ctx
-        self.model = model
+        self.model = Model(ctx)
         self.stop_event = threading.Event()
         self.debug = self.ctx.debug
         self.debug_files = self.ctx.debug_files
@@ -68,7 +75,7 @@ class NVR:
         self.height = ctx.downsize_resolution[1]
         self.motion_threshold = self.ctx.motion_threshold
         self.confidence_threshold = self.ctx.confidence_threshold
-        self.selected_classes = self.model.class_to_index(ctx.classes)
+        self.selected_classes = self.model.classname_to_classindex(ctx.classes)
 
         self.recordings_dir = ctx.directory
         self.segments_dir = os.path.join(self.recordings_dir, "segments")
@@ -88,6 +95,12 @@ class NVR:
                                         )
 
     def start(self):
+        """
+        Start the NVR processes. Threads created are:
+        1 ffmpeg reader thread for each camera, writing to segment files and stdout
+        1 ffmpeg frame reader thread for each camera reading from stdout and writing frames to a queue
+        1 frame processor thread to read frames from the queue and do image processing
+        """
         if not self.stop_event.is_set():
             for camera in self.cameras.values():
                 if camera.enabled:
@@ -100,17 +113,26 @@ class NVR:
             threading.Thread(target=self._cleanup_segments,daemon=True).start()
 
     def stop(self):
+        """
+        Stop the NVR
+        """
         for camera in self.cameras.values():
             if camera.enabled and camera.process is not None:
                 self._stop_camera(camera)
 
     def _restart_camera(self, camera):
+        """
+        Stop and start the camera unless we are shutting down
+        """
         if not self.stop_event.is_set():
             log_event(message="restarting camera", level="warn", camera=camera)
             self._stop_camera(camera)
             self._start_camera(camera)
 
     def _stop_camera(self, camera):
+        """
+        Stops the background ffmpeg process for the camera, closes pipes and resets the camera
+        """
         if camera.enabled and camera.process is not None:
             ret = camera.process.poll()
             log_event(message=f"stopping camera with ret {ret}", level="info", camera=camera)
@@ -122,9 +144,14 @@ class NVR:
                 camera.process.kill()
             camera.process.stdout.close()
             camera.process.stdin.close()
+            camera.first_frame = True
 
     def _start_camera(self, camera: Camera):
-
+        """
+        Starts ffmpeg as a subprocess reading from the camera RTSP stream. The stream is split
+        in two writing simultaneously to segment files and stdout. No re-encoding happens to the
+        segment files. The frames written to stdout are resized for image processing by cv2. 
+        """
         if not self.stop_event.is_set():
             log_event(message=f"starting recorder", level="info", camera=camera)
             filespec = os.path.join(camera.segments_dir, "%Y%m%d_%H%M%S.ts")
@@ -169,6 +196,9 @@ class NVR:
             return process
 
     def _cleanup_segments(self):
+        """
+        Thread that periodically deletes old segment files for all cameras
+        """
         threading.current_thread().name = "cleanup_segments"
             
         while True and not self.stop_event.is_set():
@@ -185,45 +215,93 @@ class NVR:
             except Exception as e:
                 log_event(message=f"exception in cleanup_segments {e}", level="error")
 
+
     def _get_segments(self, camera: Camera, n: int):
+        """
+        get the list of segment file for this camera for the duration it was recording
+        """
         files = sorted(glob.glob(os.path.join(camera.segments_dir, "*.ts")))
         return files[-n:]
 
-    def _merge_segments(self, files, output):
-        list_file = output + ".txt"
-        with open(list_file,"w") as f:
-            for x in files:
-                try:
-                    if os.stat(x).st_size > 0:
-                        f.write(f"file '{os.path.abspath(x)}'\n")
-                except FileNotFoundError as e:
+
+    def _merge_segments_async(self, camera: Camera, files: list[str], output: str):
+        """
+        Runs ffmpeg merge in a separate thread. When the process finishes,
+        the log the event and delete the listing file.
+        """
+
+        def worker():
+            try:
+                list_file = output + ".txt"
+                with open(list_file,"w") as f:
+                    for x in files:
+                        try:
+                            if os.stat(x).st_size > 0:
+                                f.write(f"file '{os.path.abspath(x)}'\n")
+                        except FileNotFoundError as e:
+                            pass
+                ffmpeg_cmd = [
+                    "ffmpeg",
+                    "-y",
+                    "-fflags", "+genpts",
+                    "-f", "concat",
+                    "-safe", "0",
+                    "-i", list_file,
+                    "-c:v", "libx264",
+                    "-pix_fmt", "yuv420p",
+                    "-movflags", "+faststart",
+                    "-preset", "veryfast",
+                    "-crf", "23",
+                    "-vsync", "cfr",
+                    "-r", "20",
+                    "-video_track_timescale", "90000",
+                    output
+                ]
+                process = subprocess.Popen(
+                    ffmpeg_cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE
+                )
+
+                stdout, stderr = process.communicate()
+
+                if process.returncode != 0:
+                    # You can log or handle errors here if needed
                     pass
 
-        try:
-            (
-                FFmpeg()
-                .option("y")
-                .option("fflags", "+genpts")          # regenerate timestamps
-                .input(list_file, f="concat", safe=0)
-                .output(
-                    output,
-                    c="libx264",                    # Re-encodes video using H.264 codec
-                    pix_fmt="yuv420p",              # Forces pixel format to 4:2:0 (required for iOS Safari, Android browsers, HTML5 <video>)
-                    movflags="+faststart",          # Moves MP4 metadata (moov atom) to the beginning
-                    preset="veryfast",              # Controls encoding speed vs compression efficiency (ultrafast → superfast → veryfast → faster → fast → medium → slow)
-                    crf=23,                         # Constant Rate Factor (quality control: 18 = visually lossless, 23 = default (balanced), 28+ = lower quality)
-                    vsync="cfr",                    # constant frame pacing
-                    r=20,                           # normalize FPS
-                    video_track_timescale=90000     # smoother playback on mobile (Sets MP4 timebase resolution, 90000 Standard MPEG clock (used in TS, RTP, etc.)
-                )
-                .execute()
-            )
-        except Exception as e:
-            log_event(f"ffmpeg merge {list_file} failed {e}", level="error")
+            finally:
+                # This runs when the thread finishes (success or failure)
+                os.remove(list_file)
+                self._merge_complete(camera, output)
 
-        os.remove(list_file)
+        thread = threading.Thread(target=worker, daemon=True)
+        thread.start()
+        return thread
+
+
+    def _merge_complete(self, camera: Camera, output: str):
+        """
+        logs the merge completion event and deletes recording if too short
+        """
+        cap = cv2.VideoCapture(output)
+        fps = cap.get(cv2.CAP_PROP_FPS)
+        frame_count = cap.get(cv2.CAP_PROP_FRAME_COUNT)
+        duration_seconds = frame_count / fps
+        formatted_duration = str(timedelta(seconds=int(duration_seconds)))
+        if frame_count < constants.NO_MOTION_DETECT_FRAME_COUNT + 20 and os.path.isfile(output):
+            os.remove(output)
+            log_event(message=f"recording auto-deleted {os.path.basename(output)} with {frame_count} frames", level="info", camera=camera, file_path=output)
+        else:
+            log_event(message=f"recording available {formatted_duration} {os.path.basename(output)}", level="record", camera=camera, file_path=output)
+
 
     def _frame_reader(self, camera: Camera):
+        """
+        Thread to ead frames from the ffmpeg stdout stream and puts the frame on the camera queue.
+        The queue length is 1, so if the queue is full that frame on the queue is dropped and
+        replaced with the new frame. This means we drop frames to keep up. This is only for
+        image processing, frames written to segments are not dropped
+        """
         threading.current_thread().name = f"{camera.name} _frame_reader"
 
         frame_size = self.width * self.height * 3
@@ -259,7 +337,11 @@ class NVR:
             camera.total_frames += 1
             camera.drop_rate = camera.total_drops / camera.total_frames
 
+
     def _read_exact(self, pipe, size):
+        """
+        reads bytes from the pipe until the buffer size is reached
+        """
         buf = b""
         while len(buf) < size:
             chunk = pipe.read(size - len(buf))
@@ -268,10 +350,29 @@ class NVR:
             buf += chunk
         return buf
 
+
     def _process_frames(self, camera: Camera):
+        """
+        Thread to process frames from the camera queue. Processing is as follows:
+        1. get the frame from the queue (latest frame processing, some frames are dropped)
+        2. convert to grayscale for image processing (faster than color)
+        3. blur the gray (better for motion detection)
+        4. calculate the difference between this gray frame and the previous one (for motion detection)
+        5. calculate a theshold image based on the difference and score (count) the white pixels
+        6. if the score is above threshold, compute the motion contours and rectangles from the threshold image
+        7. draw contours and rectangles on a copy of the image. Red for movement that is too small, green for movement that we care about
+        8. if we have movement we care about, run YOLO and check if movement and detected objects intersect
+        9. if movement and objects intersect, start recording if we have seen motion for a number of frames, get a list of pre-record segments
+        10. keep recording while there is motion, add to the segment list
+        11. stop recording after motion is not detected for a number of frames
+        12. get the list of segment files that correlate to the recording period
+        13. merge the segment files in to a video file, asynchronously
+        14. if there were YOLO results and movement, write the objects on to the image
+        15. if there was motion, merge the image and overlay
+        16. store the image and status in the camera object, the GUI will read this image and status at whatever rate it wants
+        """
         threading.current_thread().name = f"{camera.name} _process_frames"
 
-        first_frame = True
         prev_gray = None
         motion_frames = 0
         no_motion_frames = 0
@@ -286,9 +387,9 @@ class NVR:
             except queue.Empty:
                 continue
 
-            if first_frame:
-                log_event(message=f"first frame read from stream", level="info", camera=camera)
-                first_frame = False
+            if camera.first_frame:
+                log_event(message=f"reading from stream", level="info", camera=camera)
+                camera.first_frame = False
 
             now = time.time()
 
@@ -396,18 +497,8 @@ class NVR:
                     tag = "_".join(camera.active_objects_set) if camera.active_objects_set else "motion"
 
                     recording_filename = os.path.join(camera.recordings_dir, f"{timestamp}_{tag}.mp4")
-                    self._merge_segments(segments, recording_filename)
-
-                    cap = cv2.VideoCapture(recording_filename)
-                    fps = cap.get(cv2.CAP_PROP_FPS)
-                    frame_count = cap.get(cv2.CAP_PROP_FRAME_COUNT)
-                    duration_seconds = frame_count / fps
-                    formatted_duration = str(timedelta(seconds=int(duration_seconds)))
-                    if frame_count < constants.NO_MOTION_DETECT_FRAME_COUNT + 20 and os.path.isfile(recording_filename):
-                        os.remove(recording_filename)
-                        log_event(message=f"recording auto-deleted {os.path.basename(recording_filename)} with {frame_count} frames", level="info", camera=camera, file_path=recording_filename)
-                    else:
-                        log_event(message=f"recording available {formatted_duration} {os.path.basename(recording_filename)}", level="record", camera=camera, file_path=recording_filename)
+                    #self._merge_segments(segments, recording_filename)
+                    self._merge_segments_async(camera, segments, recording_filename)
 
                 camera.active_segments_list.clear()
                 camera.classes_in_frame_set.clear()
@@ -440,6 +531,9 @@ class NVR:
 
 
     def make_status(self, recording: bool):
+        """
+        creates a string that represents the status (red/green for recording/live)
+        """
         idx = int(time.time() * 4) % 4
 
         red_cycle = ["🔴", "🔴", "⚪", "⚪"]
@@ -450,6 +544,14 @@ class NVR:
         return f"{pulse}{' REC' if recording else ' LIVE'}"
     
     def _find_motion_boxes(self, thresh: tuple, motion_threshold, motion_factor: float, area_factor: float):
+        """
+        using the threshold image, find contours and its bounding rectangle
+        if the contour area is below the motion score by the motion_factor, add to the discard list
+        if the contou area is smaller than its bounding rectangle by the area_factor, add to the discard list
+        else add the contour and rectangle to the keep list
+        return the lists so we can draw them on the overlay
+        This does not determine what we consider momtion, but helps identify what we ignore 
+        """
 
         keep_rects = []
         keep_contours = []

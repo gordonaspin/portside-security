@@ -213,3 +213,4 @@ recordings/
 .python-version
 *.pt
 *.log*
+nvr.json
