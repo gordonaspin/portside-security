@@ -75,7 +75,7 @@ class NVR:
         self.height = ctx.downsize_resolution[1]
         self.motion_threshold = self.ctx.motion_threshold
         self.confidence_threshold = self.ctx.confidence_threshold
-        self.selected_classes = self.model.classname_to_classindex(ctx.classes)
+        self.selected_classes = self.model.class_to_index(ctx.classes)
 
         self.recordings_dir = ctx.directory
         self.segments_dir = os.path.join(self.recordings_dir, "segments")
@@ -231,36 +231,38 @@ class NVR:
         """
 
         def worker():
+            list_file = output + ".txt"
+            with open(list_file,"w") as f:
+                for x in files:
+                    try:
+                        if os.stat(x).st_size > 0:
+                            f.write(f"file '{os.path.abspath(x)}'\n")
+                    except FileNotFoundError as e:
+                        pass
+            flat_name = "".join(output.partition(camera.name)[1:]).replace(os.sep, '_')
+            log_file = open(f"{os.path.splitext(flat_name)[0]}_merge.log", "w")
+            ffmpeg_cmd = [
+                "ffmpeg",
+                "-y",
+                "-fflags", "+genpts",
+                "-f", "concat",
+                "-safe", "0",
+                "-i", list_file,
+                "-c:v", "libx264",
+                "-pix_fmt", "yuv420p",
+                "-movflags", "+faststart",
+                "-preset", "veryfast",
+                "-crf", "23",
+                "-vsync", "cfr",
+                "-r", "20",
+                "-video_track_timescale", "90000",
+                output
+            ]
             try:
-                list_file = output + ".txt"
-                with open(list_file,"w") as f:
-                    for x in files:
-                        try:
-                            if os.stat(x).st_size > 0:
-                                f.write(f"file '{os.path.abspath(x)}'\n")
-                        except FileNotFoundError as e:
-                            pass
-                ffmpeg_cmd = [
-                    "ffmpeg",
-                    "-y",
-                    "-fflags", "+genpts",
-                    "-f", "concat",
-                    "-safe", "0",
-                    "-i", list_file,
-                    "-c:v", "libx264",
-                    "-pix_fmt", "yuv420p",
-                    "-movflags", "+faststart",
-                    "-preset", "veryfast",
-                    "-crf", "23",
-                    "-vsync", "cfr",
-                    "-r", "20",
-                    "-video_track_timescale", "90000",
-                    output
-                ]
                 process = subprocess.Popen(
                     ffmpeg_cmd,
                     stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE
+                    stderr=log_file
                 )
 
                 stdout, stderr = process.communicate()
@@ -271,6 +273,7 @@ class NVR:
 
             finally:
                 # This runs when the thread finishes (success or failure)
+                log_file.close()
                 os.remove(list_file)
                 self._merge_complete(camera, output)
 

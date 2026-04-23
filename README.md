@@ -2,9 +2,9 @@
 
 `pynvr` is a capable NVR that records from IP camera streams over RTSP.
 
-`pynvr` uses ffmpeg to read RTSP streams. Each stream has its own ffmpeg subprocess that reads the stream and simultaneously writes to segment files and stdout. The segment files are not re-encoded, and the stdout output stream is resized to a frame size defined in the nvr.json config file. pynvr starts a thread per camera to read frames from the stdout stream and puts the latest frame to a per-camere queue. pynvr starts a second thread per camera to process the frame from the queue. Frame processing determines motion and object identificaation and when thresholds are met, recording is started. After a period of no motion, the recording is stopped and pynvr joins the segments together, re-encoding them to H.264.
+`pynvr` uses ffmpeg to read RTSP streams. Each stream has its own ffmpeg subprocess that reads the stream and simultaneously writes to segment files and stdout. The segment files are not re-encoded, and the stdout output stream frames are converted to OpenCV2 format and resized to a frame size defined in the nvr.json config file. pynvr starts a thread per camera to read frames from the stdout stream and puts the latest frame to a per-camere queue. pynvr starts a second thread per camera to process the frame from the queue. Frame processing determines motion and object identificaation. When thresholds are met, recording is started. After a period of no motion, the recording is stopped and pynvr joins the segments together, re-encoding them to H.264.
 
-`pynvr` has a user interface with controls to adjust thresholds and objects to be detected. pynvr is a server process that does not need a client to attach. The GUI implementation uses Gradio to render frames from the cameras.
+`pynvr` has a user interface with controls to adjust thresholds and objects to be detected. pynvr is a server process that does not need a client to attach. The GUI implementation uses Gradio to render frames from the cameras. The GUI presents rows of up to 5 cameras per row, a log window and and list of hyperlinks to recordings.
 ## Installation
 Clone the repo
 ```bash
@@ -15,7 +15,7 @@ Install the required python libraries
 pip install -r requirements.txt
 ```
 ## Usage
-The minimum required arguments are a pre-existing folder to write recordings to, and the credentials required for the camera RTSP streams. `pynvr` assumes all cameras use the same credentials.
+The minimum required arguments are a pre-existing folder to write recordings to, and the credentials required for the camera RTSP streams. `pynvr` assumes all cameras use the same credentials. For other options, see the section on detailed usage.
 ```bash
 python app.py -d <recordings folder> -u rtsp-username -p rtsp-password
 ```
@@ -75,3 +75,5 @@ Options:
   --version                       Show the version and exit.
   -h, --help                      Show this message and exit.
 ```
+### Logging
+`pynvr` uses python logging to write to log files, configured by the logging-config.json file. The password passed in on the command line is filtered from logs. `pynvr` also produces log files per camera attached to each of the ffmpeg sub-processes and a log file per recording merge.
