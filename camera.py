@@ -2,7 +2,7 @@ from collections import deque
 import dataclasses
 from queue import Queue
 from subprocess import Popen
-
+import time
 import numpy as np
 
 from model import Model
@@ -56,16 +56,16 @@ class Camera:
     dt: RollingAverage = dataclasses.field(default_factory=lambda: RollingAverage(100))
     fps: RollingAverage = dataclasses.field(default_factory=lambda: RollingAverage(100))
     drop_rate: float = 0.0
-    last_frame_time: float = 0.0
+    last_frame_time: float = time.time()
 
     # UI / metadata
     hd: bool = True
     status: str = "Not streaming"
 
     # logic state
-    last_event_time: float = 0.0
-    last_night_time_check: float = 0.0
-    last_yolo_time: float = 0.0
+    last_event_time: float = time.time()
+    last_night_time_check: float = time.time()
+    last_yolo_time: float = time.time()
 
     # motion detection
     motion_boxes_list: list = dataclasses.field(default_factory=list)

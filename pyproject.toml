@@ -1,0 +1,43 @@
+[project]
+name = "pynvr"
+version = "1.0.0"
+description = "pynvr is a command-line tool to record motion from cameras to mp4 files"
+authors = [{ name = "Gordon Aspin", email = "gordon.aspin@gmail.com" }]
+dependencies = [
+    "click",
+    "opencv-python",
+    "python-ffmpeg",
+    "scikit-image",
+    "ultralytics",
+    "gradio",
+]
+requires-python = ">=3.14.2"
+readme = "README.md"
+license = "MIT"
+maintainers = [{ name = "Gordon Aspin", email="gordon.aspin@gmail.com" }]
+classifiers=[
+        "Intended Audience :: Developers",
+        "Operating System :: OS Independent",
+        "Programming Language :: Python",
+        "Programming Language :: Python :: 3",
+]
+[project.scripts]
+pynvr = "app:main"
+
+[project.urls]
+Repository = "https://github.com/gordonaspin/pynvr"
+
+[tool.pylint]
+# Disable specific messages by their symbolic name or ID.
+disable = [
+    "import-error",
+    "no-member",
+    "too-many-instance-attributes",
+    "too-many-arguments",
+    "too-many-positional-arguments",
+    "too-many-locals",
+    "no-value-for-parameter",
+    "too-few-public-methods",
+    "broad-exception-caught",
+]
+[tool.setuptools]

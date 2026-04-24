@@ -143,7 +143,7 @@ class GUI:
         """ called when the GUI loads for a client """
         log_event(f"A browser has connected")
 
-    def run(self, auth=True):
+    def run(self):
         # BUILD UI
         with gr.Blocks() as demo:
             gr.Markdown("## Portside Condominiums Security Cam Viewer")
@@ -238,7 +238,7 @@ class GUI:
         try:
             demo.launch(
                 #share=True,
-                auth=[self.ctx.username, self.ctx.password] if auth else None,
+                auth=[self.ctx.gui_username, self.ctx.gui_password] if all([self.ctx.gui_username, self.ctx.gui_password]) else None,
                 server_name=self.ctx.bind_address,
                 theme=gr.themes.Soft(),
                 allowed_paths=[self.ctx.directory],

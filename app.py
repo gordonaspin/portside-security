@@ -57,22 +57,29 @@ def replace_url_credentials(url, new_username, new_password):
               help="Local directory that should be used for storing recordings and logs",
               type=click.Path(exists=True),
               metavar="<directory>")
-@click.option("-u", "--username",
-              required=True,
-              help="NVR username",
-              metavar="<username>")
-@click.option("-p", "--password",
-              required=True,
-              help="NVR password",
-              metavar="<password>")
 @click.option("-c", "--nvr-config",
-              required=True,
+              required=False,
               help="NVR config file",
               metavar="<file>",
-              default="nvr.json"
-              )
+              default="nvr.json")
+@click.option("-u", "--username",
+              required=False,
+              help="NVR/Camera username, will override what is specified in the --nvr-config file",
+              metavar="<username>")
+@click.option("-p", "--password",
+              required=False,
+              help="NVR/Camera password, will override what is specified in the --nvr-config file",
+              metavar="<password>")
+@click.option("--gui-username",
+              required=False,
+              help="GUI authorization username",
+              metavar="<GUI username>")
+@click.option("--gui-password",
+              required=False,
+              help="GUI authorization password",
+              metavar="<GUI password>")
 @click.option("--bind-address",
-              help="bind address for gradio GUI",
+              help="bind address for GUI",
               metavar="<ip address>",
               default="0.0.0.0", # all interfaces
               show_default=True)
@@ -105,20 +112,14 @@ def replace_url_credentials(url, new_username, new_password):
 @click.option("--debug",
               help="debug mode, produces .jpg files of motion contours",
               is_flag=True)
-@click.option("--no-auth",
-              help="don't present the login screen",
-              is_flag=True)
-@click.option("--subtype",
-              help="rtsp subtype override",
-              type=click.IntRange(min=0, max=2),
-              default=1,
-              show_default=True)
 @version_option()
 
 # pylint: disable=too-many-branches, too-many-statements
 def main(directory: str,
          username: str,
          password: str,
+         gui_username: str,
+         gui_password: str,
          nvr_config: str,
          bind_address: str,
          logging_config: str,
@@ -126,8 +127,6 @@ def main(directory: str,
          confidence_threshold: float,
          motion_detect_frame_count: int,
          debug: bool,
-         no_auth: bool,
-         subtype: int,
          ) -> int:
     
     global _NVR
@@ -143,14 +142,16 @@ def main(directory: str,
     yolo_config = config['yolo']
     downsize_resolution = config['downsize_resolution']
     camera_config = config['cameras']
-    for camera in camera_config.values():
-        camera['url'] = replace_url_credentials(camera['url'], username, password)   
-        camera['url'] = re.sub("subtype=.", f"subtype={subtype}", camera['url']) 
+    if username and password:
+        for camera in camera_config.values():
+            camera['url'] = replace_url_credentials(camera['url'], username, password)   
 
     ctx = Context(
         directory=directory,
         username=username,
         password=password,
+        gui_username=gui_username,
+        gui_password=gui_password,
         camera_config=camera_config,
         bind_address=bind_address,
         motion_threshold=[motion_threshold[0], motion_threshold[1]],
@@ -167,7 +168,7 @@ def main(directory: str,
     atexit.register(nvr.stop)
 
     gui = GUI(ctx, nvr)
-    gui.run(auth=not no_auth)
+    gui.run()
 
 if __name__ == "__main__":
     main()

@@ -386,7 +386,7 @@ class NVR:
         while not self.stop_event.is_set():
             # get latest frame (non-blocking)
             try:
-                frame = camera.frame_queue.get(timeout=0.5)
+                frame_bgr = camera.frame_queue.get(timeout=0.5)
             except queue.Empty:
                 continue
 
@@ -397,7 +397,7 @@ class NVR:
             now = time.time()
 
             # motion
-            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY, dst=camera.gray_buf)
+            gray = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY, dst=camera.gray_buf)
             gray = cv2.GaussianBlur(gray, (21,21), 0, dst=camera.gray_buf)
 
             if prev_gray is None:
@@ -405,7 +405,7 @@ class NVR:
                 continue
 
             if now - camera.last_night_time_check > constants.PERIODIC_CHECK_INTERVAL:
-                is_night = 1 if _is_night_time(frame, constants.NIGHT_TIME_THRESHOLD) else 0
+                is_night = 1 if _is_night_time(frame_bgr, constants.NIGHT_TIME_THRESHOLD) else 0
                 camera.last_night_time_check = time.time()
                 if now - prev_time > 10.0:
                     log_event("stopped reading frames", level="info", camera=camera)
@@ -422,28 +422,28 @@ class NVR:
                 krs, kcs, dsrs, dscs, dars, dacs = self._find_motion_boxes(thresh, self.motion_threshold[is_night], 0.1, 0.25)                
                 camera.motion_boxes_list.extend(krs)
 
-            overlay = None
+            overlay_bgr = None
             if self.debug and any([krs, kcs, dsrs, dscs, dars, dacs]):
                 # draw on a copy of the image
                 motion = "captured" if len(camera.motion_boxes_list) else "discarded"
-                overlay = frame.copy()
+                overlay_bgr = frame_bgr.copy()
                 for x1, y1, x2, y2 in krs:
-                    cv2.rectangle(overlay, (x1, y1), (x2, y2), (0, 255, 0), 2) # green BGR
+                    cv2.rectangle(overlay_bgr, (x1, y1), (x2, y2), (0, 255, 0), 2) # green BGR
                 for x1, y1, x2, y2 in dsrs:
-                    cv2.rectangle(overlay, (x1, y1), (x2, y2), (0, 96, 255), 2) # orange
+                    cv2.rectangle(overlay_bgr, (x1, y1), (x2, y2), (0, 96, 255), 2) # orange
                 for x1, y1, x2, y2 in dars:
-                    cv2.rectangle(overlay, (x1, y1), (x2, y2), (0, 0, 255), 2) # red
+                    cv2.rectangle(overlay_bgr, (x1, y1), (x2, y2), (0, 0, 255), 2) # red
                 for c in kcs:
-                    cv2.drawContours(overlay, [c], -1, (0, 255, 0), 2) # green
+                    cv2.drawContours(overlay_bgr, [c], -1, (0, 255, 0), 2) # green
                 for c in dscs:
-                    cv2.drawContours(overlay, [c], -1, (0, 96, 255), 2) # orange
+                    cv2.drawContours(overlay_bgr, [c], -1, (0, 96, 255), 2) # orange
                 for c in dacs:
-                    cv2.drawContours(overlay, [c], -1, (0, 0, 255), 2) # red
+                    cv2.drawContours(overlay_bgr, [c], -1, (0, 0, 255), 2) # red
                 if self.debug_files:
                     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                     tag = "_".join( camera.active_objects_set) if  camera.active_objects_set else "motion"
                     image_filename = os.path.join(camera.images_dir, f"{timestamp}_{score}_{motion}_{tag}.jpg")                
-                    cv2.imwrite(image_filename, overlay, [int(cv2.IMWRITE_JPEG_QUALITY), 100])
+                    cv2.imwrite(image_filename, overlay_bgr, [int(cv2.IMWRITE_JPEG_QUALITY), 100])
                     log_event(message=f"contour image written to {image_filename}", level="debug", camera=camera, file_path=image_filename)
 
             prev_gray = gray
@@ -456,7 +456,7 @@ class NVR:
             # with the motion boxes (either the object is moving, or something is moving across the object)
             if self.debug or camera.motion_boxes_list: # and (time.time() - camera.last_yolo_time > 0.2)):
                 camera.last_yolo_time = time.time()
-                result = camera.model.model.predict(frame, conf=self.confidence_threshold, classes=self.selected_classes if self.selected_classes else None, verbose=False)[0]
+                result = camera.model.model.predict(frame_bgr, conf=self.confidence_threshold, classes=self.selected_classes if self.selected_classes else None, verbose=False)[0]
                 boxes = result.boxes.xyxy.reshape(-1, 4)
                 ref_motion_boxes_list = torch.as_tensor(camera.motion_boxes_list, dtype=boxes.dtype, device=boxes.device)
                 keep = _keep_overlapping_any(boxes, ref_motion_boxes_list)
@@ -482,7 +482,8 @@ class NVR:
                         camera.active_segments_list = self._get_segments(camera, constants.PRE_RECORD_SEGMENTS)
                         camera.active_objects_set = set(camera.classes_in_frame_set)
                         camera.last_event_time = now
-                        log_event(message=f"recording start {", ".join(camera.active_objects_set) if camera.active_objects_set else ""}", level="info", camera=camera)
+                        tag = ", ".join(camera.active_objects_set) if camera.active_objects_set else ""
+                        log_event(message=f"recording start {tag}", level="info", camera=camera)
 
             # update active segments and objects
             if recording:
@@ -510,15 +511,18 @@ class NVR:
                 no_motion_frames = 0
 
             # render YOLO plots on the frame if there was a result
-            img = result.plot() if result else frame
-            if overlay is not None:
-                img = cv2.addWeighted(img, 0.5, overlay, 0.5, 0)
+            if result:
+                img_bgr = result.plot(pil=False) # pil=False returns BGR
+            else:
+                img_bgr = frame_bgr
 
-            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+            if overlay_bgr is not None:
+                img_bgr = cv2.addWeighted(img_bgr, 0.5, overlay_bgr, 0.5, 0)
 
             if not self.cameras[camera.name].hd:
-                img = cv2.resize(img, constants.RENDER_SIZE)
+                img_bgr = cv2.resize(img_bgr, constants.RENDER_SIZE)
 
+            img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
             prev_time = time.time()
 
             parts = [self.make_status(recording)]
@@ -529,7 +533,7 @@ class NVR:
             if camera.active_objects_set:
                 parts.append(",".join(camera.active_objects_set))
 
-            camera.latest_frame = img
+            camera.latest_frame = img_rgb
             camera.status = " | ".join(parts)            
 
 

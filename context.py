@@ -7,6 +7,8 @@ class Context:
     directory: str
     username: str
     password: str
+    gui_username: str
+    gui_password: str
     camera_config: dict
     bind_address: str
     motion_threshold: list[int, int]
