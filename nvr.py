@@ -200,7 +200,7 @@ class NVR:
         return files[-n:]
 
 
-    def _merge_segments_async(self, camera: Camera, segments: list[str], tags: defaultdict[set], output: str):
+    def _merge_segments_async(self, camera: Camera, segments: list[str], tags: defaultdict[set], timestamp: datetime):
         """
         Runs ffmpeg merge in a separate thread. When the process finishes,
         the log the event and delete the listing file.
@@ -216,43 +216,47 @@ class NVR:
             return dt.timestamp()
 
         def worker():
-            list_file = output + ".txt"
-            with open(list_file,"w") as f:
+            name = os.path.join(camera.recordings_dir, f'{timestamp}')
+            list_filename = name + ".txt"
+            jsondata_filename = name + ".json"
+            tags_str = self._tags_to_str(tags)
+            mp4_filename = f"{name}_{tags_str}.mp4"
+
+            with open(list_filename,"w") as f:
                 for x in segments:
                     try:
                         if os.stat(x).st_size > 0:
                             f.write(f"file '{os.path.abspath(x)}'\n")
                     except FileNotFoundError as e:
                         pass
-            jsondata_file = output + ".json"
-            tags_str = self._tags_to_str(tags)
             if self.debug:
-                log_event(message=f"merging {len(segments)} segments {tags_str} to {output}", level="debug", camera=camera, file_path=output)
+                log_event(message=f"merging {len(segments)} segments {tags_str} to {mp4_filename}", level="debug", camera=camera, file_path=mp4_filename)
             
             # Convert to a standard dict and sets to lists
             serializable_tags = {k: list(v) for k, v in tags.items()}
 
-            with open(jsondata_file, "w") as f:
+            with open(jsondata_filename, "w") as f:
                 json_data = {
                     "camera": camera.name,
                     "segments": segments,
                     "tags": serializable_tags,
-                    "output": output,
+                    "output": mp4_filename,
                     "start_time": timestamp_to_epoch(os.path.basename(segments[0]).split(".")[0]),
                     "end_time": timestamp_to_epoch(os.path.basename(segments[-1]).split(".")[0]),
-                    "metadata": jsondata_file,
+                    "metadata": jsondata_filename,
                 }
                 f.write(json.dumps(json_data, indent=4))
-                
-            flat_name = "".join(output.partition(camera.name)[1:]).replace(os.sep, '_')
-            log_file = open(f"{os.path.splitext(flat_name)[0]}_merge.log", "w")
+
+            flat_name = "".join(mp4_filename.partition(camera.name)[1:]).replace(os.sep, '_')
+            log_filename = flat_name + ".log"
+            log_file = open(log_filename, "w")
             ffmpeg_cmd = [
                 "ffmpeg",
                 "-y",
                 "-fflags", "+genpts",
                 "-f", "concat",
                 "-safe", "0",
-                "-i", list_file,
+                "-i", list_filename,
                 "-c:v", "libx264",
                 "-pix_fmt", "yuv420p",
                 "-movflags", "+faststart",
@@ -261,7 +265,7 @@ class NVR:
                 "-vsync", "cfr",
                 "-r", "20",
                 "-video_track_timescale", "90000",
-                output
+                mp4_filename
             ]
             try:
                 process = subprocess.Popen(
@@ -279,8 +283,10 @@ class NVR:
             finally:
                 # This runs when the thread finishes (success or failure)
                 log_file.close()
-                os.remove(list_file)
-                self._merge_complete(camera, tags, output)
+                if not self.debug:
+                    os.remove(list_filename)
+                    os.remove(log_filename)
+                self._merge_complete(camera, tags, mp4_filename)
 
         thread = Thread(target=worker, daemon=True)
         thread.start()
@@ -312,9 +318,9 @@ class NVR:
         parts = []
         for obj, colors in tags.items():
             object_str = obj
-            color_str = "/".join(colors)
+            color_str = ":".join(colors)
             parts.append(f"{object_str}({color_str})")
-        return ", ".join(parts)
+        return ",".join(parts)
 
     def _merge_complete(self, camera: Camera, tags: defaultdict[set], output: str):
         """
@@ -690,8 +696,7 @@ class NVR:
                 if segments:
                     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                     tags = deepcopy(camera.active_objects_dict)
-                    recording_filename = os.path.join(camera.recordings_dir, f"{timestamp}.mp4")
-                    self._merge_segments_async(camera, segments, tags, recording_filename)
+                    self._merge_segments_async(camera, segments, tags, timestamp)
 
                 camera.active_segments_list.clear()
                 camera.classes_in_frame_dict.clear()
