@@ -744,7 +744,7 @@ start();
                 log_box = gr.HTML()
             with gr.Row():
             #    timeline_scroll_json = gr.JSON(elem_id="timeline_scroll_json", height=0, elem_classes="hidden-json")
-                timeline_scroll_json = gr.Textbox(elem_id="timeline_scroll_json", lines=1)
+                timeline_scroll_json = gr.Textbox(elem_id="timeline_scroll_json", lines=1, container=False, scale=0, min_width=0)
 
             # When selected_video changes, update video player
             selected_video.change(lambda x: x, selected_video, video_player)
@@ -885,7 +885,7 @@ start();
                     div:has(> .footer) {
                         display: none !important;
                     }
-                    .hidden-json {
+                    #timeline_scroll_json {
                         display: none !important;
                     }
                     """,
