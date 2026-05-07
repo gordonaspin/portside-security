@@ -24,7 +24,7 @@ from context import Context
 from logger import log_event
 from model import Model
 from motion_profile import DayMotionProfile, NightMotionProfile, MotionProfile
-from thread_safe import ThreadSafeSet
+from thread_safe import ThreadSafeSet, ThreadSafePathDict
 
 logger = getLogger("nvr")
 
@@ -51,6 +51,7 @@ class NVR:
         self._images_dir: str = os.path.join(self._recordings_dir, "images")
         self._metadata_dir: str = os.path.join(self._recordings_dir, "metadata")
         self._do_not_delete_set: ThreadSafeSet = ThreadSafeSet()
+        self.recordings: ThreadSafePathDict = ThreadSafePathDict()
         os.makedirs(self._recordings_dir, exist_ok=True)
         os.makedirs(self._segments_dir, exist_ok=True)
         os.makedirs(self._images_dir, exist_ok=True)
@@ -102,7 +103,7 @@ class NVR:
                     Thread(target=self._frame_reader, args=(camera,), daemon=True).start()
                     Thread(target=self._process_frames,args=(camera,), daemon=True).start()
             Thread(target=self._cleanup_segments,daemon=True).start()
-            Thread(target=self._watch_cameras,daemon=True).start()
+            Thread(target=self._watch_cameras_and_load_events,daemon=True).start()
 
     def stop(self):
         """
@@ -186,14 +187,19 @@ class NVR:
 
             return process
 
-    def _watch_cameras(self):
-        """ check each ffmpeg process every 5 seconds and restart if necessary """
+    def _watch_cameras_and_load_events(self):
+        """
+        load events into recordings list and check each ffmpeg process
+        every 5 seconds and restart if necessary
+        """
         while not self.stop_event.is_set():
+            self.recordings.update(self._load_events())
             time.sleep(5)
             for camera in self.cameras.values():
                 if camera.process and camera.process.poll() is not None:
                     log_event("ffmpeg died, restarting", "error", camera=camera)
                     self._restart_camera(camera)
+            pass
 
     def _cleanup_segments(self):
         """
@@ -341,7 +347,7 @@ class NVR:
         else:
             log_event(message=f"recording available {formatted_duration} {os.path.basename(output)}", level="record", camera=camera, file_path=output)
 
-    def load_events(self):
+    def _load_events(self):
         grouped = defaultdict(list)
         for camera in self.cameras.values():
             if camera.enabled:

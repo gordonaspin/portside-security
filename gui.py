@@ -3,6 +3,8 @@ from datetime import datetime
 import json
 from logging import getLogger
 import math
+import time
+from pathlib import Path
 
 from aiortc import RTCPeerConnection, RTCSessionDescription
 from fastapi import FastAPI, Request
@@ -71,13 +73,14 @@ function deepQuery(selector) {{
 
     return results;
 }}
-
 // ------------------------------------------------------------
-// Bridge timeline scroll/zoom events → Gradio JSON component
+// Throttle: limit updates to once every 30ms
 // ------------------------------------------------------------
-window.addEventListener("timeline-update", (e) => {{
-    const data = e.detail;
+let lastSend = 0;
+let pendingData = null;
+const throttleDelay = 500;  // ms
 
+function sendToPython(data) {{
     const textbox = deepQuery('#timeline_scroll_json textarea, #timeline_scroll_json input')[0];
 
     if (!textbox) {{
@@ -86,10 +89,40 @@ window.addEventListener("timeline-update", (e) => {{
     }}
 
     textbox.value = JSON.stringify(data);
-
     textbox.dispatchEvent(new Event("input", {{ bubbles: true }}));
 
     console.log("Dispatched to Gradio (Textbox):", data);
+}}
+
+function sendUpdateThrottled(data) {{
+    const now = performance.now();
+
+    if (now - lastSend >= throttleDelay) {{
+        // Send immediately
+        lastSend = now;
+        sendToPython(data);
+    }} else {{
+        // Save the latest event to send after delay
+        pendingData = data;
+
+        setTimeout(() => {{
+            if (pendingData) {{
+                sendToPython(pendingData);
+                pendingData = null;
+                lastSend = performance.now();
+            }}
+        }}, throttleDelay - (now - lastSend));
+    }}
+}}
+
+// ------------------------------------------------------------
+// Bridge timeline scroll/zoom events → Gradio Textbox
+// ------------------------------------------------------------
+window.addEventListener("timeline-update", (e) => {{
+    const data = e.detail;
+
+    // Throttled dispatch
+    sendUpdateThrottled(data);
 }});
 
 async function startMosaic() {{
@@ -467,10 +500,7 @@ start();
             "offset": <float hours>
         }
         """
-
-        if isinstance(window, str):
-            window = json.loads(window)
-
+        now = time.time()
         zoom_hours = float(window.get("zoom", 4.0))
         offset_hours = float(window.get("offset", 0.0))
 
@@ -491,12 +521,12 @@ start();
             objects = [f"{obj}({color})" for obj, color in tags]
             return ", ".join(objects) if objects else "motion"
 
+        now = datetime.now().timestamp()
         # ------------------------------------------------------------
         # Load events
         # ------------------------------------------------------------
-        grouped_events = self._nvr.load_events()
-
-        now = datetime.now().timestamp()
+        grouped_events = self._nvr.recordings
+        logger.debug(f"loaded events {time.time() - now}")
 
         # ------------------------------------------------------------
         # ⭐ NEW WINDOW LOGIC (scroll + zoom)
@@ -514,7 +544,7 @@ start();
         for cam, events in grouped_events.items():
             visible = [e for e in events if e["end_time"] >= start]
             if visible:
-                filtered[cam] = visible
+                filtered[str(cam)] = visible
 
         if not filtered:
             img = Image.new("RGB", (900, 200), (31, 41, 55))
@@ -633,9 +663,8 @@ start();
             draw.text((label_width + index * 80, y_bottom + 20),
                     cls, font=self._courier_font, fill=color)
 
+        logger.debug(f"updated timeline {time.time() - now}")
         return img, clickable_regions
-
-
 
     def handle_click(self, evt: gr.SelectData, regions):
         x, y = evt.index
@@ -746,8 +775,7 @@ start();
             #    timeline_scroll_json = gr.JSON(elem_id="timeline_scroll_json", height=0, elem_classes="hidden-json")
                 timeline_scroll_json = gr.Textbox(elem_id="timeline_scroll_json", lines=1, container=False, scale=0, min_width=0)
 
-            # When selected_video changes, update video player
-            selected_video.change(lambda x: x, selected_video, video_player)
+            # UI State
 
             # Store clickable regions in a State object
             regions_state = gr.State([])
@@ -755,11 +783,32 @@ start();
             # timeline window state
             timeline_window_state = gr.State({"zoom": 4.0, "offset": 0.0})
 
+            # Initial timeline render
+            img, regions = self.draw_timeline(timeline_window_state.value)
+            timeline_img.value = img
+            regions_state.value = regions
+
+            # on change handlers
+            # When selected_video changes, update video player
+            selected_video.change(lambda x: x, selected_video, video_player)
+
+            def on_scroll(window):
+                # windows comes as a string from JS via a gr.Textbox
+                window = json.loads(window)
+                logger.debug(f"on_scroll: {window}")
+                img, regions = self.draw_timeline(window)
+                return window, img, regions
+
+            # Timer updates the timeline
+            def refresh(window):
+                img, regions = self.draw_timeline(window)
+                return img, regions
+
             #update state when JS sends scroll/zoom
             timeline_scroll_json.change(
-                fn=lambda data: data,
+                fn=on_scroll,
                 inputs=[timeline_scroll_json],
-                outputs=[timeline_window_state]
+                outputs=[timeline_window_state, timeline_img, regions_state]
             )
             # Clicking the image selects a video
             timeline_img.select(
@@ -768,22 +817,18 @@ start();
                 outputs=[selected_video, event_info]
             )
 
-            # Timer updates the timeline every 5 seconds
-            def refresh(window):
-                img, regions = self.draw_timeline(window)
-                return img, regions
+            # Background timer updates timeline and log
+            #timeline_timer = gr.Timer(5.0)
+            #timeline_timer.tick(fn=refresh, inputs=[timeline_window_state], outputs=[timeline_img, regions_state])
 
-            timeline_timer = gr.Timer(0.5)
-            timeline_timer.tick(fn=refresh, inputs=[timeline_window_state], outputs=[timeline_img, regions_state])
-
-            # Initial render
-            img, regions = refresh(timeline_window_state.value)
-            timeline_img.value = img
-            regions_state.value = regions
-
-            log_timer = gr.Timer(1.0)  # update every 0.5s
+            log_timer = gr.Timer(1.0)
             log_timer.tick(fn=self.get_log_html, outputs=log_box)
 
+            demo.load(
+                fn=refresh,
+                inputs=[timeline_window_state],
+                outputs=[timeline_img, regions_state]
+            )
         return demo
 
     def run(self):
