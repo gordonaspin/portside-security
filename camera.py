@@ -4,8 +4,10 @@ from queue import Queue
 from subprocess import Popen
 import time
 import numpy as np
+from numpy.typing import NDArray
 
 from model import Model
+from motion_profile import MotionProfile, DayMotionProfile, NightMotionProfile
 
 class RollingAverage:
     def __init__(self, window_size=100):
@@ -35,6 +37,7 @@ class Camera:
     recordings_dir: str
     segments_dir: str
     images_dir: str
+    metadata_dir: str
     model: Model
     debug: bool = False
 
@@ -47,12 +50,19 @@ class Camera:
     frame_queue: Queue = dataclasses.field(default_factory=lambda: Queue(maxsize=1))
 
     # buffers for cv2 frames
-    gray_buf = None
-    diff_buf = None
-    diff_blur_buf = None
-    thresh_buf = None
-    background_buf = None
-
+    background_buf: NDArray[np.float32] = None
+    bg_frame_buf: NDArray[np.uint8] = None
+    diff_blur_buf: NDArray[np.uint8] = None
+    diff_buf: NDArray[np.uint8] = None
+    diff_mask_buf: NDArray[np.uint8] = None
+    diff_filtered_buf: NDArray[np.uint8] = None
+    edges_buf: NDArray[np.uint8] = None
+    gray_buf: NDArray[np.uint8] = None
+    thresh_buf: NDArray[np.uint8] = None
+    sobel_x_buf: NDArray[np.int16] = None
+    sobel_y_buf: NDArray[np.int16] = None
+    sobel_x_abs_buf: NDArray[np.int16] = None
+    sobel_y_abs_buf: NDArray[np.int16] = None
     # FPS tracking
     total_frames: int = 0
     total_drops: int = 0
@@ -66,15 +76,24 @@ class Camera:
     objects_text: str = ""
 
     # logic state
-    last_event_time: float = 0.0
+    last_recording_time: float = 0.0
     last_night_time_check: float = 0.0
-    last_yolo_time: float = 0.0
+    last_motion_time: float = 0.0
+    should_record: bool = False
+    recording: bool = False
+    is_night: bool = False
+
+    # profiles
+    profile: MotionProfile = None
 
     # motion detection
+    noise: float = 0.0
     motion_boxes_list: list = dataclasses.field(default_factory=list)
     classes_in_frame_dict: defaultdict = dataclasses.field(default_factory=lambda: defaultdict(set))
     active_objects_dict: defaultdict = dataclasses.field(default_factory=lambda: defaultdict(set))
     active_segments_list: list = dataclasses.field(default_factory=list)
     motion_condfidence: float = 0.0
     debug_motion_image: np.ndarray = None
+    keep_mask: list = dataclasses.field(default_factory=list)
+    has_moving_object: bool = False
 

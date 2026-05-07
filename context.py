@@ -5,6 +5,7 @@ import dataclasses
 class Context:
     """Context manager for the application."""
     directory: str
+    log_directory: str
     username: str
     password: str
     gui_username: str

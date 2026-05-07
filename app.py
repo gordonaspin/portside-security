@@ -128,7 +128,7 @@ def main(directory: str,
          ) -> int:
     
     global _NVR
-    setup_logging(logging_config)
+    log_path = setup_logging(logging_config)
     if password is not None:
         KeywordFilter.add_keyword(password)
 
@@ -146,6 +146,7 @@ def main(directory: str,
 
     ctx = Context(
         directory=directory,
+        log_directory=log_path,
         username=username,
         password=password,
         gui_username=gui_username,

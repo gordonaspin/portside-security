@@ -208,10 +208,10 @@ __marimo__/
 
 .gitignore
 .DS_Store
-.vscode/
-recordings/
+.vscode
+recordings
 .python-version
 *.pt
-*.log*
+logs
 nvr.json
 .gradio
