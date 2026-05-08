@@ -488,14 +488,19 @@ start();
         # Filter events to visible window
         # ------------------------------------------------------------
         filtered = {}
+
         for cam, events in grouped_events.items():
-            visible = [e for e in events if e["end_time"] >= start]
+            visible = [
+                e for e in events
+                if e["end_time"] >= start and e["start_time"] <= end
+            ]
+
             if visible:
                 filtered[str(cam)] = visible
 
-        if not filtered:
-            img = Image.new("RGB", (self._image_width, self.get_height()), (31, 41, 55))
-            return img, []
+                if not filtered:
+                    img = Image.new("RGB", (self._image_width, self.get_height()), (31, 41, 55))
+                    return img, []
 
         grouped_events = filtered
 
@@ -558,6 +563,8 @@ start();
         # ------------------------------------------------------------
         # Draw events
         # ------------------------------------------------------------
+        timeline_width = width - label_width - 20
+
         for idx, (camera_name, camera) in enumerate(
             sorted(self._nvr.cameras.items(), key=lambda c: c[1].name)
         ):
@@ -566,43 +573,89 @@ start();
                 y_bottom = y_top + self._row_height - 5
 
                 for e in grouped_events.get(camera.name, []):
-                    left = label_width + max(
-                        0,
-                        int((e["start_time"] - start) / span * (width - label_width - 20))
-                    )
-                    right = label_width + int(
-                        (e["end_time"] - start) / span * (width - label_width - 20)
+
+                    # ----------------------------------------------------
+                    # Convert event times -> bars_img coordinate space
+                    # ----------------------------------------------------
+                    left = int(
+                        (e["start_time"] - start) / span * timeline_width
                     )
 
+                    right = int(
+                        (e["end_time"] - start) / span * timeline_width
+                    )
+
+                    # Clamp to visible viewport
+                    left = max(0, min(timeline_width, left))
+                    right = max(0, min(timeline_width, right))
+
+                    # Skip degenerate regions
+                    if right <= left:
+                        continue
+
+                    # ----------------------------------------------------
+                    # Convert to full-image coordinates for drawing
+                    # ----------------------------------------------------
+                    draw_left = label_width + left
+                    draw_right = label_width + right
+
+                    # ----------------------------------------------------
+                    # Draw event bars
+                    # ----------------------------------------------------
                     colors = tag_colors(e["tags"])
+
                     for i, color in enumerate(colors):
                         draw.rectangle(
                             [
-                                left,
+                                draw_left,
                                 y_top + 5 + i * (y_bottom - y_top - 5) // len(colors),
-                                right,
+                                draw_right,
                                 y_bottom
                             ],
                             fill=color
                         )
 
+                    # ----------------------------------------------------
+                    # Tooltip / metadata HTML
+                    # ----------------------------------------------------
                     metadata_str = (
-                        f"<a href=\"/gradio_api/file={e['metadata']}\" target=\"_blank\">View</a>"
-                        if e.get("metadata") else "N/A"
+                        f'<a href="/gradio_api/file={e["metadata"]}" '
+                        f'target="_blank">View</a>'
+                        if e.get("metadata")
+                        else "N/A"
                     )
 
                     info_html = f"""
-                    <b>Camera:</b> {camera.name} | 
-                    <b>Tags:</b> {self._nvr._tags_to_str(e["tags"]) if isinstance(e["tags"], dict) else tag_label(e["tags"])} |
-                    <b>Start:</b> {datetime.fromtimestamp(e['start_time']).strftime('%Y-%m-%d %H:%M:%S')} - 
-                    <b>End:</b> {datetime.fromtimestamp(e['end_time']).strftime('%Y-%m-%d %H:%M:%S')}<br>
+                    <b>Camera:</b> {camera.name} |
+                    <b>Tags:</b> {
+                        self._nvr._tags_to_str(e["tags"])
+                        if isinstance(e["tags"], dict)
+                        else tag_label(e["tags"])
+                    } |
+                    <b>Start:</b>
+                    {datetime.fromtimestamp(e["start_time"]).strftime("%Y-%m-%d %H:%M:%S")}
+                    -
+                    <b>End:</b>
+                    {datetime.fromtimestamp(e["end_time"]).strftime("%Y-%m-%d %H:%M:%S")}
+                    <br>
                     <b>Metadata:</b> {metadata_str}
                     """
 
+                    # ----------------------------------------------------
+                    # IMPORTANT:
+                    # Store clickable regions in bars_img coordinates,
+                    # NOT full-image coordinates
+                    # ----------------------------------------------------
                     clickable_regions.append(
-                        (left, y_top+5, right, y_bottom, e["output"], info_html)
+                        (
+                            left,
+                            y_top + 5,
+                            right,
+                            y_bottom,
+                            e["output"],
+                            info_html
+                        )
                     )
-
         # ------------------------------------------------------------
         # Legend
         # ------------------------------------------------------------
