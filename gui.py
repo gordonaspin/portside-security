@@ -309,7 +309,7 @@ async function start() {{
         e.preventDefault();
     }});
 
-    document.addEventListener("mousedown", async (e) => {{
+    timelineContainer.addEventListener("mousedown", async (e) => {{
         const viewport = await waitForElement("#timeline_row");
         if (!viewport.contains(e.target)) return;
         if (!e.shiftKey) return;
@@ -322,7 +322,7 @@ async function start() {{
         dragStartOffset = timelineOffset;
     }});
 
-    document.addEventListener("mousemove", async (e) => {{
+    timelineContainer.addEventListener("mousemove", async (e) => {{
         if (!isDragging) return;
 
         const viewport = await waitForElement("#timeline_row");
@@ -333,11 +333,18 @@ async function start() {{
         timelineOffset = dragStartOffset + (dx * hoursPerPixel);
         }});
 
-    document.addEventListener("mouseup", async () => {{
+    timelineContainer.addEventListener("mouseup", async () => {{
         if (isDragging) await scheduleRedraw();
         isDragging = false;
     }});
 
+    timeline_viewport.addEventListener("mouseenter", () => {{
+        document.body.style.overflow = "hidden";
+    }});
+
+    timeline_viewport.addEventListener("mouseleave", () => {{
+        document.body.style.overflow = "";
+    }});
 
     // Attach scroll handler
     timelineContainer.addEventListener("wheel", async (e) => {{
@@ -525,18 +532,41 @@ start();
         draw.rectangle([label_width, scale_top, width - 10, scale_bottom], fill="#2d3748")
 
         # ------------------------------------------------------------
-        # ⭐ NEW TICK LOGIC
+        # Adaptive tick logic (density based on zoom level)
         # ------------------------------------------------------------
-        if zoom_hours >= 4:
-            tick_seconds = 3600      # 1 hour
-        else:
-            tick_seconds = 900       # 15 minutes
 
+        timeline_pixels = width - label_width - 20
+
+        seconds_per_pixel = span / timeline_pixels
+
+        # aim for ~80–120 px between ticks
+        target_px = 100
+        tick_seconds = seconds_per_pixel * target_px
+
+        # snap to "nice" intervals
+        if tick_seconds <= 60:
+            tick_seconds = 30          # 30 sec
+        elif tick_seconds <= 120:
+            tick_seconds = 60          # 1 min
+        elif tick_seconds <= 300:
+            tick_seconds = 300         # 5 min
+        elif tick_seconds <= 900:
+            tick_seconds = 900         # 15 min
+        elif tick_seconds <= 1800:
+            tick_seconds = 1800        # 30 min
+        elif tick_seconds <= 3600:
+            tick_seconds = 3600        # 1 hour
+        elif tick_seconds <= 7200:
+            tick_seconds = 7200        # 2 hour
+        else:
+            tick_seconds = 14400       # 4 hour
+
+        # align first tick to grid
         first_tick = math.ceil(start / tick_seconds) * tick_seconds
 
         t = first_tick
         while t <= end:
-            x = label_width + int((t - start) / span * (width - label_width - 20))
+            x = label_width + int((t - start) / span * timeline_pixels)
 
             draw.line([(x, scale_top), (x, scale_bottom)], fill="#ffffff", width=1)
 
