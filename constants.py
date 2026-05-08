@@ -30,6 +30,11 @@ NIGHT_TIME_THRESHOLD = 100
 
 STATUS_UPDATE_INTERVAL = 0.5 # seconds
 
+GUI_TIMELINE_ZOOM = 4.0 # hours
+GUI_TIMELINE_OFFSET = 0.0 # hours
+GUI_TIMELINE_MIN_ZOOM = 0.25 # hours
+GUI_TIMELINE_MAX_ZOOM = 24 # hours
+
 # -----------------------------------------
 # Reference LAB colors (approximate swatches)
 # -----------------------------------------

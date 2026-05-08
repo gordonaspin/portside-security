@@ -31,10 +31,12 @@ class GUI:
         self._color_map = {}
         file = font_manager.findfont('Verdana', fontext='ttf')
         self._courier_font = ImageFont.truetype(file, 14)
+        self._image_width = 920
         self._row_height = 40
         self._padding = 10
         self._scale_height = 30
         self._legend_height = 50
+        self._label_width = 90
 
         for i, s in enumerate(self._classes):
             hue = i / len(self._classes)  # evenly spaced
@@ -45,381 +47,323 @@ class GUI:
             )
 
         self._js = f"""
-console.log("loaded javascript")
-let mosaicPC = null;
-let focusPC = null;
-const cameraMap = {json.dumps(self._get_cameras_for_js())};
+async function start() {{
+    const cameraMap = {json.dumps(self._get_cameras_for_js())};
+    let timelineZoom = {constants.GUI_TIMELINE_ZOOM};
+    let timelineOffset = {constants.GUI_TIMELINE_OFFSET};
+    const minZoom = {constants.GUI_TIMELINE_MIN_ZOOM};
+    const maxZoom = {constants.GUI_TIMELINE_MAX_ZOOM};
 
-function deepQuery(selector) {{
-    const results = [];
-    const stack = [document];
+    // ----------------------------
+    // --- Helper functions
+    // ----------------------------
+    function deepQuery(selector) {{
+        const results = [];
+        const stack = [document];
 
-    while (stack.length) {{
-        const node = stack.pop();
+        while (stack.length) {{
+            const node = stack.pop();
 
-        // Query this node
-        try {{
-            const found = node.querySelectorAll(selector);
-            if (found.length) results.push(...found);
-        }} catch {{}}
+            // Query this node
+            try {{
+                const found = node.querySelectorAll(selector);
+                if (found.length) results.push(...found);
+            }} catch {{}}
 
-        // Add shadow roots to search stack
-        if (node.querySelectorAll) {{
-            node.querySelectorAll("*").forEach(el => {{
-                if (el.shadowRoot) stack.push(el.shadowRoot);
-            }});
+            // Add shadow roots to search stack
+            if (node.querySelectorAll) {{
+                node.querySelectorAll("*").forEach(el => {{
+                    if (el.shadowRoot) stack.push(el.shadowRoot);
+                }});
+            }}
+        }}
+
+        return results;
+    }}
+
+    function sendToPython(data) {{
+        const textbox = deepQuery('#timeline_scroll_json textarea, #timeline_scroll_json input')[0];
+
+        if (!textbox) {{
+            console.warn("timeline_scroll_text not found yet");
+            return;
+        }}
+
+        textbox.value = JSON.stringify(data);
+        textbox.dispatchEvent(new Event("input", {{ bubbles: true }}));
+
+        console.log("Dispatched to Gradio (Textbox):", data);
+    }}
+
+    function sendUpdateThrottled(data) {{
+        const now = performance.now();
+
+        if (now - lastSend >= throttleDelay) {{
+            // Send immediately
+            lastSend = now;
+            sendToPython(data);
+        }} else {{
+            // Save the latest event to send after delay
+            pendingData = data;
+
+            setTimeout(() => {{
+                if (pendingData) {{
+                    sendToPython(pendingData);
+                    pendingData = null;
+                    lastSend = performance.now();
+                }}
+            }}, throttleDelay - (now - lastSend));
         }}
     }}
 
-    return results;
-}}
-// ------------------------------------------------------------
-// Throttle: limit updates to once every 30ms
-// ------------------------------------------------------------
-let lastSend = 0;
-let pendingData = null;
-const throttleDelay = 500;  // ms
-
-function sendToPython(data) {{
-    const textbox = deepQuery('#timeline_scroll_json textarea, #timeline_scroll_json input')[0];
-
-    if (!textbox) {{
-        console.warn("timeline_scroll_text not found yet");
-        return;
-    }}
-
-    textbox.value = JSON.stringify(data);
-    textbox.dispatchEvent(new Event("input", {{ bubbles: true }}));
-
-    console.log("Dispatched to Gradio (Textbox):", data);
-}}
-
-function sendUpdateThrottled(data) {{
-    const now = performance.now();
-
-    if (now - lastSend >= throttleDelay) {{
-        // Send immediately
-        lastSend = now;
-        sendToPython(data);
-    }} else {{
-        // Save the latest event to send after delay
-        pendingData = data;
-
-        setTimeout(() => {{
-            if (pendingData) {{
-                sendToPython(pendingData);
-                pendingData = null;
-                lastSend = performance.now();
-            }}
-        }}, throttleDelay - (now - lastSend));
-    }}
-}}
-
-// ------------------------------------------------------------
-// Bridge timeline scroll/zoom events → Gradio Textbox
-// ------------------------------------------------------------
-window.addEventListener("timeline-update", (e) => {{
-    const data = e.detail;
-
-    // Throttled dispatch
-    sendUpdateThrottled(data);
-}});
-
-async function startMosaic() {{
-    const pc = new RTCPeerConnection();
-
-    // Same here: recvonly video
-    pc.addTransceiver("video", {{ direction: "recvonly" }});
-
-    pc.ontrack = (event) => {{
-        const el = document.querySelector("#mosaic");
-        if (el) el.srcObject = event.streams[0];
-    }};
-
-    const offer = await pc.createOffer();
-    await pc.setLocalDescription(offer);
-
-    const res = await fetch("/signal", {{
-        method: "POST",
-        headers: {{ "Content-Type": "application/json" }},
-        body: JSON.stringify({{
-            mode: "mosaic",
-            sdp: offer.sdp,
-            type: offer.type,
-        }}),
-    }});
-
-    const answer = await res.json();
-    await pc.setRemoteDescription(answer);
-}}
-
-// Helper functions
-function stopMosaic() {{
-    const m = document.querySelector("#mosaic");
-    if (m && m.srcObject) {{
-        m.srcObject.getTracks().forEach(t => t.stop());
-        m.srcObject = null;
-    }}
-}}
-
-function showMosaic() {{
-    const m = document.querySelector("#mosaic");
-    m.style.display = "block";
-    startMosaic();
-}}
-
-function hideMosaic() {{
-    const m = document.querySelector("#mosaic");
-    m.style.display = "none";
-    stopMosaic();
-}}
-
-function showFocus() {{
-    const f = document.querySelector("#focus");
-    f.style.display = "block";
-}}
-
-function hideFocus() {{
-    const f = document.querySelector("#focus");
-    f.style.display = "none";
-    if (f.srcObject) {{
-        f.srcObject.getTracks().forEach(t => t.stop());
-        f.srcObject = null;
-    }}
-}}
-
-async function startFocusedCamera(id) {{
-    focusPC = new RTCPeerConnection();
-    focusPC.addTransceiver("video", {{ direction: "recvonly" }});
-
-    focusPC.ontrack = (event) => {{
-        const el = document.querySelector("#focus");
-        el.srcObject = event.streams[0];
-        el.muted = true;
-        el.play();
-    }};
-
-    const offer = await focusPC.createOffer();
-    await focusPC.setLocalDescription(offer);
-
-    const res = await fetch("/signal", {{
-        method: "POST",
-        headers: {{ "Content-Type": "application/json" }},
-        body: JSON.stringify({{
-        mode: "single",
-        cameraId: id,
-        sdp: offer.sdp,
-        type: offer.type
-        }})
-    }});
-
-    const answer = await res.json();
-    await focusPC.setRemoteDescription(answer);
-}}
-
-function exitFocusMode() {{
-    hideFocus();
-    if (focusPC) {{
-        focusPC.close();
-        focusPC = null;
-    }}
-    showMosaic();
-}}
-
-async function enterFocusMode(id) {{
-    console.log("Entering focus mode for camera:", id);
-    hideMosaic();
-    showFocus();
-    await startFocusedCamera(id);
-}}
-
-function waitForVideos() {{
-    return new Promise(resolve => {{
-        const check = () => {{
-            const vids = document.querySelectorAll("video[id^='cam_']");
-            if (vids.length > 0) {{
-                resolve(vids);
-            }} else {{
-                requestAnimationFrame(check);
-            }}
-        }};
-        check();
-    }});
-}}
-
-function waitForMosaic() {{
-    return new Promise(resolve => {{
-        const check = () => {{
-            const mosaic = document.querySelector("video[id^='mosaic']");
-            if (mosaic) {{
-                resolve(mosaic);
-            }} else {{
-                requestAnimationFrame(check);
-            }}
-        }};
-        check();
-    }});
-}}
-
-async function start() {{
-    const app = document.querySelector("gradio-app");
-    const root = app.shadowRoot || document;
-
-    console.log("Shadow root found:", !!app.shadowRoot);
-
-    //const vids = await waitForVideos();
-    //console.log("FOUND VIDEOS:", vids.length);
-
-    const mosaic = await waitForMosaic();
-    console.log("FOUND MOSAIC");
-
-    async function startSingleCamera(id) {{
-        const pc = new RTCPeerConnection();
-
-        // Tell the browser we want to RECEIVE video
-        pc.addTransceiver("video", {{ direction: "recvonly" }});
-
-        pc.ontrack = (event) => {{
-            const el = document.querySelector("#cam_" + id);
-            if (!el) return;
-
-            el.srcObject = event.streams[0];
-            el.muted = true;
-
-            console.log("SET SRC:", el);
-
-            el.play()
-                .then(() => {{
-                    console.log("PLAY OK, READY STATE:", el.readyState);
-                }})
-                .catch((err) => {{
-                    console.error("VIDEO PLAY ERROR:", err);
-                }});
+    function waitForElement(name) {{
+        return new Promise(resolve => {{
+            const check = () => {{
+                const els = deepQuery(name);
+                if (els.length > 0) {{
+                    console.log("Found ", name);
+                    resolve(els[0]);
+                }} else {{
+                    console.log("Waiting for ", name, " ...")
+                    requestAnimationFrame(check);
+                }}
             }};
+            check();
+        }});
+    }}
+    // --------------------------------------------
+    // Video / WebRTC management functions
+    // --------------------------------------------
+    function waitForMosaic() {{
+        return new Promise(resolve => {{
+            const check = () => {{
+                const mosaic = document.querySelector("video[id^='mosaic']");
+                if (mosaic) {{
+                    resolve(mosaic);
+                }} else {{
+                    requestAnimationFrame(check);
+                }}
+            }};
+            check();
+        }});
+    }}
 
-        const offer = await pc.createOffer();
-        await pc.setLocalDescription(offer);
+    async function startMosaic() {{
+        mosaicPC = new RTCPeerConnection();
+
+        mosaicPC.addTransceiver("video", {{ direction: "recvonly" }});
+
+        mosaicPC.ontrack = (event) => {{
+            const el = document.querySelector("#mosaic");
+            if (el) el.srcObject = event.streams[0];
+        }};
+
+        const offer = await mosaicPC.createOffer();
+        await mosaicPC.setLocalDescription(offer);
 
         const res = await fetch("/signal", {{
             method: "POST",
             headers: {{ "Content-Type": "application/json" }},
             body: JSON.stringify({{
-                mode: "single",
-                cameraId: id,
+                mode: "mosaic",
                 sdp: offer.sdp,
                 type: offer.type,
             }}),
         }});
 
         const answer = await res.json();
-        await pc.setRemoteDescription(answer);
+        await mosaicPC.setRemoteDescription(answer);
     }}
 
-    // Clicking the focused video returns to mosaic
-    const focusEl = root.querySelector("#focus");
-    focusEl.addEventListener("click", exitFocusMode);
+    async function startCamera(id) {{
+        focusPC = new RTCPeerConnection();
+        focusPC.addTransceiver("video", {{ direction: "recvonly" }});
 
+        focusPC.ontrack = (event) => {{
+            const el = document.querySelector("#mosaic");
+            el.srcObject = event.streams[0];
+            el.muted = true;
+            el.play();
+        }};
+
+        const offer = await focusPC.createOffer();
+        await focusPC.setLocalDescription(offer);
+
+        const res = await fetch("/signal", {{
+            method: "POST",
+            headers: {{ "Content-Type": "application/json" }},
+            body: JSON.stringify({{
+            mode: "single",
+            cameraId: id,
+            sdp: offer.sdp,
+            type: offer.type
+            }})
+        }});
+
+        const answer = await res.json();
+        await focusPC.setRemoteDescription(answer);
+    }}
+
+    async function enterMosaicMode() {{
+        if (focusPC) {{
+            focusPC.close();
+            focusPC = null;
+        }}
+        await startMosaic();
+    }}
+
+    async function enterFocusMode(id) {{
+        console.log("Entering focus mode for camera:", id);
+        if (mosaicPC) {{
+            mosaicPC.close();
+            mosaicPC = null;
+        }}
+        await startCamera(id);
+    }}
+
+    // ------------------------------------------------------------
+    // Bridge timeline scroll/zoom events → Gradio Textbox
+    // ------------------------------------------------------------
+    window.addEventListener("timeline-update", (e) => {{
+        const data = e.detail;
+
+        // Throttled dispatch
+        sendUpdateThrottled(data);
+    }});
+
+    // Video state
+    let focusPC = null;
+    let mosaicPC = null;
+
+    // Timeline Pan + Zoom State
+    let isDragging = false;
+    let dragStartX = 0;
+    // snapshot of timeline state at drag start
+    let dragStartZoom = 0;
+    let dragStartOffset = 0;
+        
+    let redrawTimeout = null;
+    const redrawDelay = 150;   // ms after user stops interacting
+
+    let lastSend = 0;
+    let pendingData = null;
+    const throttleDelay = 500;  // ms
+
+    const app = await waitForElement("gradio-app");
+    const root = app.shadowRoot || document;
+    console.log("Shadow root found:", !!app.shadowRoot);
+
+    const mosaic = await waitForElement("video[id^='mosaic']");
+
+    // clicking the video switches to the camera clicked if we are
+    // in mosaic, or returns to mosaic if we are single camera mode
     mosaic.addEventListener("click", (event) => {{
-        const rect = mosaic.getBoundingClientRect();
-        const x = event.clientX - rect.left;
-        const y = event.clientY - rect.top;
+        if (focusPC === null) {{
+            const rect = mosaic.getBoundingClientRect();
+            const x = event.clientX - rect.left;
+            const y = event.clientY - rect.top;
 
-        const tileWidth = rect.width / 5;
-        const tileHeight = rect.height / 2;
+            const tileWidth = rect.width / Math.min(5, cameraMap.length);
+            const tileHeight = rect.height / Math.max(2, Math.trunc(cameraMap.length / 5));
 
-        const col = Math.floor(x / tileWidth);
-        const row = Math.floor(y / tileHeight);
+            const col = Math.floor(x / tileWidth);
+            const row = Math.floor(y / tileHeight);
 
-        const index = row * 5 + col;
-
-        const cameraId = cameraMap[index];
-
-        console.log("Clicked camera:", cameraId);
-        enterFocusMode(cameraId);
+            const index = row * 5 + col;
+            if (index < cameraMap.length) {{
+                const cameraId = cameraMap[index];
+                console.log("Clicked camera: ", cameraId, "row:", row, "col: ", col, "index: ", index);
+                enterFocusMode(cameraId);
+            }}
+        }} else {{
+            enterMosaicMode()
+        }}
     }});
 
     // ------------------------------------------------------------
     // TIMELINE SCROLL + ZOOM CONTROL
     // ------------------------------------------------------------
-    console.log("Initializing timeline scroll control...");
-    console.log("ROOT:", root);
-    console.log("ALL IMAGES:", root.querySelectorAll("img"));
 
-    let timelineZoom = 4.0;      // default zoom window (hours)
-    let timelineOffset = 0.0;    // hours from 'now' (0 = rightmost)
-    const minZoom = 0.25;
-    const maxZoom = 24;
+    async function scheduleRedraw() {{
+        clearTimeout(redrawTimeout);
 
-    function waitForTimelineContainer() {{
-        return new Promise(resolve => {{
-            const check = () => {{
-                const imgs = deepQuery("div#timeline");
-                if (imgs.length > 0) {{
-                    resolve(imgs[0]);
-                }} else {{
-                    console.log("Checking ...")
-                    requestAnimationFrame(check);
-                }}
-            }};
-            check();
-        }});
+        redrawTimeout = setTimeout(() => {{
+            window.dispatchEvent(
+                new CustomEvent("timeline-update", {{
+                    detail: {{
+                        zoom: timelineZoom,
+                        offset: timelineOffset
+                    }}
+                }})
+            );
+        }}, redrawDelay);
     }}
 
-    function waitForTimelineScrollJson() {{
-        return new Promise(resolve => {{
-            const check = () => {{
-                const els = deepQuery('#timeline_scroll_json textarea, #timeline_scroll_json input');
-                if (els.length > 0) {{
-                    resolve(els[0]);
-                }} else {{
-                    console.log("Checking ...")
-                    requestAnimationFrame(check);
-                }}
-            }};
-            check();
+    const timelineContainer = await waitForElement("div#timeline_bars_img");
+    const timelineScrollJson = await waitForElement("#timeline_scroll_json textarea, #timeline_scroll_json input");
+    const timeline_viewport = await waitForElement("#timeline_row");
+    const timeline_bars_img = await waitForElement("#timeline_bars_img");
+    timeline_bars_img.draggable = false;
+
+    timeline_bars_img.addEventListener("dragstart", (e) => {{
+        e.preventDefault();
+    }});
+
+    document.addEventListener("mousedown", async (e) => {{
+        const viewport = await waitForElement("#timeline_row");
+        if (!viewport.contains(e.target)) return;
+
+        isDragging = true;
+        dragStartX = e.clientX;
+
+        // freeze timeline state at start
+        dragStartZoom = timelineZoom;
+        dragStartOffset = timelineOffset;
+    }});
+
+    document.addEventListener("mousemove", async (e) => {{
+        if (!isDragging) return;
+
+        const viewport = await waitForElement("#timeline_row");
+        const dx = e.clientX - dragStartX;
+        const hoursPerPixel = dragStartZoom / viewport.clientWidth;
+
+        // base everything off snapshot, not current state
+        timelineOffset = dragStartOffset + (dx * hoursPerPixel);
         }});
-    }}
 
-    const timelineContainer = await waitForTimelineContainer();
-    console.log("FOUND TIMELINE CONTAINER");
+    document.addEventListener("mouseup", async () => {{
+        if (isDragging) await scheduleRedraw();
+        isDragging = false;
+    }});
 
-    const timelineScrollJson = await waitForTimelineScrollJson();
-    console.log("FOUND TIMELINE SCROLL JSON")
 
     // Attach scroll handler
-    timelineContainer.addEventListener("wheel", (e) => {{
+    timelineContainer.addEventListener("wheel", async (e) => {{
+        const viewport = await waitForElement("#timeline_row");
+
+        if (!viewport.contains(e.target)) return;
+
+        if (Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return;
+
         e.preventDefault();
 
-        // Horizontal scroll → pan timeline
-        if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) {{
-            timelineOffset += (e.deltaX / 150);   // sensitivity
-            timelineOffset = Math.max(0, Math.min(timelineOffset, 24 - timelineZoom));
-        }}
-        // Vertical scroll → zoom timeline
-        else {{
-            timelineZoom += (e.deltaY < 0 ? -0.25 : 0.25);
-            timelineZoom = Math.max(minZoom, Math.min(timelineZoom, maxZoom));
+        const zoomFactor = 1.15;
 
-            // Clamp offset so window stays inside 24h
-            timelineOffset = Math.max(0, Math.min(timelineOffset, 24 - timelineZoom));
+        if (e.deltaY < 0) {{
+            timelineZoom /= zoomFactor;
+        }} else {{
+            timelineZoom *= zoomFactor;
         }}
 
-        // ⭐ Add this log
-        console.log("SCROLL UPDATE:", {{
-            zoom: timelineZoom,
-            offset: timelineOffset
-        }});
+        timelineZoom = Math.max(minZoom, Math.min(maxZoom, timelineZoom));
 
-        // Send update to Gradio
-        const event = new CustomEvent("timeline-update", {{
-            detail: {{ zoom: timelineZoom, offset: timelineOffset }}
-        }});
-        window.dispatchEvent(event);
+        scheduleRedraw();
     }});
 
     if (mosaic) startMosaic();
 }}
-
+console.log("loaded javascript")
 start();
 """
     def get_status(self, camera: Camera):
@@ -489,9 +433,11 @@ start();
 
     def get_height(self):
         """ computes the height of the timeline image based on the number of cameras """
-        return self._scale_height + len(self._nvr.cameras) * self._row_height + self._legend_height + self._padding * 2
+        height = self._scale_height + len(self._nvr.cameras) * self._row_height + self._legend_height + self._padding * 2
+        logger.debug(f"get_height: {height}")
+        return height
 
-    def draw_timeline(self, window):
+    def _draw_full_timeline(self, window):
         """
         Draw the timeline image for all cameras.
 
@@ -501,8 +447,9 @@ start();
         }
         """
         now = time.time()
-        zoom_hours = float(window.get("zoom", 4.0))
-        offset_hours = float(window.get("offset", 0.0))
+        zoom_hours = float(window.get("zoom", constants.GUI_TIMELINE_ZOOM))
+        offset_hours = float(window.get("offset", constants.GUI_TIMELINE_OFFSET))
+        offset_hours = max(0.0, offset_hours)
 
         # ------------------------------------------------------------
         # Helpers
@@ -547,7 +494,7 @@ start();
                 filtered[str(cam)] = visible
 
         if not filtered:
-            img = Image.new("RGB", (900, 200), (31, 41, 55))
+            img = Image.new("RGB", (self._image_width, self.get_height()), (31, 41, 55))
             return img, []
 
         grouped_events = filtered
@@ -555,8 +502,8 @@ start();
         # ------------------------------------------------------------
         # Layout
         # ------------------------------------------------------------
-        width = 900
-        label_width = 100
+        width = self._image_width
+        label_width = self._label_width
         height = self.get_height()
 
         img = Image.new("RGB", (width, height), (31, 41, 55))
@@ -666,6 +613,26 @@ start();
         logger.debug(f"updated timeline {time.time() - now}")
         return img, clickable_regions
 
+    def draw_timeline(self, window):
+        full_img, regions = self._draw_full_timeline(window)
+
+        W, H = full_img.size
+        logger.debug(f"full image size: {W} x {H}")
+
+        labels_width = self._label_width         # must match CSS
+        legend_height = self._legend_height      # adjust to your design
+
+        # 1. Camera labels (left side)
+        labels_img = full_img.crop((0, 0, labels_width, H - legend_height))
+
+        # 2. Timeline bars + ticks (right side)
+        bars_img = full_img.crop((labels_width, 0, W, H - legend_height))
+
+        # 3. Legend (bottom)
+        legend_img = full_img.crop((0, H - legend_height, W, H))
+
+        return labels_img, bars_img, legend_img, regions
+
     def handle_click(self, evt: gr.SelectData, regions):
         x, y = evt.index
 
@@ -735,17 +702,6 @@ start();
                 debug_checkbox.change(fn=self.update_debug, inputs=debug_checkbox,  outputs=[])
                 files_checkbox.change(fn=self.update_debug_files, inputs=files_checkbox,  outputs=[])
 
-            # Focus View
-            gr.HTML(
-                """
-                <div style="text-align:center; width:100%; margin-bottom: 12px;">
-                <video id="focus" autoplay playsinline muted
-                style="width:100%; border:2px solid #888; background:black; display:none;">
-                </video>
-                </div>
-                """,
-                sanitize_html=False
-                )
             # Mosaic
             gr.HTML(
                 """
@@ -759,11 +715,46 @@ start();
                 )
 
             # recording timeline and playback
-            with gr.Row():
+            with gr.Row(elem_id="main_row"):
                 selected_video = gr.Textbox(visible=False)
-                with gr.Column():
-                    timeline_img = gr.Image(type="pil", label="Timeline", elem_id="timeline", interactive=False, buttons=[], container=True)
-
+                with gr.Column(variant="compact"):
+                    with gr.Group(elem_classes="timeline_labels_img"):
+                        w = 95
+                        h = 20
+                        with gr.Row(height=self.get_height()-self._legend_height, elem_id="timeline_row"):
+                            labels_img = gr.Image(
+                                elem_id="timeline_labels_img",
+                                elem_classes="timeline_labels_img",
+                                min_width=self._label_width,
+                                width=self._label_width,
+                                height=self.get_height()-self._legend_height,
+                                show_label=False,
+                                interactive=False,
+                                buttons=[],
+                                container=False
+                            )
+                            bars_img = gr.Image(
+                                elem_id="timeline_bars_img",
+                                elem_classes="timeline_bars_img",
+                                min_width=self._image_width-w,
+                                width=self._image_width-w  ,
+                                height=self.get_height()-self._legend_height,
+                                show_label=False,
+                                interactive=False,
+                                container=False,
+                                buttons=[],
+                            )
+                        legend_img = gr.Image(
+                            elem_id="timeline_legend_img",
+                            elem_classes="timeline_legend_img",
+                            width=self._image_width,
+                            min_width=self._image_width,
+                            height=self._legend_height,
+                            show_label=False,
+                            interactive=False,
+                            buttons=[],
+                            container=False
+                        )
                 with gr.Column():
                     video_player = gr.Video(label="Selected Recording", height=self.get_height(), autoplay=True, interactive=False)
                     event_info = gr.HTML(label="Event Info")
@@ -781,53 +772,42 @@ start();
             regions_state = gr.State([])
 
             # timeline window state
-            timeline_window_state = gr.State({"zoom": 4.0, "offset": 0.0})
-
-            # Initial timeline render
-            img, regions = self.draw_timeline(timeline_window_state.value)
-            timeline_img.value = img
-            regions_state.value = regions
+            timeline_window_state = gr.State({"zoom": constants.GUI_TIMELINE_ZOOM, "offset": constants.GUI_TIMELINE_OFFSET})
 
             # on change handlers
             # When selected_video changes, update video player
             selected_video.change(lambda x: x, selected_video, video_player)
 
-            def on_scroll(window):
-                # windows comes as a string from JS via a gr.Textbox
+            def on_scroll(window: str):
                 window = json.loads(window)
-                logger.debug(f"on_scroll: {window}")
-                img, regions = self.draw_timeline(window)
-                return window, img, regions
+                labels, bars, legend, regions = self.draw_timeline(window)
+                return window, bars, regions
 
             # Timer updates the timeline
-            def refresh(window):
-                img, regions = self.draw_timeline(window)
-                return img, regions
+            def initial_render(window):
+                labels, bars, legend, regions = self.draw_timeline(window)
+                return labels, bars, legend, regions
 
             #update state when JS sends scroll/zoom
             timeline_scroll_json.change(
                 fn=on_scroll,
                 inputs=[timeline_scroll_json],
-                outputs=[timeline_window_state, timeline_img, regions_state]
+                outputs=[timeline_window_state, bars_img, regions_state]
             )
             # Clicking the image selects a video
-            timeline_img.select(
+            bars_img.select(
                 fn=self.handle_click,
                 inputs=[regions_state],
                 outputs=[selected_video, event_info]
             )
 
-            # Background timer updates timeline and log
-            #timeline_timer = gr.Timer(5.0)
-            #timeline_timer.tick(fn=refresh, inputs=[timeline_window_state], outputs=[timeline_img, regions_state])
-
             log_timer = gr.Timer(1.0)
             log_timer.tick(fn=self.get_log_html, outputs=log_box)
 
             demo.load(
-                fn=refresh,
+                fn=initial_render,
                 inputs=[timeline_window_state],
-                outputs=[timeline_img, regions_state]
+                outputs=[labels_img, bars_img, legend_img, regions_state]
             )
         return demo
 
@@ -903,6 +883,7 @@ start();
                 div:has(> .footer) {
                     display: none !important;
                 }
+                .no-scale {object-fit: none !important; height: auto !important;}
                 """,
         )
 
@@ -933,6 +914,12 @@ start();
                     #timeline_scroll_json {
                         display: none !important;
                     }
+                    #timeline_row {
+                        text-align: left;
+                    }
+                    .timeline_labels_img img { object-fit: contain !important; height: 100% !important; }
+                    .timeline_bars_img img   { object-fit: contain !important; height: 100% !important; }
+                    .timeline_legend_img img { object-fit: contain !important; height: 100% !important; }
                     """,
                 )
         except KeyboardInterrupt as e:

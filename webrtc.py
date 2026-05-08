@@ -11,6 +11,8 @@ import numpy as np
 from aiortc.mediastreams import VideoStreamTrack
 from av import VideoFrame
 
+from camera import Camera
+
 class CameraTrack(VideoStreamTrack):
     """
     WebRTC track that streams a single camera's latest_frame.
@@ -40,10 +42,10 @@ class MosaicTrack(VideoStreamTrack):
     """
     kind = "video"
 
-    def __init__(self, cameras: List[object], cols: int = 5):
+    def __init__(self, cameras: List[Camera], max_cols: int = 5):
         super().__init__()
-        self._cameras = cameras
-        self._cols = cols
+        self._cameras = [camera for camera in cameras if camera.enabled]
+        self._max_cols = max_cols
 
         # 4K width, height computed dynamically to preserve 4:3 tiles
         self.MOSAIC_W = 3840
@@ -57,17 +59,31 @@ class MosaicTrack(VideoStreamTrack):
                 frame = np.zeros((480, 704, 3), dtype=np.uint8)
             frames.append(frame)
 
+        if not frames:
+            # No enabled cameras → return a black frame
+            black = np.zeros((480, 704, 3), dtype=np.uint8)
+            vf = VideoFrame.from_ndarray(black, format="bgr24")
+            vf.pts = time.time_ns()
+            vf.time_base = fractions.Fraction(1, 1_000_000_000)
+            return vf
+        
         total = len(frames)
-        rows = int(np.ceil(total / self._cols))
+        cols = min(total, self._max_cols)
+        rows = int(np.ceil(total / cols))
 
         # Camera aspect ratio (704x480)
         CAM_ASPECT = 704 / 480
 
         # Tile width fixed by mosaic width
-        TILE_W = self.MOSAIC_W // self._cols
+        TILE_W = self.MOSAIC_W // cols
 
         # Tile height computed to preserve 4:3
         TILE_H = int(TILE_W / CAM_ASPECT)
+
+        # Pad with black tiles if needed
+        needed = rows * cols
+        while len(frames) < needed:
+            frames.append(np.zeros((TILE_H, TILE_W, 3), dtype=np.uint8))
 
         # Mosaic height computed from tile height
         self.MOSAIC_H = TILE_H * rows
@@ -79,11 +95,11 @@ class MosaicTrack(VideoStreamTrack):
             src_h, src_w, _ = frame.shape
 
             # Compute tile grid position
-            row = idx // self._cols
-            col = idx % self._cols
+            row = idx // cols
+            col = idx % cols
 
             # Resize while preserving aspect ratio (no cropping)
-            resized = cv2.resize(
+            resized_frame = cv2.resize(
                 frame,
                 (TILE_W, TILE_H),
                 interpolation=cv2.INTER_AREA if (src_w > TILE_W or src_h > TILE_H)
@@ -93,7 +109,7 @@ class MosaicTrack(VideoStreamTrack):
             # Place tile
             y0 = row * TILE_H
             x0 = col * TILE_W
-            mosaic[y0:y0+TILE_H, x0:x0+TILE_W] = resized
+            mosaic[y0:y0+TILE_H, x0:x0+TILE_W] = resized_frame
 
         # Convert to VideoFrame
         video_frame = VideoFrame.from_ndarray(mosaic, format="bgr24")
