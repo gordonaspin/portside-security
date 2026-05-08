@@ -638,6 +638,7 @@ start();
 
         for (x1, y1, x2, y2, video, info_html) in regions:
             if x1 <= x <= x2 and y1 <= y <= y2:
+                log_event(message=f"user selected {video}", level="info", file_path=video)
                 return video, info_html
 
         return None, "No video selected"
