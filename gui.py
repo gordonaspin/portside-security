@@ -312,6 +312,7 @@ async function start() {{
     document.addEventListener("mousedown", async (e) => {{
         const viewport = await waitForElement("#timeline_row");
         if (!viewport.contains(e.target)) return;
+        if (!e.shiftKey) return;
 
         isDragging = true;
         dragStartX = e.clientX;
@@ -343,6 +344,7 @@ async function start() {{
         const viewport = await waitForElement("#timeline_row");
 
         if (!viewport.contains(e.target)) return;
+        if (!e.shiftKey) return;
 
         if (Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return;
 
@@ -359,7 +361,7 @@ async function start() {{
         timelineZoom = Math.max(minZoom, Math.min(maxZoom, timelineZoom));
 
         scheduleRedraw();
-    }});
+    }}, {{ passive: false }});
 
     if (mosaic) startMosaic();
 }}
