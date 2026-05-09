@@ -390,9 +390,9 @@ async function start() {{
 
         // apply zoom
         if (e.deltaY < 0) {{
-            timelineZoom /= zoomFactor;
-        }} else {{
             timelineZoom *= zoomFactor;
+        }} else {{
+            timelineZoom /= zoomFactor;
         }}
 
         timelineZoom =
@@ -410,7 +410,18 @@ async function start() {{
 
     }}, {{ passive: false }});
 
+    const fixCursor = () => {{
+        const el = document.querySelector("#timeline_bars_img");
+        if (!el) return;
+
+        el.style.cursor = "default";
+        el.querySelectorAll("*").forEach(n => n.style.cursor = "default");
+    }};
+    setInterval(fixCursor, 500);    
+
     if (mosaic) startMosaic();
+
+
 }}
 console.log("loaded javascript")
 start();
@@ -1040,29 +1051,31 @@ start();
                     #timeline_scroll_json {
                         display: none !important;
                     }
-                    #timeline_row {
-                        text-align: left;
+                    /* =====================================================
+                    HARD RESET CURSOR FOR GRADIO IMAGE COMPONENT
+                    ===================================================== */
+
+                    #timeline_bars_img,
+                    #timeline_bars_img *,
+                    #timeline_bars_img *::before,
+                    #timeline_bars_img *::after {
+                        cursor: default !important;
                     }
-                    #timeline_labels_img img { object-fit: contain !important;
-                                               height: 100% !important; }
-                    #timeline_bars_img img   { object-fit: contain !important;
-                                               height: 100% !important;
-                                               cursor: default !important;
-                                               -webkit-user-drag: none !important;
-                                               user-select: none !important;
-                    }
-                    /* class lives on container now */
-                    #timeline_bars_img.zoom img {
+
+                    /* zoom state */
+                    #timeline_bars_img.zoom,
+                    #timeline_bars_img.zoom *,
+                    #timeline_bars_img.zoom *::before,
+                    #timeline_bars_img.zoom *::after {
                         cursor: zoom-in !important;
                     }
 
-                    #timeline_bars_img.dragging img {
+                    /* dragging state */
+                    #timeline_bars_img.dragging,
+                    #timeline_bars_img.dragging *,
+                    #timeline_bars_img.dragging *::before,
+                    #timeline_bars_img.dragging *::after {
                         cursor: grabbing !important;
-                    }
-
-                    #timeline_legend_img img {
-                        object-fit: contain !important;
-                        height: 100% !important;
                     }
                     """,
                 )
