@@ -284,18 +284,24 @@ async function start() {{
     // TIMELINE SCROLL + ZOOM CONTROL
     // ------------------------------------------------------------
 
-    async function scheduleRedraw() {{
+    // immediate redraw
+    function redrawNow() {{
+        window.dispatchEvent(
+            new CustomEvent("timeline-update", {{
+                detail: {{
+                    zoom: timelineZoom,
+                    offset: timelineOffset
+                }}
+            }})
+        );
+    }}
+
+    // throttled redraw fallback (optional)
+    function scheduleRedraw() {{
         clearTimeout(redrawTimeout);
 
         redrawTimeout = setTimeout(() => {{
-            window.dispatchEvent(
-                new CustomEvent("timeline-update", {{
-                    detail: {{
-                        zoom: timelineZoom,
-                        offset: timelineOffset
-                    }}
-                }})
-            );
+            redrawNow();
         }}, redrawDelay);
     }}
 
@@ -303,16 +309,20 @@ async function start() {{
     const timelineScrollJson = await waitForElement("#timeline_scroll_json textarea, #timeline_scroll_json input");
     const timeline_viewport = await waitForElement("#timeline_row");
     const timeline_bars_img = await waitForElement("#timeline_bars_img");
+    const img = document.querySelector("#timeline_bars_img img");
+    console.log("img:", img)
     timeline_bars_img.draggable = false;
 
     timeline_bars_img.addEventListener("dragstart", (e) => {{
         e.preventDefault();
     }});
 
-    timelineContainer.addEventListener("mousedown", async (e) => {{
-        const viewport = await waitForElement("#timeline_row");
-        if (!viewport.contains(e.target)) return;
+    timelineContainer.addEventListener("mousedown", (e) => {{
+        if (!timeline_viewport.contains(e.target)) return;
         if (!e.shiftKey) return;
+    
+        const img = document.querySelector("#timeline_bars_img img");
+        if (img) img.classList.add("dragging");
 
         isDragging = true;
         dragStartX = e.clientX;
@@ -322,20 +332,36 @@ async function start() {{
         dragStartOffset = timelineOffset;
     }});
 
-    timelineContainer.addEventListener("mousemove", async (e) => {{
+    timelineContainer.addEventListener("mousemove", (e) => {{
         if (!isDragging) return;
 
-        const viewport = await waitForElement("#timeline_row");
         const dx = e.clientX - dragStartX;
-        const hoursPerPixel = dragStartZoom / viewport.clientWidth;
+        const hoursPerPixel = dragStartZoom / timeline_viewport.clientWidth;
 
         // base everything off snapshot, not current state
+        // drag right = move to past
+        // drag left  = move to future
         timelineOffset = dragStartOffset + (dx * hoursPerPixel);
+
+        redrawNow();
+    }});
+
+    document.addEventListener("keydown", (e) => {{
+        if (!e.shiftKey) return;
+
+        const img = document.querySelector("#timeline_bars_img img");
+        if (img) img.classList.add("zoom");
         }});
 
-    timelineContainer.addEventListener("mouseup", async () => {{
-        if (isDragging) await scheduleRedraw();
+    document.addEventListener("keyup", (e) => {{
+        const img = document.querySelector("#timeline_bars_img img");
+        if (img) img.classList.remove("zoom");
+    }});
+
+    document.addEventListener("mouseup", async () => {{
         isDragging = false;
+        const img = document.querySelector("#timeline_bars_img img");
+        if (img) img.classList.remove("dragging");
     }});
 
     timeline_viewport.addEventListener("mouseenter", () => {{
@@ -348,26 +374,45 @@ async function start() {{
 
     // Attach scroll handler
     timelineContainer.addEventListener("wheel", async (e) => {{
-        const viewport = await waitForElement("#timeline_row");
-
-        if (!viewport.contains(e.target)) return;
+        if (!timeline_viewport.contains(e.target)) return;
         if (!e.shiftKey) return;
 
+        // only vertical wheel controls zoom
         if (Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return;
 
         e.preventDefault();
 
-        const zoomFactor = 1.15;
+        const zoomFactor = 1.05;
 
+        // zoom around cursor position
+        const rect = timeline_viewport.getBoundingClientRect();
+        const cursorX = e.clientX - rect.left;
+        const cursorRatio = cursorX / rect.width;
+
+        // timeline time under cursor BEFORE zoom
+        const cursorTimeBefore =
+            timelineOffset + (cursorRatio * timelineZoom);
+
+        // apply zoom
         if (e.deltaY < 0) {{
             timelineZoom /= zoomFactor;
         }} else {{
             timelineZoom *= zoomFactor;
         }}
 
-        timelineZoom = Math.max(minZoom, Math.min(maxZoom, timelineZoom));
+        timelineZoom =
+            Math.max(minZoom, Math.min(maxZoom, timelineZoom));
 
-        scheduleRedraw();
+        // preserve cursor anchor point
+        timelineOffset =
+            cursorTimeBefore - (cursorRatio * timelineZoom);
+
+        // prevent future scrolling
+        timelineOffset = Math.max(0, timelineOffset);
+
+        // immediate redraw
+        redrawNow();
+
     }}, {{ passive: false }});
 
     if (mosaic) startMosaic();
@@ -1003,9 +1048,18 @@ start();
                     #timeline_row {
                         text-align: left;
                     }
-                    .timeline_labels_img img { object-fit: contain !important; height: 100% !important; }
-                    .timeline_bars_img img   { object-fit: contain !important; height: 100% !important; }
-                    .timeline_legend_img img { object-fit: contain !important; height: 100% !important; }
+                    #timeline_labels_img img { object-fit: contain !important;
+                                               height: 100% !important; }
+                    #timeline_bars_img img   { object-fit: contain !important;
+                                               height: 100% !important;
+                                               cursor: default !important;
+                                               -webkit-user-drag: none !important;
+                                               user-select: none !important;
+                    }
+                    #timeline_bars_img img.zoom { cursor: zoom-in !important; }
+                    #timeline_bars_img img.dragging { cursor: grabbing !important; }
+                    #timeline_legend_img img { object-fit: contain !important;
+                                               height: 100% !important; }
                     """,
                 )
         except KeyboardInterrupt as e:
