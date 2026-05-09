@@ -318,11 +318,9 @@ async function start() {{
     }});
 
     timelineContainer.addEventListener("mousedown", (e) => {{
-        if (!timeline_viewport.contains(e.target)) return;
         if (!e.shiftKey) return;
     
-        const img = document.querySelector("#timeline_bars_img img");
-        if (img) img.classList.add("dragging");
+        timelineContainer.classList.add("dragging");
 
         isDragging = true;
         dragStartX = e.clientX;
@@ -349,19 +347,16 @@ async function start() {{
     document.addEventListener("keydown", (e) => {{
         if (!e.shiftKey) return;
 
-        const img = document.querySelector("#timeline_bars_img img");
-        if (img) img.classList.add("zoom");
+        timelineContainer.classList.add("zoom");
         }});
 
     document.addEventListener("keyup", (e) => {{
-        const img = document.querySelector("#timeline_bars_img img");
-        if (img) img.classList.remove("zoom");
+        timelineContainer.classList.remove("zoom");
     }});
 
     document.addEventListener("mouseup", async () => {{
         isDragging = false;
-        const img = document.querySelector("#timeline_bars_img img");
-        if (img) img.classList.remove("dragging");
+        timelineContainer.classList.remove("dragging");
     }});
 
     timeline_viewport.addEventListener("mouseenter", () => {{
@@ -1056,10 +1051,19 @@ start();
                                                -webkit-user-drag: none !important;
                                                user-select: none !important;
                     }
-                    #timeline_bars_img img.zoom { cursor: zoom-in !important; }
-                    #timeline_bars_img img.dragging { cursor: grabbing !important; }
-                    #timeline_legend_img img { object-fit: contain !important;
-                                               height: 100% !important; }
+                    /* class lives on container now */
+                    #timeline_bars_img.zoom img {
+                        cursor: zoom-in !important;
+                    }
+
+                    #timeline_bars_img.dragging img {
+                        cursor: grabbing !important;
+                    }
+
+                    #timeline_legend_img img {
+                        object-fit: contain !important;
+                        height: 100% !important;
+                    }
                     """,
                 )
         except KeyboardInterrupt as e:
