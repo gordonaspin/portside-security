@@ -31,7 +31,7 @@ from logging import (
 from typing import Any, Type, override
 from types import TracebackType
 
-import constants
+import nvr.constants as constants
 
 logger = getLogger("nvr")
 
@@ -57,7 +57,7 @@ def log_event(message, level="info", camera=None, file_path=None):
     if file_path:
         path = Path(file_path)
         if path.is_file:
-            message += f' <a href="/gradio_api/file={file_path}" target="_blank">{path.parent.name}/{path.name}</a>'
+            message += f' <a href="/{file_path}" target="_blank">{path.parent.name}/{path.name}</a>'
 
     entry = f'<div style="color:{color};font-family:monospace;">[{timestamp}] ' + (f"{camera.name:<8} " if camera else "") + f"{message}</div>"
     event_log.insert(0, entry)

@@ -2,6 +2,8 @@ click
 opencv-python
 scikit-image
 ultralytics
-gradio
 aiortc
 fastapi
+bcrypt==4.3.0
+passlib
+uvicorn

@@ -1,15 +1,18 @@
 [project]
 name = "pynvr"
 version = "1.0.0"
-description = "pynvr is a command-line tool to record motion from cameras to mp4 files"
+description = "pynvr is a NVR used to record events from cameras"
 authors = [{ name = "Gordon Aspin", email = "gordon.aspin@gmail.com" }]
 dependencies = [
     "click",
     "opencv-python",
-    "python-ffmpeg",
     "scikit-image",
     "ultralytics",
-    "gradio",
+    "aiortc",
+    "fastapi",
+    "bcrypt==4.3.0",
+    "passlib",
+    "uvicorn"
 ]
 requires-python = ">=3.14.2"
 readme = "README.md"

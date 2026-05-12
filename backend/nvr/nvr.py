@@ -13,18 +13,17 @@ import time
 from math import sqrt
 
 import cv2
-from gradio.monitoring_dashboard import data
 import numpy as np
 from numpy.typing import NDArray
 from ultralytics.engine.results import Results
 
-from camera import Camera
-import constants
+from camera.camera import Camera
+import nvr.constants as constants
 from context import Context
-from logger import log_event
-from model import Model
-from motion_profile import DayMotionProfile, NightMotionProfile, MotionProfile
-from thread_safe import ThreadSafeSet, ThreadSafePathDict
+from logger.logger import log_event
+from nvr.model import Model
+from nvr.motion_profile import DayMotionProfile, NightMotionProfile, MotionProfile
+from utils.thread_safe import ThreadSafeSet, ThreadSafePathDict, ThreadSafeList
 
 logger = getLogger("nvr")
 
@@ -33,7 +32,7 @@ logger = getLogger("nvr")
 # =========================
 class NVR:
     def __init__(self, ctx: Context):
-        self._ctx = ctx
+        self.ctx = ctx
         self._width: int = ctx.resolution[0]
         self._height: int = ctx.resolution[1]
         self._max_pixels = self._width * self._height
@@ -42,8 +41,8 @@ class NVR:
         self.yolo_confidence_threshold = ctx.confidence_threshold
         self.motion_threshold = ctx.motion_threshold
         self.stop_event: Event = Event()
-        self.debug: bool = self._ctx.debug
-        self.debug_files: bool = self._ctx.debug_files
+        self.debug: bool = self.ctx.debug
+        self.debug_files: bool = self.ctx.debug_files
         self.selected_classes: list[int] = self.model.class_to_index(ctx.classes)
 
         self._recordings_dir: str = ctx.directory
@@ -51,7 +50,7 @@ class NVR:
         self._images_dir: str = os.path.join(self._recordings_dir, "images")
         self._metadata_dir: str = os.path.join(self._recordings_dir, "metadata")
         self._do_not_delete_set: ThreadSafeSet = ThreadSafeSet()
-        self.recordings: ThreadSafePathDict = ThreadSafePathDict()
+        self.recordings: ThreadSafeList = ThreadSafeList()
         os.makedirs(self._recordings_dir, exist_ok=True)
         os.makedirs(self._segments_dir, exist_ok=True)
         os.makedirs(self._images_dir, exist_ok=True)
@@ -71,12 +70,12 @@ class NVR:
 
     def update_yolo_confidence_threshold(self, val):
         self.yolo_confidence_threshold = val
-        for camera in self.cameras:
+        for camera in self.cameras.values():
             self.set_camera_motion_profile(camera)
 
     def update_motion_threshold(self, val):
         self.motion_threshold = val
-        for camera in self.cameras:
+        for camera in self.cameras.values():
             self.set_camera_motion_profile(camera)
 
     def set_camera_motion_profile(self, camera: Camera):
@@ -193,7 +192,7 @@ class NVR:
         every 5 seconds and restart if necessary
         """
         while not self.stop_event.is_set():
-            self.recordings.update(self._load_events())
+            self.recordings = ThreadSafeList(self._load_events())
             time.sleep(5)
             for camera in self.cameras.values():
                 if camera.process and camera.process.poll() is not None:
@@ -249,10 +248,10 @@ class NVR:
         def worker():
             tags_str = self._tags_to_str(tags)
             timestamp_name_tags = timestamp + "_" + tags_str
-            list_filename = os.path.join(self._ctx.log_directory, f"{camera.name}_{timestamp_name_tags}.txt")
+            list_filename = os.path.join(self.ctx.log_directory, f"{camera.name}_{timestamp_name_tags}.txt")
             metadata_filename = os.path.join(camera.metadata_dir, timestamp_name_tags + ".json")
             mp4_filename = os.path.join(camera.recordings_dir, timestamp_name_tags + ".mp4")
-            merge_log_filename = os.path.join(self._ctx.log_directory, timestamp_name_tags + "_merge.log")
+            merge_log_filename = os.path.join(self.ctx.log_directory, timestamp_name_tags + "_merge.log")
 
             self._do_not_delete_set.update(segments)
             with open(list_filename,"w") as f:
@@ -271,7 +270,6 @@ class NVR:
             with open(metadata_filename, "w") as f:
                 json_data = {
                     "camera": camera.name,
-                    "segments": segments,
                     "tags": serializable_tags,
                     "output": mp4_filename,
                     "start_time": timestamp_to_epoch(os.path.basename(segments[0]).split(".")[0]),
@@ -348,16 +346,20 @@ class NVR:
             log_event(message=f"recording available {formatted_duration} {os.path.basename(output)}", level="record", camera=camera, file_path=output)
 
     def _load_events(self):
-        grouped = defaultdict(list)
+        flat = []
+
         for camera in self.cameras.values():
             if camera.enabled:
-                events = []
                 for f in glob.glob(f"{camera.metadata_dir}/*.json"):
                     with open(f) as fp:
-                        events.append(json.load(fp))
-                events.sort(key=lambda x: x["start_time"])
-                grouped[camera.name] = events
-        return grouped
+                        event = json.load(fp)
+                        event.pop("segments", None)
+                        flat.append(event)
+
+        # Sort globally by start_time
+        flat.sort(key=lambda x: x["start_time"])
+
+        return flat
 
     def _frame_reader(self, camera: Camera):
         """

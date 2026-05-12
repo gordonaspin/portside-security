@@ -11,7 +11,7 @@ import numpy as np
 from aiortc.mediastreams import VideoStreamTrack
 from av import VideoFrame
 
-from camera import Camera
+from camera.camera import Camera
 
 class CameraTrack(VideoStreamTrack):
     """

@@ -214,4 +214,6 @@ recordings
 *.pt
 logs
 nvr.json
-.gradio
+backend/frontend_dist/
+frontend/.npmrc
+frontend/README.md

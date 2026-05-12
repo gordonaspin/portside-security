@@ -6,8 +6,8 @@ import time
 import numpy as np
 from numpy.typing import NDArray
 
-from model import Model
-from motion_profile import MotionProfile, DayMotionProfile, NightMotionProfile
+from nvr.model import Model
+from nvr.motion_profile import MotionProfile, DayMotionProfile, NightMotionProfile
 
 class RollingAverage:
     def __init__(self, window_size=100):
