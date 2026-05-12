@@ -5,7 +5,7 @@
 ## Overview
 `pynvr` uses ffmpeg to read RTSP streams. Each stream has its own ffmpeg subprocess that reads the stream and simultaneously writes to segment files and stdout. The segment files are not re-encoded, and the stdout output stream frames are converted to OpenCV2 format and resized to a frame size defined in the nvr.json config file. pynvr starts a thread per camera to read frames from the stdout stream and puts the latest frame to a per-camere queue. pynvr starts a second thread per camera to process the frame from the queue. Frame processing determines motion and object identificaation. When thresholds are met, recording is started. After a period of no motion, the recording is stopped and pynvr joins the segments together, re-encoding them to H.264.
 
-`pynvr` has a user interface with controls to adjust thresholds and objects to be detected. pynvr is a server process that does not need a client to attach. The GUI implementation uses Gradio to render frames from the cameras. The GUI presents rows of up to 5 cameras per row, a log window and and list of hyperlinks to recordings.
+`pynvr` has a user interface with controls to adjust thresholds and objects to be detected. pynvr is a server process that does not need a client to attach. The GUI implementation is svelte components and Javascript. The GUI presents rows of up to 5 cameras per row, a timeline of recorded events, a log window and and list of hyperlinks to recordings.
 ## Architecture / Design
 `pynvr` implements an efficient, robust pipeline to stream per cameraa for motion and object detection and recording file creation. The pipeline is as follows:
 ```code
@@ -46,6 +46,20 @@ Install the required python libraries
 ```bash
 pip install -r requirements.txt
 ```
+Install nodejs and npm, if needed
+```bash
+curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+sudo apt-get install -y nodejs
+```
+Install project dependencies
+```bash
+cd frontend
+npm install
+```
+Build the frontend GUI application
+```bash
+npm run build
+```
 ## Usage - Command line options
 #### -d | --directory path/to/folder
 Required argument of a path to a pre-existing folder to write recordings to.
@@ -56,7 +70,7 @@ If supplied `pynvr` will apply those credentials to the RTSP urls specified in y
 #### --gui-username username --gui_password password
 If supplied `pynvr` will apply these credentials to the GUI and will present a login challenge that accepts these credentials only.
 ```bash
-python app.py -d <recordings folder> -u rtsp-username -p rtsp-password
+python backend/app.py -d <recordings folder> -u rtsp-username -p rtsp-password
 ```
 ## Config
 Configuration is provided in a nvr.json file. "downsize_resolution" specifies the [x, y] dimensions in pixels to resize frames to for YOLO processing and rendering on the GUI. "yolo.model" specifies the name of the YOLO model to use. "yolo.classes" is an array of coco classes of objects to detect in the image processing. Each camera is named and specifies the URL and a boolean to set enabled/disabled.
@@ -70,23 +84,28 @@ Configuration is provided in a nvr.json file. "downsize_resolution" specifies th
     "cameras": {
         "Cam1": {
             "url": "rtsp://username:password@hostname:554/cam/realmonitor?channel=3&subtype=1",
-            "enabled": true
+            "enabled": true,
+            "debug": false
         },
         "Cam2": {
             "url": "rtsp://username:password@hostname:554/cam/realmonitor?channel=4&subtype=1",
-            "enabled": true
+            "enabled": true,
+            "debug": false
         },
         "Cam3": {
             "url": "rtsp://username:password@hostname:554/cam/realmonitor?channel=5&subtype=1",
-            "enabled": true
+            "enabled": true,
+            "debug": false
         },
         "Cam4": {
             "url": "rtsp://username:password@hostname:554/cam/realmonitor?channel=2&subtype=1",
-            "enabled": true
+            "enabled": true,
+            "debug": false
         },
         "Cam5": {
             "url": "rtsp://username:password@hostname:554/cam/realmonitor?channel=1&subtype=1",
-            "enabled": true
+            "enabled": true,
+            "debug": false
         }
     }
 }
