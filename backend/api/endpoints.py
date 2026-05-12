@@ -187,8 +187,8 @@ def create_app(ctx: Context, nvr: NVR):
         events = list(nvr.recordings)
         if mobile:
             cutoff_time = datetime.now() - timedelta(hours=4)
-            start_times = [obj["start_time"] for obj in events]
-            index = bisect.bisect_left(start_times, cutoff_time.timestamp())
+            end_times = [obj["end_time"] for obj in events]
+            index = bisect.bisect_left(end_times, cutoff_time.timestamp())
             events = events[index:]
         return {"events": list(nvr.recordings)}
 

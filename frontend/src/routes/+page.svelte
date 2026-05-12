@@ -25,7 +25,7 @@
   function fmt(ts) {
     const d = new Date(ts * 1000);
     const pad = n => String(n).padStart(2, '0');
-    return `${d.getFullYear()}:${pad(d.getMonth()+1)}:${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+    return `${pad(d.getMonth()+1)}/${pad(d.getDate())}/${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
   }
 
   function handleSelectEvent(e) {
