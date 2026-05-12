@@ -271,6 +271,7 @@ class NVR:
                 json_data = {
                     "camera": camera.name,
                     "tags": serializable_tags,
+                    "segments": segments,
                     "output": mp4_filename,
                     "start_time": timestamp_to_epoch(os.path.basename(segments[0]).split(".")[0]),
                     "end_time": timestamp_to_epoch(os.path.basename(segments[-1]).split(".")[0]),
