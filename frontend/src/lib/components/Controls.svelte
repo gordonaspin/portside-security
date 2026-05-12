@@ -159,7 +159,7 @@
     background: #111;
     border-radius: 4px;
     font-family: "Fira Code", "JetBrains Mono", Consolas, monospace;
-    font-size: 0.9rem; /* or 14px */
+    font-size: 0.7rem; /* or 14px */
     color: #eee;
     position: relative;
     z-index: 10000;
@@ -203,8 +203,8 @@
   }
 
   .control-label {
-    width: 180px;
-    flex: 0 0 180px;
+    width: 80px;
+    flex: 0 0 80px;
     text-align: right;
     color: #eee;
   }
