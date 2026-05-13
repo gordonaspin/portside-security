@@ -386,7 +386,7 @@
 
       offsetSeconds = panStartOffset + dx / pxPerSecond;
 
-      const minOffset = isMobile ? DAY - 4 * HOUR : 0;
+      const minOffset = 0;  // cannot go into the future
       const maxOffset = DAY - zoomHours * HOUR;
       offsetSeconds = Math.max(minOffset, Math.min(maxOffset, offsetSeconds));
 
@@ -419,7 +419,7 @@
       offsetSeconds =
         midSeconds + (zoomCenterX - LEFT_MARGIN) / pxPerSecondAfter;
 
-      const minOffset = isMobile ? DAY - 4 * HOUR : 0;
+      const minOffset = 0;  // cannot go into the future
       const maxOffset = DAY - zoomHours * HOUR;
       offsetSeconds = Math.max(minOffset, Math.min(maxOffset, offsetSeconds));
 
@@ -504,7 +504,6 @@
 
     if (isMobile) {
       zoomHours = 4;
-      offsetSeconds = DAY - 4 * HOUR;
     }
     
     LEFT_MARGIN = computeDynamicLeftMargin();
