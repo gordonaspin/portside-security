@@ -216,3 +216,6 @@ nvr.json
 backend/frontend_dist/
 frontend/.npmrc
 frontend/README.md
+nohup.out
+frontend/.svelte-kit/
+frontend/node_modules/

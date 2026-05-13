@@ -22,7 +22,6 @@ _NVR = None
 def shutdown(signum, frame):
     _NVR.stop_event.set()
     _NVR.stop()
-    sys.exit()
 
 signal.signal(signal.SIGINT, shutdown)
 signal.signal(signal.SIGTERM, shutdown)
@@ -111,6 +110,7 @@ def main(directory, username, password, gui_username, gui_password,
 
     app = create_app(ctx, nvr)
     uvicorn.run(app, host=ctx.bind_address, port=7860, log_level="info")
+    logger.info("Exiting")
 
 if __name__ == "__main__":
     main()

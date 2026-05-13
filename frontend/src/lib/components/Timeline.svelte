@@ -11,13 +11,11 @@
   let canvas;
   let ctx;
 
-  // ----------------------------------------
-  // Constants
-  // ----------------------------------------
   const HOUR = 3600;
   const DAY = 24 * HOUR;
 
-  const isMobile = typeof window !== "undefined" &&
+  const isMobile =
+    typeof window !== "undefined" &&
     /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
 
   let zoomHours = 24;
@@ -32,9 +30,6 @@
   const HEADER_HEIGHT = TICK_HEIGHT + 20;
   const LEGEND_HEIGHT = 24;
 
-  // ----------------------------------------
-  // Server time
-  // ----------------------------------------
   let serverNow = 0;
 
   async function loadServerTime() {
@@ -43,17 +38,20 @@
     serverNow = data.epoch;
   }
 
-  // ----------------------------------------
-  // Backend data
-  // ----------------------------------------
   async function loadClasses() {
     const res = await fetch("/api/classes", { credentials: "include" });
     const data = await res.json();
     classes = data.classes;
 
     const palette = [
-      "#ff4444", "#4488ff", "#aa44ff", "#ffff44",
-      "#ff8844", "#aa6633", "#44ff44", "#44ffff"
+      "#ff4444",
+      "#4488ff",
+      "#aa44ff",
+      "#ffff44",
+      "#ff8844",
+      "#aa6633",
+      "#44ff44",
+      "#44ffff"
     ];
 
     classColors = {};
@@ -68,12 +66,21 @@
   }
 
   async function loadEvents() {
-    const res = await fetch(`/api/events?mobile=${isMobile ? 1 : 0}`, { credentials: "include" });
+    const res = await fetch(
+      `/api/events?mobile=${isMobile ? 1 : 0}`,
+      { credentials: "include" }
+    );
     const data = await res.json();
 
-    events = data.events.map(rec => {
-      const video_url_encoded = rec.output.split("/").map(encodeURIComponent).join("/");
-      const metadata_url_encoded = rec.metadata.split("/").map(encodeURIComponent).join("/");
+    events = data.events.map((rec) => {
+      const video_url_encoded = rec.output
+        .split("/")
+        .map(encodeURIComponent)
+        .join("/");
+      const metadata_url_encoded = rec.metadata
+        .split("/")
+        .map(encodeURIComponent)
+        .join("/");
 
       return {
         ...rec,
@@ -83,9 +90,6 @@
     });
   }
 
-  // ----------------------------------------
-  // Timeline math
-  // ----------------------------------------
   function getTimelineBounds() {
     const end = serverNow - offsetSeconds;
     const start = end - zoomHours * HOUR;
@@ -98,14 +102,11 @@
     return LEFT_MARGIN + ((ts - start) / total) * (canvas.width - LEFT_MARGIN);
   }
 
-  // ----------------------------------------
-  // Drawing
-  // ----------------------------------------
   function drawTimeline() {
     if (!ctx) return;
 
-    const w = canvas.width = canvas.clientWidth;
-    const h = canvas.height = canvas.clientHeight;
+    const w = (canvas.width = canvas.clientWidth);
+    const h = (canvas.height = canvas.clientHeight);
 
     ctx.clearRect(0, 0, w, h);
 
@@ -128,7 +129,7 @@
     const y = canvas.height - LEGEND_HEIGHT + 4;
     let x = LEFT_MARGIN;
 
-    classes.forEach(cls => {
+    classes.forEach((cls) => {
       ctx.fillStyle = classColors[cls];
       ctx.fillText(cls, x, y);
       x += ctx.measureText(cls).width + 20;
@@ -165,7 +166,7 @@
       labelEvery = isMobileView ? 300 : 120;
     }
 
-    const labelFormat = ts => {
+    const labelFormat = (ts) => {
       const d = new Date(ts * 1000);
       return (
         d.getHours().toString().padStart(2, "0") +
@@ -234,7 +235,7 @@
   }
 
   function cameraRowIndex(name) {
-    return cameras.findIndex(c => c.name === name);
+    return cameras.findIndex((c) => c.name === name);
   }
 
   function drawEvents(w) {
@@ -248,7 +249,7 @@
 
     const { start, end } = getTimelineBounds();
 
-    events.forEach(ev => {
+    events.forEach((ev) => {
       const row = cameraRowIndex(ev.camera);
       if (row === -1) return;
 
@@ -297,7 +298,7 @@
   function findEventAt(x, y) {
     const { start, end } = getTimelineBounds();
 
-    return events.find(ev => {
+    return events.find((ev) => {
       const row = cameraRowIndex(ev.camera);
       if (row === -1) return false;
 
@@ -315,13 +316,12 @@
   // Pointer Events — Unified Gestures
   // ----------------------------------------
   let pointers = new Map();
-
   let panStartX = 0;
   let panStartOffset = 0;
+  let isDragging = false;
 
   let zoomStartY = 0;
   let zoomStartHours = 0;
-
   let zoomCenterX = 0;
   let zoomCenterSeconds = 0;
 
@@ -329,15 +329,15 @@
 
   function onPointerDown(e) {
     pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
-
-    // Hover still works because we don't capture until pan/zoom starts
-    handleHover(e);
+    canvas.setPointerCapture(e.pointerId);
 
     if (pointers.size === 1) {
       panStartX = e.clientX;
       panStartOffset = offsetSeconds;
+      isDragging = false;
 
       tapStart = { x: e.clientX, y: e.clientY, time: performance.now() };
+      handleHover(e);
     }
 
     if (pointers.size === 2) {
@@ -358,32 +358,28 @@
   }
 
   function onPointerMove(e) {
-    if (!pointers.has(e.pointerId)) return;
-
-    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
-
-    // Hover path (no capture)
-    if (pointers.size === 1 && !canvas.hasPointerCapture(e.pointerId)) {
+    // Pure hover (mouse move, no buttons)
+    if (e.pointerType === "mouse" && e.buttons === 0) {
       handleHover(e);
       return;
     }
 
-    // PAN (start only after movement threshold)
+    if (!pointers.has(e.pointerId)) return;
+
+    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+    // Single pointer: hover or pan
     if (pointers.size === 1) {
       const dx = e.clientX - panStartX;
 
-      // If not dragging yet, check threshold
-      if (!canvas.hasPointerCapture(e.pointerId)) {
+      if (!isDragging) {
         if (Math.abs(dx) < 3) {
-          // Still hover mode
           handleHover(e);
           return;
         }
-        // Movement threshold passed → start pan
-        canvas.setPointerCapture(e.pointerId);
+        isDragging = true;
       }
 
-      // Now we are in pan mode
       const w = canvas.clientWidth;
       const usableWidth = w - LEFT_MARGIN;
       const pxPerSecond = usableWidth / (zoomHours * HOUR);
@@ -398,13 +394,8 @@
       return;
     }
 
-    // ZOOM
+    // Two pointers: vertical zoom
     if (pointers.size === 2) {
-      for (const id of pointers.keys()) {
-        if (!canvas.hasPointerCapture(id)) {
-            canvas.setPointerCapture(id);
-        }
-      }
       const pts = [...pointers.values()];
       const centerY = (pts[0].y + pts[1].y) / 2;
       const dy = centerY - zoomStartY;
@@ -437,10 +428,12 @@
   }
 
   function onPointerUp(e) {
-    canvas.releasePointerCapture(e.pointerId);
+    if (canvas.hasPointerCapture(e.pointerId)) {
+      canvas.releasePointerCapture(e.pointerId);
+    }
     pointers.delete(e.pointerId);
 
-    if (tapStart && pointers.size === 0) {
+    if (!isDragging && tapStart && pointers.size === 0) {
       const dx = Math.abs(e.clientX - tapStart.x);
       const dy = Math.abs(e.clientY - tapStart.y);
       const dt = performance.now() - tapStart.time;
@@ -450,7 +443,10 @@
       }
     }
 
-    tapStart = null;
+    if (pointers.size === 0) {
+      isDragging = false;
+      tapStart = null;
+    }
   }
 
   function handleTap(clientX, clientY) {
@@ -462,9 +458,6 @@
     if (ev) onSelectEvent(ev);
   }
 
-  // ----------------------------------------
-  // Wheel zoom (desktop)
-  // ----------------------------------------
   function handleWheel(e) {
     e.preventDefault();
 
@@ -486,7 +479,7 @@
     const newPxPerSecond = usableWidth / (newZoom * HOUR);
     const newStart = timeAtCursor - (x - LEFT_MARGIN) / newPxPerSecond;
 
-    const newOffset = (serverNow - newStart) - newZoom * HOUR;
+    const newOffset = serverNow - newStart - newZoom * HOUR;
 
     offsetSeconds = Math.max(0, Math.min(DAY - newZoom * HOUR, newOffset));
     zoomHours = newZoom;
