@@ -21,7 +21,7 @@
   let zoomHours = 24;
   let offsetSeconds = 0;
 
-  const MIN_ZOOM = isMobile ? 0.05 : 0.25;
+  const MIN_ZOOM = isMobile ? 0.05 : 0.05;
   const MAX_ZOOM = isMobile ? 4 : 24;
 
   let LEFT_MARGIN = 140;
@@ -242,6 +242,8 @@
   function drawEvents(w) {
     const usableWidth = w - LEFT_MARGIN;
     const timelineHeight = canvas.height - LEGEND_HEIGHT;
+    const minWidth = 5
+    const eventBorderStyle = "#DDDDDD"
 
     ctx.save();
     ctx.beginPath();
@@ -267,6 +269,13 @@
       if (evClasses.length === 0) {
         ctx.fillStyle = "#0f0";
         ctx.fillRect(x1, y + 5, width, ROW_HEIGHT - 10);
+
+        if (width > minWidth) {
+          // outline
+          ctx.lineWidth = 1;
+          ctx.strokeStyle = eventBorderStyle;
+          ctx.strokeRect(x1 + 0.5, y + 5 + 0.5, width - 1, (ROW_HEIGHT - 10) - 1);
+        }
         return;
       }
 
@@ -276,6 +285,13 @@
         ctx.fillStyle = classColors[cls] || "#fff";
         ctx.fillRect(x1, y + 5 + i * stripeHeight, width, stripeHeight);
       });
+
+      if (width > minWidth) {
+        // outline for multi‑stripe events
+        ctx.lineWidth = 1;
+        ctx.strokeStyle = eventBorderStyle;
+        ctx.strokeRect(x1 + 0.5, y + 5 + 0.5, width - 1, (ROW_HEIGHT - 10) - 1);
+      }
     });
 
     ctx.restore();
@@ -524,7 +540,7 @@
     loadEventsInterval = setInterval(async () => {
       await loadEvents();
       drawTimeline();
-    }, 15000);
+    }, 5000);
   });
 
   onDestroy(() => {
