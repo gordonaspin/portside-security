@@ -2,38 +2,30 @@
   import { onMount, onDestroy } from "svelte";
 
   export let onSelectEvent = () => {};
+  const TICK_HEIGHT = 20;
+  const ROW_HEIGHT = 40;
+  const HEADER_HEIGHT = TICK_HEIGHT + 36;  // extra band for date header
+  const LEGEND_HEIGHT = 24;
+  const HOUR = 3600;
+  const DAY = 24 * HOUR;
+  const isMobile =
+    typeof window !== "undefined" &&
+    /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+  const MIN_ZOOM = isMobile ? 0.05 : 0.05;
+  const MAX_ZOOM = isMobile ? 4 : 24;
 
   let cameras = [];
   let events = [];
   let classes = [];
   let classColors = {};
-
   let selectedClasses = new Set();
-
   let canvas;
   let ctx;
-
-  const HOUR = 3600;
-  const DAY = 24 * HOUR;
-
-  const isMobile =
-    typeof window !== "undefined" &&
-    /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-
+  let initialAligned = false;
   let zoomHours = 24;          // desktop: 24h window; mobile: overridden to 4h on mount
   let offsetSeconds = 0;       // desktop: aligned to latest event; mobile: live edge (0)
-
-  const MIN_ZOOM = isMobile ? 0.05 : 0.05;
-  const MAX_ZOOM = isMobile ? 4 : 24;
-
-  let LEFT_MARGIN = 140;
-  const TICK_HEIGHT = 20;
-  const ROW_HEIGHT = 40;
-  const HEADER_HEIGHT = TICK_HEIGHT + 36;  // extra band for date header
-  const LEGEND_HEIGHT = 24;
-
+  let computedLeftMargin = 140;
   let serverNow = 0;
-
   let legendItems = [];
 
   async function loadServerTime() {
@@ -93,10 +85,19 @@
       };
     });
 
-    // Desktop: align right edge to latest event on each load
-    if (!isMobile && events.length > 0) {
-      const latestEnd = Math.max(...events.map((e) => e.end_time));
-      offsetSeconds = Math.max(0, serverNow - latestEnd);
+    // Desktop: align right edge to latest event on initial load only
+    if (!initialAligned) {
+      if (!isMobile && events.length > 0) {
+        const latestEnd = Math.max(...events.map((e) => e.end_time));
+        offsetSeconds = Math.max(0, serverNow - latestEnd);
+      }
+
+      if (isMobile) {
+        zoomHours = 4;
+        offsetSeconds = 0; // live edge
+      }
+
+      initialAligned = true;
     }
   }
 
@@ -109,7 +110,7 @@
   function xFor(ts) {
     const { start, end } = getTimelineBounds();
     const total = end - start;
-    return LEFT_MARGIN + ((ts - start) / total) * (canvas.width - LEFT_MARGIN);
+    return computedLeftMargin + ((ts - start) / total) * (canvas.width - computedLeftMargin);
   }
 
   function drawTimeline() {
@@ -137,7 +138,7 @@
     ctx.textBaseline = "top";
 
     const y = canvas.height - LEGEND_HEIGHT + 4;
-    let x = LEFT_MARGIN;
+    let x = computedLeftMargin;
 
     legendItems = [];
 
@@ -194,7 +195,7 @@
     ctx.font = "12px sans-serif";
 
     const { start, end } = getTimelineBounds();
-    const usableWidth = w - LEFT_MARGIN;
+    const usableWidth = w - computedLeftMargin;
     const totalSeconds = end - start;
 
     const isMobileView = isMobile;
@@ -310,7 +311,7 @@
       const y = HEADER_HEIGHT + i * ROW_HEIGHT;
 
       ctx.strokeStyle = "#333";
-      ctx.strokeRect(LEFT_MARGIN, y, w - LEFT_MARGIN, ROW_HEIGHT);
+      ctx.strokeRect(computedLeftMargin, y, w - computedLeftMargin, ROW_HEIGHT);
 
       ctx.fillStyle = "#ccc";
       ctx.textBaseline = "middle";
@@ -323,14 +324,14 @@
   }
 
   function drawEvents(w) {
-    const usableWidth = w - LEFT_MARGIN;
+    const usableWidth = w - computedLeftMargin;
     const timelineHeight = canvas.height - LEGEND_HEIGHT;
     const minWidth = 5;
     const eventBorderStyle = "#DDDDDD";
 
     ctx.save();
     ctx.beginPath();
-    ctx.rect(LEFT_MARGIN, HEADER_HEIGHT, usableWidth, timelineHeight - HEADER_HEIGHT);
+    ctx.rect(computedLeftMargin, HEADER_HEIGHT, usableWidth, timelineHeight - HEADER_HEIGHT);
     ctx.clip();
 
     const { start, end } = getTimelineBounds();
@@ -455,11 +456,11 @@
       zoomCenterX = centerX;
 
       const w = canvas.clientWidth;
-      const usableWidth = w - LEFT_MARGIN;
+      const usableWidth = w - computedLeftMargin;
       const pxPerSecond = usableWidth / (zoomHours * HOUR);
 
       zoomCenterSeconds =
-        offsetSeconds + (centerX - LEFT_MARGIN) / pxPerSecond;
+        offsetSeconds + (centerX - computedLeftMargin) / pxPerSecond;
     }
   }
 
@@ -485,7 +486,7 @@
       }
 
       const w = canvas.clientWidth;
-      const usableWidth = w - LEFT_MARGIN;
+      const usableWidth = w - computedLeftMargin;
       const pxPerSecond = usableWidth / (zoomHours * HOUR);
 
       offsetSeconds = panStartOffset + dx / pxPerSecond;
@@ -509,18 +510,18 @@
       newZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, newZoom));
 
       const w = canvas.clientWidth;
-      const usableWidth = w - LEFT_MARGIN;
+      const usableWidth = w - computedLeftMargin;
       const pxPerSecondBefore = usableWidth / (zoomHours * HOUR);
 
       const midSeconds =
-        zoomCenterSeconds - (zoomCenterX - LEFT_MARGIN) / pxPerSecondBefore;
+        zoomCenterSeconds - (zoomCenterX - computedLeftMargin) / pxPerSecondBefore;
 
       zoomHours = newZoom;
 
       const pxPerSecondAfter = usableWidth / (zoomHours * HOUR);
 
       offsetSeconds =
-        midSeconds + (zoomCenterX - LEFT_MARGIN) / pxPerSecondAfter;
+        midSeconds + (zoomCenterX - computedLeftMargin) / pxPerSecondAfter;
 
       const minOffset = 0;
       const maxOffset = DAY - zoomHours * HOUR;
@@ -572,19 +573,19 @@
     const x = e.clientX - rect.left;
 
     const w = canvas.clientWidth;
-    const usableWidth = w - LEFT_MARGIN;
+    const usableWidth = w - computedLeftMargin;
 
     const { start } = getTimelineBounds();
     const pxPerSecond = usableWidth / (zoomHours * HOUR);
 
-    const timeAtCursor = start + (x - LEFT_MARGIN) / pxPerSecond;
+    const timeAtCursor = start + (x - computedLeftMargin) / pxPerSecond;
 
     const zoomFactor = e.deltaY < 0 ? 0.95 : 1.05;
     let newZoom = zoomHours * zoomFactor;
     newZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, newZoom));
 
     const newPxPerSecond = usableWidth / (newZoom * HOUR);
-    const newStart = timeAtCursor - (x - LEFT_MARGIN) / newPxPerSecond;
+    const newStart = timeAtCursor - (x - computedLeftMargin) / newPxPerSecond;
 
     const newOffset = serverNow - newStart - newZoom * HOUR;
 
@@ -612,11 +613,11 @@
       offsetSeconds = 0; // live edge at now
     }
 
-    LEFT_MARGIN = computeDynamicLeftMargin();
+    computedLeftMargin = computeDynamicLeftMargin();
     drawTimeline();
 
     ro = new ResizeObserver(() => {
-      LEFT_MARGIN = computeDynamicLeftMargin();
+      computedLeftMargin = computeDynamicLeftMargin();
       drawTimeline();
     });
     ro.observe(canvas);
