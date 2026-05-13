@@ -502,6 +502,11 @@
     await loadCameras();
     await loadEvents();
 
+    if (isMobile) {
+      zoomHours = 4;
+      offsetSeconds = DAY - 4 * HOUR;
+    }
+    
     LEFT_MARGIN = computeDynamicLeftMargin();
     drawTimeline();
 
