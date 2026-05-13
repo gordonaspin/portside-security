@@ -59,7 +59,7 @@ def log_event(message, level="info", camera=None, file_path=None):
         if path.is_file:
             message += f' <a href="/{file_path}" target="_blank">{path.parent.name}/{path.name}</a>'
 
-    entry = f'<div style="color:{color};font-family:monospace;">[{timestamp}] ' + (f"{camera.name:<8} " if camera else "") + f"{message}</div>"
+    entry = f'<div class="log-{level}">[{timestamp}] ' + (f"{camera.name:<8} " if camera else "") + f"{message}</div>"
     event_log.insert(0, entry)
 
     if len(event_log) > constants.MAX_LOG_LINES:

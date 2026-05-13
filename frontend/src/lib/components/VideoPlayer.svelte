@@ -4,10 +4,9 @@
   const error = window.mosaic.error;
 </script>
 
-<div class="video-player-panel">
-  <h3 class="video-player-title">Video Player</h3>
-
-  <div class="video-player-body">
+<h3 class="video-player-title">Video Player</h3>
+<!--div class="video-player-panel"-->
+  <!--div class="video-player-body"-->
     {#if event}
       <video
         key={event.video_url}
@@ -19,8 +18,8 @@
     {:else}
       <p class="no-video">No video selected.</p>
     {/if}
-  </div>
-</div>
+  <!--/div-->
+<!--/div-->
 
 <style>
   /* Match EventInfo + EventLog panel container */
@@ -36,7 +35,6 @@
     color: #eee;
   }
 
-  /* Match EventInfo + EventLog title EXACTLY */
   .video-player-title {
     margin: 0;
     padding: 0 0 0.25rem 0;
@@ -44,14 +42,6 @@
     font-weight: bold;
     color: #eee;
     font-family: inherit;
-  }
-
-  /* Match EventInfo content box */
-  .video-player-body {
-    background: #222;
-    border: 1px solid #555;
-    border-radius: 4px;
-    padding: 0.5rem;
   }
 
   /* Video element styling */

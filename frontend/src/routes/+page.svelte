@@ -74,18 +74,21 @@
 
 </script>
 <div class="page">
+  <h3>Portside Security Cameras</h3>
   <div class="panel">
-    <h2>Portside Condominiums Security Cam Viewer</h2>
     <Controls />
   </div>
   <div class="panel">
     <MosaicVideo />
   </div>
   <div class="panel">
-    <h3>Recorded Events</h3>
     <Timeline onSelectEvent={handleSelectEvent} />
-    <VideoPlayer event={selectedEvent} />
+  </div>
+  <div class="panel">
     <EventInfo event={selectedEvent} />
+  </div>
+  <div class="panel">
+    <VideoPlayer event={selectedEvent} />
   </div>
   <div class="panel">
     <EventLog html={logHtml} on:selectVideo={(e) => handleLogVideo(e.detail)} />

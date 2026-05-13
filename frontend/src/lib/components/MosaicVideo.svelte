@@ -13,7 +13,7 @@
   window.setMosaicTitle = setMosaicTitle;
 </script>
 
-<h3>{mosaicTitle}</h3>
+<h3 class="mosaic-title">{mosaicTitle}</h3>
 <div style="text-align:center; width:100%; margin-bottom:1rem; display:{visible ? 'block' : 'none'};">
   <video
     id="mosaic"
@@ -27,3 +27,13 @@
     "
   ></video>
 </div>
+<style>
+  .mosaic-title {
+    margin: 0;
+    padding: 0 0 0.25rem 0;
+    font-size: 1rem;
+    font-weight: bold;
+    color: #eee;
+    font-family: inherit;
+  }
+</style>

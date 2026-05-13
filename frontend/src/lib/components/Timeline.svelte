@@ -639,7 +639,7 @@
     if (ro) ro.disconnect();
   });
 </script>
-
+<h3 class="timeline-title">Recorded Events</h3>
 <div class="timeline-wrapper">
   <canvas
     bind:this={canvas}
@@ -653,20 +653,17 @@
       height: {HEADER_HEIGHT + cameras.length * ROW_HEIGHT + LEGEND_HEIGHT}px;
     "
   ></canvas>
-
   {#if hoverEvent}
     <div
       class="tooltip"
       style="left: {mouseX + 12}px; top: {mouseY + 12}px;"
     >
       <div class="tooltip-title">{hoverEvent.camera}</div>
-
       <div class="tooltip-times">
         <div><strong>Start:</strong> {new Date(hoverEvent.start_time * 1000).toLocaleString()}</div>
         <div><strong>Stop:</strong> {new Date(hoverEvent.end_time * 1000).toLocaleString()}</div>
         <div><strong>Duration:</strong> {(hoverEvent.end_time - hoverEvent.start_time).toFixed(1)}s</div>
       </div>
-
       <div class="tooltip-classes">
         {#each Object.entries(hoverEvent.tags || {}) as [cls, colors]}
           <div class="tooltip-class-row">
@@ -738,5 +735,14 @@
 
   .tooltip-class-colors {
     color: #eee;
+  }
+
+  .timeline-title {
+    margin: 0;
+    padding: 0 0 0.25rem 0;
+    font-size: 1rem;
+    font-weight: bold;
+    color: #eee;
+    font-family: inherit;
   }
 </style>

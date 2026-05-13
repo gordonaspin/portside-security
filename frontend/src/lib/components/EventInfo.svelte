@@ -22,39 +22,56 @@
 
 </script>
 
+<h3 class="event-info-title">Event Info</h3>
 <div class="event-info">
-  <h3>Event Info</h3>
-
   {#if event}
-    <div><b>Camera:</b> {event.camera}</div>
-    <div><b>Start:</b> {event.start_fmt}</div>
-    <div><b>End:</b> {event.end_fmt}</div>
-
-    <div>
-      <b>Tags:</b>
+    <div class="row"><span class="label"><b>Camera:</b></span><span class="value">{event.camera}</span></div>
+    <div class="row"><span class="label"><b>Start:</b></span><span class="value">{event.start_fmt}</span></div>
+    <div class="row"><span class="label"><b>Stop:</b></span><span class="value">{event.end_fmt}</span></div>
+    <div class="row"><span class="label"><b>Duration:</b></span><span class="value">{(event.end_time - event.start_time).toFixed(1)}s</span></div>
+    <div class="row">
+      <span class="label"><b>Tags:</b></span>
+      <span class="value">
       {#each Object.entries(event.tags || {}) as [key, values], i}
         {key}({values.join(", ")}){i < Object.entries(event.tags).length - 1 ? ", " : ""}
       {/each}
+      </span>
     </div>
-    <div><b>Metadata:</b><a href="{metadataHref}" target="_blank">{metadataHref}</a></div>
+    <div class="row"><b>Metadata:</b><a href="{metadataHref}" target="_blank">{metadataHref}</a></div>
   {:else}
     <p>No event selected.</p>
   {/if}
 </div>
-
 <style>
   .event-info {
-    padding: 1rem;
-    border: 1px solid #666;
-    background: #111;
-    color: #eee;
-    border-radius: 4px;
-    font-family:monospace;
+    margin: 0;
+    /*padding: 0.5rem 0;*/
+    color: #aaa;
+    font-size: 0.9rem;
   }
   .event-info a {
     white-space: normal;
     word-break: break-all;
     overflow-wrap: anywhere;
+    color: #eee;
+    text-decoration: underline;
   }
-  
+  .event-info-title {
+    margin: 0;
+    padding: 0 0 0.25rem 0;
+    font-size: 1rem;
+    font-weight: bold;
+    color: #eee;
+    font-family: inherit;
+  }
+  .event-info .row {
+    display: grid;
+    grid-template-columns: 90px auto; /* adjust width as needed */
+  }
+  .event-info .label {
+    font-weight: bold;
+  }
+  .event-info .value {
+    white-space: nowrap;
+  }
 </style>
