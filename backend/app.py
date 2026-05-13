@@ -56,13 +56,12 @@ def replace_url_credentials(url, new_username, new_password):
 @click.option("--logging-config", default="logging-config.json")
 @click.option("--motion-threshold", default=constants.MOTION_THRESHOLD)
 @click.option("--confidence-threshold", default=constants.CONFIDENCE_THRESHOLD)
-@click.option("--motion-detect-frame-count", default=constants.MOTION_DETECT_FRAME_COUNT)
 @click.option("--debug", is_flag=True)
 @version_option()
 def main(directory, username, password, gui_username, gui_password,
          nvr_config, bind_address, logging_config,
          motion_threshold, confidence_threshold,
-         motion_detect_frame_count, debug):
+         debug):
 
     global _NVR
 
@@ -97,7 +96,6 @@ def main(directory, username, password, gui_username, gui_password,
         bind_address=bind_address,
         motion_threshold=motion_threshold,
         confidence_threshold=confidence_threshold,
-        motion_detect_frame_count=motion_detect_frame_count,
         resolution=resolution,
         model=yolo_config["model"],
         classes=yolo_config["classes"],

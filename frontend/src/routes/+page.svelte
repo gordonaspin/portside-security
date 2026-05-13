@@ -79,7 +79,6 @@
     <Controls />
   </div>
   <div class="panel">
-    <h3>Cameras</h3>
     <MosaicVideo />
   </div>
   <div class="panel">

@@ -2,8 +2,18 @@
   export let visible: boolean = true;
   const log = window.mosaic.log;
   const error = window.mosaic.error;
+
+  let mosaicTitle;
+
+  export function setMosaicTitle(t) {
+    mosaicTitle = t;
+  }
+
+  // expose to mosaic.js
+  window.setMosaicTitle = setMosaicTitle;
 </script>
 
+<h3>{mosaicTitle}</h3>
 <div style="text-align:center; width:100%; margin-bottom:1rem; display:{visible ? 'block' : 'none'};">
   <video
     id="mosaic"

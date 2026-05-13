@@ -221,16 +221,27 @@ class NVR:
             except Exception as e:
                 log_event(message=f"exception in cleanup_segments {e}", level="error")
 
-
-    def _get_segments(self, camera: Camera, n: int):
+    def _get_segments(self, camera: Camera, end_time: float):
         """
-        get the list of segment file for this camera for the duration it was recording
+        Return all .ts segments whose timestamp falls within camera.recording_start_time and now.
+        Don't add edge-case files of length zero (partial .ts file)
         """
         files = sorted(glob.glob(os.path.join(camera.segments_dir, "*.ts")))
-        return files[-n:]
+        selected = []
 
+        for f in files:
+            ts_str = os.path.basename(f).split(".")[0]  # "20260508_221056"
+            try:
+                ts = datetime.strptime(ts_str, "%Y%m%d_%H%M%S").timestamp()
+            except ValueError:
+                continue
 
-    def _merge_segments_async(self, camera: Camera, segments: list[str], tags: defaultdict[set], timestamp: str):
+            if camera.recording_start_time <= ts <= end_time:
+                selected.append(f)
+
+        return selected
+    
+    def _merge_segments_async(self, camera: Camera, tags: defaultdict[set], end_time: float):
         """
         Runs ffmpeg merge in a separate thread. When the process finishes,
         the log the event and delete the listing file.
@@ -245,76 +256,85 @@ class NVR:
             dt = datetime.strptime(ts, "%Y%m%d_%H%M%S")
             return dt.timestamp()
 
+        segments = self._get_segments(camera=camera, end_time=end_time)
+        tags_str = self._tags_to_str(tags)
+        timestamp_str = datetime.fromtimestamp(camera.recording_start_time).strftime("%Y%m%d_%H%M%S")
+        timestamp_name_tags = timestamp_str + "_" + tags_str
+        list_filename = os.path.join(self.ctx.log_directory, f"{camera.name}_{timestamp_name_tags}.txt")
+        metadata_filename = os.path.join(camera.metadata_dir, timestamp_name_tags + ".json")
+        mp4_filename = os.path.join(camera.recordings_dir, timestamp_name_tags + ".mp4")
+        merge_log_filename = os.path.join(self.ctx.log_directory, timestamp_name_tags + "_merge.log")
+        self._do_not_delete_set.update(segments)
+
         def worker():
-            tags_str = self._tags_to_str(tags)
-            timestamp_name_tags = timestamp + "_" + tags_str
-            list_filename = os.path.join(self.ctx.log_directory, f"{camera.name}_{timestamp_name_tags}.txt")
-            metadata_filename = os.path.join(camera.metadata_dir, timestamp_name_tags + ".json")
-            mp4_filename = os.path.join(camera.recordings_dir, timestamp_name_tags + ".mp4")
-            merge_log_filename = os.path.join(self.ctx.log_directory, timestamp_name_tags + "_merge.log")
+            time.sleep(2.0) # we sleep for a couple of seconds to allow ffmpeg to close the last .ts file
+            if segments:
+                with open(list_filename,"w") as f:
+                    for segment_file in segments:
+                        try:
+                            stat_entry = os.stat(segment_file)
+                            if stat_entry.st_size > 0:
+                                f.write(f"file '{os.path.abspath(segment_file)}'\n")
+                            else:
+                                continue
+                        except FileNotFoundError as e:
+                            continue
+                if self.debug:
+                    log_event(message=f"merging {len(segments)} segments {tags_str} to {mp4_filename}", level="debug", camera=camera, file_path=mp4_filename)
+                
+                # Convert to a standard dict and sets to lists
+                serializable_tags = {k: list(v) for k, v in tags.items()}
 
-            self._do_not_delete_set.update(segments)
-            with open(list_filename,"w") as f:
-                for segment_file in segments:
-                    try:
-                        if os.stat(segment_file).st_size > 0:
-                            f.write(f"file '{os.path.abspath(segment_file)}'\n")
-                    except FileNotFoundError as e:
+                with open(metadata_filename, "w") as f:
+                    json_data = {
+                        "camera": camera.name,
+                        "tags": serializable_tags,
+                        "segments": segments,
+                        "output": mp4_filename,
+                        "start_time": camera.recording_start_time,
+                        "end_time": end_time,
+                        "metadata": metadata_filename,
+                    }
+                    f.write(json.dumps(json_data, indent=4))
+
+                log_file = open(merge_log_filename, "w")
+                ffmpeg_cmd = [
+                    "ffmpeg",
+                    "-y",
+                    "-fflags", "+genpts",
+                    "-f", "concat",
+                    "-safe", "0",
+                    "-i", list_filename,
+                    "-c:v", "libx264",
+                    "-pix_fmt", "yuv420p",
+                    "-movflags", "+faststart",
+                    "-preset", "veryfast",
+                    "-crf", "23",
+                    "-vsync", "cfr",
+                    "-r", "20",
+                    "-video_track_timescale", "90000",
+                    mp4_filename
+                ]
+                try:
+                    process = subprocess.Popen(
+                        ffmpeg_cmd,
+                        stdout=subprocess.PIPE,
+                        stderr=log_file
+                    )
+
+                    stdout, stderr = process.communicate()
+
+                    if process.returncode != 0:
+                        # You can log or handle errors here if needed
                         pass
-            if self.debug:
-                log_event(message=f"merging {len(segments)} segments {tags_str} to {mp4_filename}", level="debug", camera=camera, file_path=mp4_filename)
-            
-            # Convert to a standard dict and sets to lists
-            serializable_tags = {k: list(v) for k, v in tags.items()}
 
-            with open(metadata_filename, "w") as f:
-                json_data = {
-                    "camera": camera.name,
-                    "tags": serializable_tags,
-                    "segments": segments,
-                    "output": mp4_filename,
-                    "start_time": timestamp_to_epoch(os.path.basename(segments[0]).split(".")[0]),
-                    "end_time": timestamp_to_epoch(os.path.basename(segments[-1]).split(".")[0]),
-                    "metadata": metadata_filename,
-                }
-                f.write(json.dumps(json_data, indent=4))
-
-            log_file = open(merge_log_filename, "w")
-            ffmpeg_cmd = [
-                "ffmpeg",
-                "-y",
-                "-fflags", "+genpts",
-                "-f", "concat",
-                "-safe", "0",
-                "-i", list_filename,
-                "-c:v", "libx264",
-                "-pix_fmt", "yuv420p",
-                "-movflags", "+faststart",
-                "-preset", "veryfast",
-                "-crf", "23",
-                "-vsync", "cfr",
-                "-r", "20",
-                "-video_track_timescale", "90000",
-                mp4_filename
-            ]
-            try:
-                process = subprocess.Popen(
-                    ffmpeg_cmd,
-                    stdout=subprocess.PIPE,
-                    stderr=log_file
-                )
-
-                stdout, stderr = process.communicate()
-
-                if process.returncode != 0:
-                    # You can log or handle errors here if needed
-                    pass
-
-            finally:
-                # This runs when the thread finishes (success or failure)
-                log_file.close()
-                self._do_not_delete_set -= set(segments)
-                self._merge_complete(camera, tags, mp4_filename)
+                finally:
+                    # This runs when the thread finishes (success or failure)
+                    log_file.close()
+                    self._do_not_delete_set -= set(segments)
+                    self._merge_complete(camera, tags, mp4_filename)
+            else:
+                log_event(message=f"nothing to merge: {len(segments)} segments {tags_str} to {mp4_filename}", level="debug", camera=camera, file_path=mp4_filename)
 
         thread = Thread(target=worker, daemon=True)
         thread.start()
@@ -340,8 +360,8 @@ class NVR:
         frame_count = cap.get(cv2.CAP_PROP_FRAME_COUNT)
         duration_seconds = frame_count / fps
         formatted_duration = str(timedelta(seconds=int(duration_seconds)))
-        if frame_count < constants.NO_MOTION_DETECT_FRAME_COUNT + 20 and os.path.isfile(output):
-            os.remove(output)
+        if frame_count < constants.RECORDING_FRAME_COUNT_MINIMUM and os.path.isfile(output):
+            #os.remove(output)
             log_event(message=f"recording auto-deleted {os.path.basename(output)} with {frame_count} frames", level="info", camera=camera, file_path=output)
         else:
             log_event(message=f"recording available {formatted_duration} {os.path.basename(output)}", level="record", camera=camera, file_path=output)
@@ -352,10 +372,13 @@ class NVR:
         for camera in self.cameras.values():
             if camera.enabled:
                 for f in glob.glob(f"{camera.metadata_dir}/*.json"):
-                    with open(f) as fp:
-                        event = json.load(fp)
-                        event.pop("segments", None)
-                        flat.append(event)
+                    try:
+                        with open(f) as fp:
+                            event = json.load(fp)
+                            event.pop("segments", None)
+                            flat.append(event)
+                    except FileNotFoundError:
+                        pass # it's possible a clean-up job whacked the file
 
         # Sort globally by start_time
         flat.sort(key=lambda x: x["start_time"])
@@ -678,29 +701,24 @@ class NVR:
 
             if camera.should_record and not camera.recording:
                 camera.recording = True
-                camera.active_segments_list = self._get_segments(camera, constants.PRE_RECORD_SEGMENTS)
+                camera.recording_start_time = now - constants.PRE_RECORD_DURATION
                 camera.active_objects_dict = deepcopy(camera.classes_in_frame_dict)
                 camera.last_recording_time = now
                 log_event(message=f"recording start {self._tags_to_str(camera.active_objects_dict)}", level="info", camera=camera)
 
             # update active segments and objects
             if camera.recording:
-                camera.active_segments_list += self._get_segments(camera, 1)
                 for item, colors in camera.classes_in_frame_dict.items():
                     camera.active_objects_dict[item].update(colors)
 
             # stop recoding when there has been no motion for some time
-            if camera.recording and (now - camera.last_motion_time > camera.profile.recording_linger_time):
+            if camera.recording and (now - camera.last_motion_time > constants.POST_RECORD_DURATION):
                 camera.recording = False
-                segments = list(dict.fromkeys(camera.active_segments_list))
 
-                # if we have segments, merge them into an mp4 file with timestamp and tags
-                if segments:
-                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                    tags = deepcopy(camera.active_objects_dict)
-                    self._merge_segments_async(camera, segments, tags, timestamp)
+                # merge segments between camera.recording_start_time and nowm into an mp4 file with timestamp and tags
+                tags = deepcopy(camera.active_objects_dict)
+                self._merge_segments_async(camera, tags, now)
 
-                camera.active_segments_list.clear()
                 camera.classes_in_frame_dict.clear()
                 camera.active_objects_dict.clear()
                 camera.motion_frames = 0

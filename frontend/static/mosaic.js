@@ -48,6 +48,7 @@ function attachVideoTrack(videoEl, stream) {
 // ------------------------------------------------------
 async function startMosaic() {
   log("Starting mosaic…");
+  window.setMosaicTitle("All Cameras");
 
   if (focusPC) {
     focusPC.close();
@@ -99,6 +100,7 @@ async function startMosaic() {
 // ------------------------------------------------------
 async function startFocusedCamera(name) {
   log("Starting focused camera:", name);
+  window.setMosaicTitle(name);
 
   if (mosaicPC) {
     mosaicPC.close();

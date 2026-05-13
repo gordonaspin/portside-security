@@ -20,7 +20,6 @@ class DayMotionProfile(MotionProfile):
         self.min_total_motion_area = 0.003 * max_pixels
         self.min_sum_box_area = 0.005 * max_pixels
         self.inflate_motion_boxes = 30
-        self.recording_linger_time = 4.0
         self.motion_persistence_time = 2.0   # seconds
     def set_motion_threshold(self, val):
             self.motion_threshold = int(val * self.max_pixels / 100)
@@ -42,7 +41,6 @@ class NightMotionProfile(MotionProfile):
         self.min_total_motion_area = 0.005 * max_pixels                                 # require more total motion
         self.min_sum_box_area = 0.003 * max_pixels                                      # require sum of box areas to be larger
         self.inflate_motion_boxes = 40
-        self.recording_linger_time = 4.0
         self.motion_persistence_time = 2.0   # seconds
           
     def set_motion_threshold(self, val):

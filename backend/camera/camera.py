@@ -82,6 +82,7 @@ class Camera:
     should_record: bool = False
     recording: bool = False
     is_night: bool = False
+    recording_start_time: float = 0.0
 
     # profiles
     profile: MotionProfile = None

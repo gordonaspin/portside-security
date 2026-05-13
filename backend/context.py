@@ -14,7 +14,6 @@ class Context:
     bind_address: str
     motion_threshold: float
     confidence_threshold: float
-    motion_detect_frame_count: int
     resolution: list[int, int]
     model: str
     classes: list[str]
