@@ -368,13 +368,22 @@
       return;
     }
 
-    // PAN
+    // PAN (start only after movement threshold)
     if (pointers.size === 1) {
-      if (!canvas.hasPointerCapture(e.pointerId)) {
-        canvas.setPointerCapture(e.pointerId);
-      }
       const dx = e.clientX - panStartX;
 
+      // If not dragging yet, check threshold
+      if (!canvas.hasPointerCapture(e.pointerId)) {
+        if (Math.abs(dx) < 3) {
+          // Still hover mode
+          handleHover(e);
+          return;
+        }
+        // Movement threshold passed → start pan
+        canvas.setPointerCapture(e.pointerId);
+      }
+
+      // Now we are in pan mode
       const w = canvas.clientWidth;
       const usableWidth = w - LEFT_MARGIN;
       const pxPerSecond = usableWidth / (zoomHours * HOUR);
