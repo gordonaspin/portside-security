@@ -8,7 +8,6 @@
   let classes = [];
   let classColors = {};
 
-  // Multi-select filter
   let selectedClasses = new Set();
 
   let canvas;
@@ -21,8 +20,8 @@
     typeof window !== "undefined" &&
     /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
 
-  let zoomHours = 24;
-  let offsetSeconds = 0;
+  let zoomHours = 24;          // desktop: 24h window; mobile: overridden to 4h on mount
+  let offsetSeconds = 0;       // desktop: aligned to latest event; mobile: live edge (0)
 
   const MIN_ZOOM = isMobile ? 0.05 : 0.05;
   const MAX_ZOOM = isMobile ? 4 : 24;
@@ -30,12 +29,11 @@
   let LEFT_MARGIN = 140;
   const TICK_HEIGHT = 20;
   const ROW_HEIGHT = 40;
-  const HEADER_HEIGHT = TICK_HEIGHT + 20;
+  const HEADER_HEIGHT = TICK_HEIGHT + 36;  // extra band for date header
   const LEGEND_HEIGHT = 24;
 
   let serverNow = 0;
 
-  // legend layout for hit-testing
   let legendItems = [];
 
   async function loadServerTime() {
@@ -94,6 +92,12 @@
         metadata_url: "/" + metadata_url_encoded
       };
     });
+
+    // Desktop: align right edge to latest event on each load
+    if (!isMobile && events.length > 0) {
+      const latestEnd = Math.max(...events.map((e) => e.end_time));
+      offsetSeconds = Math.max(0, serverNow - latestEnd);
+    }
   }
 
   function getTimelineBounds() {
@@ -193,7 +197,33 @@
     const usableWidth = w - LEFT_MARGIN;
     const totalSeconds = end - start;
 
-    const isMobileView = window.innerWidth < 700;
+    const isMobileView = isMobile;
+
+    // Desktop: day/date headers at local midnights
+    if (!isMobileView) {
+      const d = new Date(start * 1000);
+      d.setHours(0, 0, 0, 0); // local midnight
+      let dayTs = d.getTime() / 1000;
+
+      ctx.font = "13px sans-serif";
+      ctx.fillStyle = "#ccc";
+      ctx.textBaseline = "top";
+
+      while (dayTs < end) {
+        const x = xFor(dayTs);
+
+        const label = d.toLocaleDateString(undefined, {
+          weekday: "short",
+          month: "short",
+          day: "numeric"
+        });
+
+        ctx.fillText(label, x + 4, 2);
+
+        d.setDate(d.getDate() + 1);
+        dayTs = d.getTime() / 1000;
+      }
+    }
 
     let tickStep;
     let labelEvery;
@@ -226,6 +256,9 @@
 
     let t = Math.ceil(start / tickStep) * tickStep;
 
+    ctx.font = "12px sans-serif";
+    ctx.fillStyle = "#888";
+
     while (t < end) {
       const x = xFor(t);
 
@@ -239,8 +272,10 @@
         }
       }
 
+      const hourLabelY = isMobileView ? 2 : 20;
+
       if (t % labelEvery === 0) {
-        ctx.fillText(labelFormat(t), x + 4, 2);
+        ctx.fillText(labelFormat(t), x + 4, hourLabelY);
       }
 
       ctx.fillRect(
@@ -349,9 +384,7 @@
     ctx.restore();
   }
 
-  // ----------------------------------------
   // Hover
-  // ----------------------------------------
   let hoverEvent = null;
   let mouseX = 0;
   let mouseY = 0;
@@ -387,9 +420,7 @@
     });
   }
 
-  // ----------------------------------------
-  // Pointer Events — Unified Gestures
-  // ----------------------------------------
+  // Pointer / gestures
   let pointers = new Map();
   let panStartX = 0;
   let panStartOffset = 0;
@@ -563,9 +594,7 @@
     requestAnimationFrame(drawTimeline);
   }
 
-  // ----------------------------------------
   // Lifecycle
-  // ----------------------------------------
   let serverTimeInterval;
   let loadEventsInterval;
   let ro;
@@ -579,7 +608,8 @@
     await loadEvents();
 
     if (isMobile) {
-      zoomHours = 4;
+      zoomHours = 4;   // 4h window
+      offsetSeconds = 0; // live edge at now
     }
 
     LEFT_MARGIN = computeDynamicLeftMargin();

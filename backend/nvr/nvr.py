@@ -267,7 +267,7 @@ class NVR:
         self._do_not_delete_set.update(segments)
 
         def worker():
-            time.sleep(2.0) # we sleep for a couple of seconds to allow ffmpeg to close the last .ts file
+            time.sleep(4.0) # we sleep for a few seconds to allow ffmpeg to finish the last .ts file
             if segments:
                 with open(list_filename,"w") as f:
                     for segment_file in segments:
