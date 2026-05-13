@@ -8,6 +8,9 @@
   let classes = [];
   let classColors = {};
 
+  // Multi-select filter
+  let selectedClasses = new Set();
+
   let canvas;
   let ctx;
 
@@ -31,6 +34,9 @@
   const LEGEND_HEIGHT = 24;
 
   let serverNow = 0;
+
+  // legend layout for hit-testing
+  let legendItems = [];
 
   async function loadServerTime() {
     const res = await fetch("/api/server_time", { credentials: "include" });
@@ -129,11 +135,54 @@
     const y = canvas.height - LEGEND_HEIGHT + 4;
     let x = LEFT_MARGIN;
 
+    legendItems = [];
+
     classes.forEach((cls) => {
+      const textWidth = ctx.measureText(cls).width;
+
+      if (selectedClasses.has(cls)) {
+        ctx.fillStyle = "rgba(255,255,255,0.15)";
+        ctx.fillRect(x - 4, y - 2, textWidth + 8, 18);
+
+        ctx.strokeStyle = "#fff";
+        ctx.lineWidth = 2;
+        ctx.strokeRect(x - 4 + 0.5, y - 2 + 0.5, textWidth + 8 - 1, 18 - 1);
+      }
+
       ctx.fillStyle = classColors[cls];
       ctx.fillText(cls, x, y);
-      x += ctx.measureText(cls).width + 20;
+
+      legendItems.push({
+        cls,
+        x: x - 4,
+        y: y - 2,
+        w: textWidth + 8,
+        h: 18
+      });
+
+      x += textWidth + 20;
     });
+  }
+
+  function handleLegendClick(mx, my) {
+    for (const item of legendItems) {
+      if (
+        mx >= item.x &&
+        mx <= item.x + item.w &&
+        my >= item.y &&
+        my <= item.y + item.h
+      ) {
+        if (selectedClasses.has(item.cls)) {
+          selectedClasses.delete(item.cls);
+        } else {
+          selectedClasses.add(item.cls);
+        }
+        selectedClasses = new Set(selectedClasses);
+        drawTimeline();
+        return true;
+      }
+    }
+    return false;
   }
 
   function drawTimeTicks(w) {
@@ -216,7 +265,6 @@
       if (w > maxWidth) maxWidth = w;
     }
 
-    // 2px left padding + 6px right breathing room
     return Math.ceil(maxWidth + 8);
   }
 
@@ -242,8 +290,8 @@
   function drawEvents(w) {
     const usableWidth = w - LEFT_MARGIN;
     const timelineHeight = canvas.height - LEGEND_HEIGHT;
-    const minWidth = 5
-    const eventBorderStyle = "#DDDDDD"
+    const minWidth = 5;
+    const eventBorderStyle = "#DDDDDD";
 
     ctx.save();
     ctx.beginPath();
@@ -258,6 +306,12 @@
 
       if (ev.end_time < start || ev.start_time > end) return;
 
+      if (selectedClasses.size > 0) {
+        const evClasses = Object.keys(ev.tags || {});
+        const matches = evClasses.some((cls) => selectedClasses.has(cls));
+        if (!matches) return;
+      }
+
       const x1 = xFor(ev.start_time);
       const x2 = xFor(ev.end_time);
       const width = Math.max(2, x2 - x1);
@@ -271,7 +325,6 @@
         ctx.fillRect(x1, y + 5, width, ROW_HEIGHT - 10);
 
         if (width > minWidth) {
-          // outline
           ctx.lineWidth = 1;
           ctx.strokeStyle = eventBorderStyle;
           ctx.strokeRect(x1 + 0.5, y + 5 + 0.5, width - 1, (ROW_HEIGHT - 10) - 1);
@@ -287,7 +340,6 @@
       });
 
       if (width > minWidth) {
-        // outline for multi‑stripe events
         ctx.lineWidth = 1;
         ctx.strokeStyle = eventBorderStyle;
         ctx.strokeRect(x1 + 0.5, y + 5 + 0.5, width - 1, (ROW_HEIGHT - 10) - 1);
@@ -321,6 +373,12 @@
 
       const rowY = HEADER_HEIGHT + row * ROW_HEIGHT;
       if (y < rowY || y > rowY + ROW_HEIGHT) return false;
+
+      if (selectedClasses.size > 0) {
+        const evClasses = Object.keys(ev.tags || {});
+        const matches = evClasses.some((cls) => selectedClasses.has(cls));
+        if (!matches) return false;
+      }
 
       const x1 = xFor(ev.start_time);
       const x2 = xFor(ev.end_time);
@@ -375,7 +433,6 @@
   }
 
   function onPointerMove(e) {
-    // Pure hover (mouse move, no buttons)
     if (e.pointerType === "mouse" && e.buttons === 0) {
       handleHover(e);
       return;
@@ -385,7 +442,6 @@
 
     pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
-    // Single pointer: hover or pan
     if (pointers.size === 1) {
       const dx = e.clientX - panStartX;
 
@@ -403,7 +459,7 @@
 
       offsetSeconds = panStartOffset + dx / pxPerSecond;
 
-      const minOffset = 0;  // cannot go into the future
+      const minOffset = 0;
       const maxOffset = DAY - zoomHours * HOUR;
       offsetSeconds = Math.max(minOffset, Math.min(maxOffset, offsetSeconds));
 
@@ -411,7 +467,6 @@
       return;
     }
 
-    // Two pointers: vertical zoom
     if (pointers.size === 2) {
       const pts = [...pointers.values()];
       const centerY = (pts[0].y + pts[1].y) / 2;
@@ -436,7 +491,7 @@
       offsetSeconds =
         midSeconds + (zoomCenterX - LEFT_MARGIN) / pxPerSecondAfter;
 
-      const minOffset = 0;  // cannot go into the future
+      const minOffset = 0;
       const maxOffset = DAY - zoomHours * HOUR;
       offsetSeconds = Math.max(minOffset, Math.min(maxOffset, offsetSeconds));
 
@@ -470,6 +525,10 @@
     const rect = canvas.getBoundingClientRect();
     const x = clientX - rect.left;
     const y = clientY - rect.top;
+
+    if (y >= canvas.height - LEGEND_HEIGHT) {
+      if (handleLegendClick(x, y)) return;
+    }
 
     const ev = findEventAt(x, y);
     if (ev) onSelectEvent(ev);
@@ -522,7 +581,7 @@
     if (isMobile) {
       zoomHours = 4;
     }
-    
+
     LEFT_MARGIN = computeDynamicLeftMargin();
     drawTimeline();
 
