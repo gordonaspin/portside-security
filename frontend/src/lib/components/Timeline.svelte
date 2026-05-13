@@ -328,7 +328,6 @@
   let tapStart = null;
 
   function onPointerDown(e) {
-    canvas.setPointerCapture(e.pointerId);
     pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
     // Hover still works because we don't capture until pan/zoom starts
@@ -371,6 +370,9 @@
 
     // PAN
     if (pointers.size === 1) {
+      if (!canvas.hasPointerCapture(e.pointerId)) {
+        canvas.setPointerCapture(e.pointerId);
+      }
       const dx = e.clientX - panStartX;
 
       const w = canvas.clientWidth;
@@ -389,6 +391,11 @@
 
     // ZOOM
     if (pointers.size === 2) {
+      for (const id of pointers.keys()) {
+        if (!canvas.hasPointerCapture(id)) {
+            canvas.setPointerCapture(id);
+        }
+      }
       const pts = [...pointers.values()];
       const centerY = (pts[0].y + pts[1].y) / 2;
       const dy = centerY - zoomStartY;
@@ -421,6 +428,7 @@
   }
 
   function onPointerUp(e) {
+    canvas.releasePointerCapture(e.pointerId);
     pointers.delete(e.pointerId);
 
     if (tapStart && pointers.size === 0) {
