@@ -206,7 +206,7 @@
   }
 
   function computeDynamicLeftMargin() {
-    if (!ctx || !cameras || cameras.length === 0) return 120;
+    if (!ctx || !cameras || cameras.length === 0) return 50;
 
     ctx.font = "14px 'JetBrains Mono', monospace";
 
@@ -216,7 +216,8 @@
       if (w > maxWidth) maxWidth = w;
     }
 
-    return Math.ceil(maxWidth + 20);
+    // 2px left padding + 6px right breathing room
+    return Math.ceil(maxWidth + 8);
   }
 
   function drawCameraRows(w) {
@@ -230,7 +231,7 @@
 
       ctx.fillStyle = "#ccc";
       ctx.textBaseline = "middle";
-      ctx.fillText(cameras[i].name, 10, y + ROW_HEIGHT / 2);
+      ctx.fillText(cameras[i].name, 2, y + ROW_HEIGHT / 2);
     }
   }
 
