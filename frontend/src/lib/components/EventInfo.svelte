@@ -72,6 +72,6 @@
     font-weight: bold;
   }
   .event-info .value {
-    white-space: nowrap;
+    overflow-wrap: break-word; 
   }
 </style>
