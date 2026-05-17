@@ -31,7 +31,7 @@ from logging import (
 from typing import Any, Type, override
 from types import TracebackType
 
-import nvr.constants as constants
+import constants as constants
 
 logger = getLogger("nvr")
 
@@ -170,7 +170,7 @@ class MyJSONFormatter(Formatter):
     def __init__(
         self,
         *,
-        fmt_keys: dict[str, str] | None = None) -> MyJSONFormatter:
+        fmt_keys: dict[str, str] | None = None) -> "MyJSONFormatter":
         super().__init__()
         self.fmt_keys: dict[str, str] = fmt_keys if fmt_keys is not None else {}
 
@@ -233,7 +233,7 @@ class KeywordFilter(Filter):
     asterisks of the same length when present in a log message.
     """
     _keywords = []
-    def __init__(self, name: str="KeywordFilter") -> KeywordFilter:
+    def __init__(self, name: str="KeywordFilter") -> "KeywordFilter":
         """Initialize the filter with an optional name (passed to base class)."""
         super().__init__(name)
 

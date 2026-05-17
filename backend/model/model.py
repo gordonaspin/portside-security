@@ -4,8 +4,8 @@ from context import Context
 
 class Model:
 
-    def __init__(self, ctx: Context):
-        self._model: YOLO = YOLO(ctx.model)
+    def __init__(self, name: str):
+        self._model: YOLO = YOLO(name)
         self.classname_to_classindex: dict = {v: k for k, v in self._model.names.items()}
 
     def class_to_index(self, names):

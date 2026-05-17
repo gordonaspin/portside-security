@@ -76,10 +76,6 @@ class AuthStaticFiles(StaticFiles):
 
         return await super().__call__(scope, receive, send)
 
-
-
-
-        
 def require_user(session_id: str | None = Cookie(None)):
     """Require a valid session cookie for all protected routes."""
     if not session_id or session_id not in SESSIONS:

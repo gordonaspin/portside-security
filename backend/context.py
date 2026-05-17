@@ -16,6 +16,7 @@ class Context:
     confidence_threshold: float
     resolution: list[int, int]
     model: str
+    lpr_model: str
     classes: list[str]
     debug: bool
     debug_files: bool = False

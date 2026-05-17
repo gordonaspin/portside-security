@@ -11,7 +11,7 @@
   const isMobile =
     typeof window !== "undefined" &&
     /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-  const MIN_ZOOM = isMobile ? 0.05 : 0.05;
+  const MIN_ZOOM = 1/60
   const MAX_ZOOM = isMobile ? 4 : 24;
 
   let cameras = [];
@@ -80,7 +80,7 @@
 
       return {
         ...rec,
-        video_url: "/" + video_url_encoded,
+        media_url: "/" + video_url_encoded,
         metadata_url: "/" + metadata_url_encoded
       };
     });
@@ -126,6 +126,9 @@
     drawTimeTicks(w);
     drawCameraRows(w);
     drawEvents(w);
+    if (!hasVisibleEvents()) {
+      drawNoEventsMessage();
+    }
   }
 
   function drawBackground(w, h) {
@@ -493,8 +496,9 @@
 
       const minOffset = 0;
       const maxOffset = DAY - zoomHours * HOUR;
-      offsetSeconds = Math.max(minOffset, Math.min(maxOffset, offsetSeconds));
-
+      //offsetSeconds = Math.max(minOffset, Math.min(maxOffset, offsetSeconds));
+      offsetSeconds = Math.max(0, offsetSeconds);
+      
       requestAnimationFrame(drawTimeline);
       return;
     }
@@ -525,8 +529,9 @@
 
       const minOffset = 0;
       const maxOffset = DAY - zoomHours * HOUR;
-      offsetSeconds = Math.max(minOffset, Math.min(maxOffset, offsetSeconds));
-
+      
+      offsetSeconds = Math.max(0, offsetSeconds);
+      
       requestAnimationFrame(drawTimeline);
     }
   }
@@ -589,7 +594,8 @@
 
     const newOffset = serverNow - newStart - newZoom * HOUR;
 
-    offsetSeconds = Math.max(0, Math.min(DAY - newZoom * HOUR, newOffset));
+    //offsetSeconds = Math.max(0, Math.min(DAY - newZoom * HOUR, newOffset));
+    offsetSeconds = Math.max(0, newOffset);
     zoomHours = newZoom;
 
     requestAnimationFrame(drawTimeline);
@@ -612,6 +618,7 @@
       zoomHours = 4;   // 4h window
       offsetSeconds = 0; // live edge at now
     }
+    zoomHours = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, zoomHours));
 
     computedLeftMargin = computeDynamicLeftMargin();
     drawTimeline();
@@ -632,6 +639,38 @@
       drawTimeline();
     }, 5000);
   });
+
+  function hasVisibleEvents() {
+    const { start, end } = getTimelineBounds();
+
+    return events.some((ev) => {
+      // camera exists?
+      const row = cameraRowIndex(ev.camera);
+      if (row === -1) return false;
+
+      // time overlap with window?
+      if (ev.end_time < start || ev.start_time > end) return false;
+
+      // class filter?
+      if (selectedClasses.size > 0) {
+        const evClasses = Object.keys(ev.tags || {});
+        const matches = evClasses.some((cls) => selectedClasses.has(cls));
+        if (!matches) return false;
+      }
+
+      return true;
+    });
+  }
+
+  function drawNoEventsMessage() {
+    ctx.save();
+    ctx.fillStyle = "#ccc";
+    ctx.font = "20px sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("No Events", canvas.width / 2, canvas.height / 2);
+    ctx.restore();
+  }
 
   onDestroy(() => {
     if (serverTimeInterval) clearInterval(serverTimeInterval);
@@ -665,10 +704,10 @@
         <div><strong>Duration:</strong> {(hoverEvent.end_time - hoverEvent.start_time).toFixed(1)}s</div>
       </div>
       <div class="tooltip-classes">
-        {#each Object.entries(hoverEvent.tags || {}) as [cls, colors]}
+        {#each Object.entries(hoverEvent.tags || {}) as [cls, detail]}
           <div class="tooltip-class-row">
             <span class="tooltip-class-name">{cls}</span>:
-            <span class="tooltip-class-colors">{colors.join(", ")}</span>
+            <span class="tooltip-class-colors">{detail.join(", ")}</span>
           </div>
         {/each}
       </div>

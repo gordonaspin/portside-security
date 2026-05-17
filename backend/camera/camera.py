@@ -1,13 +1,11 @@
 from collections import deque, defaultdict
-import dataclasses
+from dataclasses import dataclass, field, InitVar
 from queue import Queue
 from subprocess import Popen
-import time
 import numpy as np
 from numpy.typing import NDArray
-
-from nvr.model import Model
-from nvr.motion_profile import MotionProfile, DayMotionProfile, NightMotionProfile
+from model.model import Model
+from nvr.motion_profiles import MotionProfile, DayMotionProfile, NightMotionProfile
 
 class RollingAverage:
     def __init__(self, window_size=100):
@@ -29,25 +27,29 @@ class RollingAverage:
             return 0.0
         return self.sum / len(self.window)
 
-@dataclasses.dataclass
+@dataclass
 class Camera:
+    cfg: InitVar[dict]
     name: str
-    url: str
-    enabled: bool
+    #url: str
+    #enabled: bool
     recordings_dir: str
     segments_dir: str
     images_dir: str
     metadata_dir: str
+    plates_dir: str
+
     model: Model
     debug: bool = False
 
     # stream state
     process: Popen = None
     first_frame: bool = True
+    fail_count: int = 0
 
     # latest-frame-wins buffer
     latest_frame: np.ndarray = None
-    frame_queue: Queue = dataclasses.field(default_factory=lambda: Queue(maxsize=1))
+    frame_queue: Queue = field(default_factory=lambda: Queue(maxsize=1))
 
     # buffers for cv2 frames
     background_buf: NDArray[np.float32] = None
@@ -66,8 +68,8 @@ class Camera:
     # FPS tracking
     total_frames: int = 0
     total_drops: int = 0
-    dt: RollingAverage = dataclasses.field(default_factory=lambda: RollingAverage(100))
-    fps: RollingAverage = dataclasses.field(default_factory=lambda: RollingAverage(100))
+    dt: RollingAverage = field(default_factory=lambda: RollingAverage(100))
+    fps: RollingAverage = field(default_factory=lambda: RollingAverage(100))
     drop_rate: float = 0.0
     last_frame_time: float = 0.0
 
@@ -89,12 +91,37 @@ class Camera:
 
     # motion detection
     noise: float = 0.0
-    motion_boxes_list: list = dataclasses.field(default_factory=list)
-    classes_in_frame_dict: defaultdict = dataclasses.field(default_factory=lambda: defaultdict(set))
-    active_objects_dict: defaultdict = dataclasses.field(default_factory=lambda: defaultdict(set))
-    active_segments_list: list = dataclasses.field(default_factory=list)
+    motion_boxes_list: list = field(default_factory=list)
+    classes_in_frame_dict: defaultdict = field(default_factory=lambda: defaultdict(set))
+    active_objects_dict: defaultdict = field(default_factory=lambda: defaultdict(set))
+    active_segments_list: list = field(default_factory=list)
     motion_condfidence: float = 0.0
     debug_motion_image: np.ndarray = None
-    keep_mask: list = dataclasses.field(default_factory=list)
+    keep_mask: list = field(default_factory=list)
     has_moving_object: bool = False
 
+    def __post_init__(self, cfg: dict):
+        self.url = cfg["url"]
+        self.enabled = cfg["enabled"]
+        if "lpr" in cfg and cfg["lpr"]["enabled"]:
+            self.lpr = LPR(cfg["lpr"])
+
+    def is_lpr(self):
+        return hasattr(self, "lpr")
+
+@dataclass
+class LPR:
+    cfg: InitVar[dict]
+    queue: Queue = field(default_factory=lambda: Queue(maxsize=1))
+    process: Popen = None
+    first_frame: bool = True
+    gray_buf: NDArray[np.uint8] = None
+    equalized_buf: NDArray[np.uint8] = None
+    preprocessed_buf: NDArray[np.uint8] = None
+
+    def __post_init__(self, cfg: dict):
+        self.url = cfg["url"]
+        self.left: int = cfg["left"]
+        self.top: int = cfg["top"]
+        self.width: int = cfg["width"]
+        self.height: int = cfg["height"]

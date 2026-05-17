@@ -12,7 +12,7 @@ import uvicorn
 
 from api.endpoints import create_app
 
-import nvr.constants as constants
+import constants as constants
 from context import Context
 from logger.logger import setup_logging, KeywordFilter
 from nvr.nvr import NVR
@@ -79,6 +79,10 @@ def main(directory, username, password, gui_username, gui_password,
     if username and password:
         for cam in camera_config.values():
             cam["url"] = replace_url_credentials(cam["url"], username, password)
+            try:
+                cam["lpr"]["url"] = replace_url_credentials(cam["lpr"]["url"], username, password)
+            except KeyError:
+                pass
 
     pwd = CryptContext(schemes=["bcrypt"], deprecated="auto")
     try:
@@ -98,6 +102,7 @@ def main(directory, username, password, gui_username, gui_password,
         confidence_threshold=confidence_threshold,
         resolution=resolution,
         model=yolo_config["model"],
+        lpr_model=yolo_config["lpr_model"],
         classes=yolo_config["classes"],
         debug=debug,
     )

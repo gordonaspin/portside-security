@@ -18,12 +18,13 @@ from numpy.typing import NDArray
 from ultralytics.engine.results import Results
 
 from camera.camera import Camera
-import nvr.constants as constants
+import constants as constants
 from context import Context
 from logger.logger import log_event
-from nvr.model import Model
-from nvr.motion_profile import DayMotionProfile, NightMotionProfile, MotionProfile
+from model.model import Model
+from nvr.motion_profiles import DayMotionProfile, NightMotionProfile, MotionProfile
 from utils.thread_safe import ThreadSafeSet, ThreadSafePathDict, ThreadSafeList
+from nvr.lpr import LicensePlateRecognition, VideoProcessor
 
 logger = getLogger("nvr")
 
@@ -37,7 +38,7 @@ class NVR:
         self._height: int = ctx.resolution[1]
         self._max_pixels = self._width * self._height
         
-        self.model = Model(ctx)
+        self.model = Model(ctx.model)
         self.yolo_confidence_threshold = ctx.confidence_threshold
         self.motion_threshold = ctx.motion_threshold
         self.stop_event: Event = Event()
@@ -49,23 +50,19 @@ class NVR:
         self._segments_dir: str = os.path.join(self._recordings_dir, "segments")
         self._images_dir: str = os.path.join(self._recordings_dir, "images")
         self._metadata_dir: str = os.path.join(self._recordings_dir, "metadata")
+        self._plates_dir: str = os.path.join(self._recordings_dir, "plates")
         self._do_not_delete_set: ThreadSafeSet = ThreadSafeSet()
         self.recordings: ThreadSafeList = ThreadSafeList()
-        os.makedirs(self._recordings_dir, exist_ok=True)
-        os.makedirs(self._segments_dir, exist_ok=True)
-        os.makedirs(self._images_dir, exist_ok=True)
-        os.makedirs(self._metadata_dir, exist_ok=True)
         self.cameras: dict[str, Camera] = {}
         for name, cfg in ctx.camera_config.items():
             self.cameras[name] = Camera(name=name,
-                                        url=cfg['url'],
-                                        enabled=cfg['enabled'],
+                                        cfg=cfg,
                                         recordings_dir=os.path.join(self._recordings_dir, name),
                                         segments_dir=os.path.join(self._segments_dir, name),
                                         images_dir=os.path.join(self._images_dir, name),
                                         metadata_dir=os.path.join(self._metadata_dir, name),
-                                        model=Model(ctx),
-                                        debug=cfg.get('debug', False)
+                                        plates_dir=os.path.join(self._plates_dir, name),
+                                        model=Model(ctx.model)
                                         )
 
     def update_yolo_confidence_threshold(self, val):
@@ -98,9 +95,14 @@ class NVR:
                     os.makedirs(camera.segments_dir, exist_ok=True)
                     os.makedirs(camera.images_dir, exist_ok=True)
                     os.makedirs(camera.metadata_dir, exist_ok=True)
-                    self._start_camera(camera=camera)
+                    os.makedirs(camera.plates_dir, exist_ok=True)
+                    _, lpr = self._start_camera(camera=camera)
                     Thread(target=self._frame_reader, args=(camera,), daemon=True).start()
                     Thread(target=self._process_frames,args=(camera,), daemon=True).start()
+                    if lpr:
+                        Thread(target=self._lpr_frame_reader, args=(camera,), daemon=True).start()
+                        Thread(target=self._process_lpr_frames,args=(camera,), daemon=True).start()
+
             Thread(target=self._cleanup_segments,daemon=True).start()
             Thread(target=self._watch_cameras_and_load_events,daemon=True).start()
 
@@ -184,7 +186,32 @@ class NVR:
             )
             camera.process = process
 
-            return process
+            lpr_process = None
+            if camera.is_lpr():
+                ffmpeg_lpr_cmd = [
+                    "ffmpeg",
+                    "-rtsp_transport", "tcp",
+                    "-fflags", "nobuffer+genpts",
+                    "-flags", "low_delay",
+                    "-i", camera.lpr.url,                # 4K stream
+                    "-hide_banner",
+                    "-loglevel", "error",
+                    "-nostats",
+
+                    "-vf", f"crop={camera.lpr.width}:{camera.lpr.height}:{camera.lpr.left}:{camera.lpr.top},format=bgr24",
+                    "-f", "rawvideo",
+                    "pipe:1"
+                ]
+                lpr_process =  subprocess.Popen(
+                    ffmpeg_lpr_cmd,
+                    stdin=subprocess.DEVNULL,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.DEVNULL,
+                    bufsize=0
+                )
+                camera.lpr.process = lpr_process
+
+            return process, lpr_process
 
     def _watch_cameras_and_load_events(self):
         """
@@ -332,7 +359,7 @@ class NVR:
                     # This runs when the thread finishes (success or failure)
                     log_file.close()
                     self._do_not_delete_set -= set(segments)
-                    self._merge_complete(camera, tags, mp4_filename)
+                    self._merge_complete(camera=camera, tags=tags, media_path=mp4_filename, metadata_path=metadata_filename)
             else:
                 log_event(message=f"nothing to merge: {len(segments)} segments {tags_str} to {mp4_filename}", level="debug", camera=camera, file_path=mp4_filename)
 
@@ -351,20 +378,21 @@ class NVR:
             parts.append(f"{object_str}({color_str})")
         return ",".join(parts)
 
-    def _merge_complete(self, camera: Camera, tags: defaultdict[set], output: str):
+    def _merge_complete(self, camera: Camera, tags: defaultdict[set], media_path: str, metadata_path: str):
         """
         logs the merge completion event and deletes recording if too short
         """
-        cap = cv2.VideoCapture(output)
+        cap = cv2.VideoCapture(media_path)
         fps = cap.get(cv2.CAP_PROP_FPS)
         frame_count = cap.get(cv2.CAP_PROP_FRAME_COUNT)
         duration_seconds = frame_count / fps
         formatted_duration = str(timedelta(seconds=int(duration_seconds)))
-        if frame_count < constants.RECORDING_FRAME_COUNT_MINIMUM and os.path.isfile(output):
-            #os.remove(output)
-            log_event(message=f"recording auto-deleted {os.path.basename(output)} with {frame_count} frames", level="info", camera=camera, file_path=output)
+        if frame_count < constants.RECORDING_FRAME_COUNT_MINIMUM and os.path.isfile(media_path):
+            os.remove(media_path)
+            os.remove(metadata_path)
+            log_event(message=f"recording auto-deleted with {frame_count} frames", level="info", camera=camera, file_path=media_path)
         else:
-            log_event(message=f"recording available {formatted_duration} {os.path.basename(output)}", level="record", camera=camera, file_path=output)
+            log_event(message=f"recording available {formatted_duration}", level="record", camera=camera, file_path=metadata_path)
 
     def _load_events(self):
         flat = []
@@ -387,7 +415,7 @@ class NVR:
 
     def _frame_reader(self, camera: Camera):
         """
-        Thread to ead frames from the ffmpeg stdout stream and puts the frame on the camera queue.
+        Thread to read frames from the ffmpeg stdout stream and puts the frame on the camera queue.
         The queue length is 1, so if the queue is full that frame on the queue is dropped and
         replaced with the new frame. This means we drop frames to keep up. This is only for
         image processing, frames written to segments are not dropped
@@ -401,7 +429,12 @@ class NVR:
 
             if raw is None:
                 log_event(message="reader failed", level="warn", camera=camera)
-                self._restart_camera(camera)
+                if camera.fail_count < 3:
+                    camera.fail_count += 1
+                    self._restart_camera(camera)
+                else:
+                    log_event(message="stopping camera, too many failures, giving up", level="warn", camera=camera)
+                    self._stop_camera(camera=camera)
                 continue
 
             frame = np.frombuffer(raw, np.uint8).reshape((self._height, self._width, 3))
@@ -426,6 +459,32 @@ class NVR:
             camera.frame_queue.put(frame)
             camera.total_frames += 1
             camera.drop_rate = camera.total_drops / camera.total_frames
+
+    def _lpr_frame_reader(self, camera: Camera):
+        """
+        Thread to read frames from the ffmpeg stdout stream and puts the frame on the camera queue.
+        The queue length is 1, so if the queue is full that frame on the queue is dropped and
+        replaced with the new frame. This means we drop frames to keep up. This is only for
+        image processing, frames written to segments are not dropped
+        """
+        current_thread().name = f"{camera.name} _lpr_frame_reader"
+
+        frame_size = camera.lpr.width * camera.lpr.height * 3
+
+        while not self.stop_event.is_set():
+            raw = self._read_exact(camera.lpr.process.stdout, frame_size)
+
+            if raw is None:
+                log_event(message="lpr reader failed", level="warn", camera=camera)
+                #self._restart_camera(camera)
+                continue
+
+            frame = np.frombuffer(raw, np.uint8).reshape((camera.lpr.height, camera.lpr.width, 3))
+
+            # latest-frame-wins
+            if camera.lpr.queue.full():
+                camera.lpr.queue.get_nowait()
+            camera.lpr.queue.put(frame)
 
 
     def _read_exact(self, pipe, size):
@@ -744,6 +803,64 @@ class NVR:
             camera.objects_text = self._tags_to_str(camera.active_objects_dict)
             camera.status_text = " | ".join(parts)
 
+    def _process_lpr_frames(self, camera: Camera):
+        """
+        Thread to process lpr frames from the camera queue.
+        """
+        
+        def write_json(camera: Camera, plate, ts, epoch, image_path, metadata_path):
+            with open(metadata_path, "w") as f:
+                f.write(
+                    json.dumps(
+                        {
+                            "camera": camera.name,
+                            "tags":  {
+                                "license": [plate]
+                            },
+                            "output": image_path,
+                            "start_time": epoch,
+                            "end_time": epoch + 5.0, # fudge a duration so we can feed to timeline
+                            "metadata": metadata_path
+                        }
+                    )
+                )
+        
+        current_thread().name = f"{camera.name} _process__lpr_frames"
+        lpr = LicensePlateRecognition(self.ctx.lpr_model)
+        vp = VideoProcessor(lpr)
+
+        while not self.stop_event.is_set():
+            # get latest frame (non-blocking)
+            try:
+                frame: NDArray[np.uint8] = camera.lpr.queue.get(timeout=0.5)
+            except queue.Empty:
+                continue
+
+            if camera.lpr.first_frame:
+                camera.lpr.gray_buf = np.zeros((camera.lpr.height, camera.lpr.width), dtype=np.uint8)
+                camera.lpr.equalized_buf = np.zeros((camera.lpr.height, camera.lpr.width), dtype=np.uint8)
+                camera.lpr.preprocessed_buf = np.zeros((camera.lpr.height, camera.lpr.width), dtype=np.uint8)
+
+                log_event(message=f"reading from lpr stream", level="info", camera=camera)
+                camera.lpr.first_frame = False
+
+            if camera.recording:
+                frame, detected_texts = vp.process_frame(camera, frame)
+                now: float = time.time()
+                ts = datetime.now().isoformat()
+                timestamp_str = datetime.fromtimestamp(now).strftime("%Y%m%d_%H%M%S_%f")
+                license_image_path = os.path.join(camera.plates_dir, f"{timestamp_str}_plate") + ".jpg"
+                license_metadata_path = os.path.join(camera.metadata_dir, f"{timestamp_str}_plate") + ".json"
+                cv2.imwrite(license_image_path, frame)
+                write_json(camera, "", ts, now, license_image_path, license_metadata_path)
+                log_event(message=f"License plate logged", level="info", camera=camera, file_path=license_metadata_path)
+                if detected_texts:
+                    tags = '_'.join(detected_texts)
+                    license_image_path = os.path.join(camera.plates_dir, f"{timestamp_str}_{tags}") + ".jpg"
+                    license_metadata_path = os.path.join(camera.metadata_dir, f"{timestamp_str}_{tags}") + ".json"
+                    cv2.imwrite(license_image_path, frame)
+                    log_event(message=f"License plate identified {tags}", level="info", camera=camera, file_path=license_metadata_path)
+                    write_json(camera, tags, ts, now, license_image_path, license_metadata_path)
 
     def _make_status(self, camera: Camera):
         """

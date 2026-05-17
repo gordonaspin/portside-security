@@ -2,7 +2,7 @@
   import Controls from '$lib/components/Controls.svelte';
   import MosaicVideo from '$lib/components/MosaicVideo.svelte';
   import Timeline from '$lib/components/Timeline.svelte';
-  import VideoPlayer from '$lib/components/VideoPlayer.svelte';
+  import MediaPlayer from '$lib/components/MediaPlayer.svelte';
   import EventInfo from '$lib/components/EventInfo.svelte';
   import EventLog from "$lib/components/EventLog.svelte";
 
@@ -37,38 +37,26 @@
     log("Selected video: ", selectedEvent)
   }
 
-  async function handleLogVideo(url) {
+  async function handleLogMedia(metadata_url) {
     loadingEvent = true;
     // Remove leading slash
-    const clean = url.startsWith("/") ? url.slice(1) : url;
+    const clean = metadata_url.startsWith("/") ? metadata_url.slice(1) : metadata_url;
 
-    // Split into parts
-    const parts = clean.split("/");   // ["recordings", "B67Lot", "FILE.mp4"]
-    const camera = parts[1];
-    const filename = parts[2];
-
-    // Build metadata path
-    const metadataPath =
-      `/recordings/metadata/${camera}/${filename.replace(".mp4", ".json")}`;
-
-
-    // Fetch metadata JSON
-    const res = await fetch(metadataPath, { credentials: "include" });
+    const res = await fetch(metadata_url, { credentials: "include" });
     const data = await res.json();
-      console.log("metadata keys:", Object.keys(data));
-    const video_url_encoded = data.output.split("/").map(encodeURIComponent).join("/");
-    const metadata_url_encoded = data.metadata.split("/").map(encodeURIComponent).join("/");
-
-  selectedEvent = {
-    camera: data.camera,
-    tags: data.tags,
-    output: data.output,
-    metadata: data.metadata,
-    video_url: "/" + video_url_encoded,
-    metadata_url: "/" + metadata_url_encoded,
-    start_fmt: fmt(data.start_time),
-    end_fmt: fmt(data.end_time)
-  };
+  
+    selectedEvent = {
+      camera: data.camera,
+      tags: data.tags,
+      output: data.output,
+      metadata: data.metadata,
+      media_url: "/" + data.output.split("/").map(encodeURIComponent).join("/"),
+      metadata_url: "/" + data.metadata.split("/").map(encodeURIComponent).join("/"),
+      start_time: data.start_time,
+      end_time: data.end_time,
+      start_fmt: fmt(data.start_time),
+      end_fmt: fmt(data.end_time)
+    };
     loadingEvent = false;
   }
 
@@ -88,10 +76,10 @@
     <EventInfo event={selectedEvent} />
   </div>
   <div class="panel">
-    <VideoPlayer event={selectedEvent} />
+    <MediaPlayer event={selectedEvent} />
   </div>
   <div class="panel">
-    <EventLog html={logHtml} on:selectVideo={(e) => handleLogVideo(e.detail)} />
+    <EventLog html={logHtml} on:selectMedia={(e) => handleLogMedia(e.detail)} />
   </div>
 </div>
 

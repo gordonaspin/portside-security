@@ -12,7 +12,7 @@
     if (!link) return;
 
     e.preventDefault();
-    dispatch("selectVideo", link.getAttribute("href"));
+    dispatch("selectMedia", link.getAttribute("href"));
   }
 </script>
 
