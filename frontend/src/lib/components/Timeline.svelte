@@ -138,39 +138,70 @@
 
   function drawLegend() {
     ctx.font = "12px sans-serif";
-    ctx.textBaseline = "top";
+    ctx.textBaseline = "middle";
 
-    const y = canvas.height - LEGEND_HEIGHT + 4;
+    const y = canvas.height - LEGEND_HEIGHT + 12;
     let x = computedLeftMargin;
 
     legendItems = [];
 
     classes.forEach((cls) => {
       const textWidth = ctx.measureText(cls).width;
+      const paddingX = 8;
+      const paddingY = 4;
+      const w = textWidth + paddingX * 2;
+      const h = 20;
+      const r = 6;
 
-      if (selectedClasses.has(cls)) {
-        ctx.fillStyle = "rgba(255,255,255,0.15)";
-        ctx.fillRect(x - 4, y - 2, textWidth + 8, 18);
+      const isSelected = selectedClasses.has(cls);
 
-        ctx.strokeStyle = "#fff";
-        ctx.lineWidth = 2;
-        ctx.strokeRect(x - 4 + 0.5, y - 2 + 0.5, textWidth + 8 - 1, 18 - 1);
-      }
+      const bx = x;
+      const by = y - h / 2;
 
+      // Background (only difference between selected/unselected)
+      ctx.fillStyle = isSelected
+        ? "rgba(255,255,255,0.36)"   // selected
+        : "rgba(255,255,255,0.06)";  // unselected
+      roundRectPath(ctx, bx, by, w, h, r);
+      ctx.fill();
+
+      // Single consistent border
+      ctx.strokeStyle = "#aaa";   // light neutral border
+      ctx.lineWidth = 1.5;
+      roundRectPath(ctx, bx, by, w, h, r);
+      ctx.stroke();
+
+      // Text
       ctx.fillStyle = classColors[cls];
-      ctx.fillText(cls, x, y);
+      ctx.fillText(cls, bx + paddingX, y);
 
+      // Hit-test region
       legendItems.push({
         cls,
-        x: x - 4,
-        y: y - 2,
-        w: textWidth + 8,
-        h: 18
+        x: bx,
+        y: by,
+        w,
+        h
       });
 
-      x += textWidth + 20;
+      x += w + 12;
     });
   }
+
+  function roundRectPath(ctx, x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + w - r, y);
+    ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+    ctx.lineTo(x + w, y + h - r);
+    ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+    ctx.lineTo(x + r, y + h);
+    ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+    ctx.lineTo(x, y + r);
+    ctx.quadraticCurveTo(x, y, x + r, y);
+    ctx.closePath();
+  }
+
 
   function handleLegendClick(mx, my) {
     for (const item of legendItems) {
