@@ -6,6 +6,7 @@ import logging
 from urllib.parse import urlparse, urlunparse
 
 import click
+import keyring
 from click import version_option
 from passlib.context import CryptContext
 import uvicorn
@@ -48,8 +49,8 @@ def replace_url_credentials(url, new_username, new_password):
 @click.command()
 @click.option("-d", "--directory", required=True)
 @click.option("-c", "--nvr-config", default="nvr.json")
-@click.option("-u", "--username")
-@click.option("-p", "--password")
+@click.option("-u", "--username", default="admin")
+@click.option("-p", "--password", default="password://admin")
 @click.option("--gui-username")
 @click.option("--gui-password")
 @click.option("--bind-address", default="0.0.0.0")
@@ -75,20 +76,34 @@ def main(directory, username, password, gui_username, gui_password,
     yolo_config = config["yolo"]
     resolution = config["resolution"]
     camera_config = config["cameras"]
+    
+    if password.startswith("password://"):
+        password = keyring.get_password(password, username)
+        logger.debug(f"got password {password} from keyring")
+        if password is None:
+            return
 
-    if username and password:
-        for cam in camera_config.values():
-            cam["url"] = replace_url_credentials(cam["url"], username, password)
-            try:
-                cam["lpr"]["url"] = replace_url_credentials(cam["lpr"]["url"], username, password)
-            except KeyError:
-                pass
+    if gui_username is None:
+        logger.debug(f"using username as gui_username")
+        gui_username = username
+
+    if gui_password is None:
+        logger.debug(f"using password as gui_password")
+        gui_password = password
 
     pwd = CryptContext(schemes=["bcrypt"], deprecated="auto")
     try:
         hashed_gui_password = pwd.hash(gui_password)
     except AttributeError:
         pass
+
+    for cam in camera_config.values():
+        cam["url"] = replace_url_credentials(cam["url"], username, password)
+        try:
+            cam["lpr"]["url"] = replace_url_credentials(cam["lpr"]["url"], username, password)
+        except KeyError:
+            pass
+
     ctx = Context(
         directory=directory,
         log_directory=log_path,
@@ -112,7 +127,7 @@ def main(directory, username, password, gui_username, gui_password,
     atexit.register(nvr.stop)
 
     app = create_app(ctx, nvr)
-    uvicorn.run(app, host=ctx.bind_address, port=7860, log_level="info")
+    uvicorn.run(app, host=ctx.bind_address, port=7860, access_log=False)
     logger.info("Exiting")
 
 if __name__ == "__main__":

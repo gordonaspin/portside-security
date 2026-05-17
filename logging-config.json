@@ -47,6 +47,20 @@
         "file"
       ]
     },
+    "uvicorn.error": {
+      "level": "INFO",
+      "handlers": [
+        "stderr",
+        "file"
+      ]
+    },
+    "uvicorn.access": {
+      "level": "ERROR",
+      "handlers": [
+        "stderr",
+        "file"
+      ]
+    },
     "nvr": {
       "level": "DEBUG",
       "handlers": [

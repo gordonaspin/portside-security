@@ -9,3 +9,4 @@ passlib
 uvicorn
 paddleocr
 paddlepaddle
+keyring

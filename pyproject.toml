@@ -14,7 +14,8 @@ dependencies = [
     "passlib",
     "uvicorn",
     "paddleocr",
-    "paddlepaddle"
+    "paddlepaddle",
+    "keyring"
 ]
 requires-python = "==3.12.13"
 readme = "README.md"
