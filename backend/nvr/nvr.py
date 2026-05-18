@@ -545,11 +545,11 @@ class NVR:
                 camera.edges_buf         = np.zeros((h, w), dtype=np.uint8)
                 camera.gray_buf          = np.zeros((h, w), dtype=np.uint8)
                 camera.thresh_buf        = np.zeros((h, w), dtype=np.uint8)
-                camera.sobel_x_buf      = np.zeros((h, w), dtype=np.int16)
-                camera.sobel_y_buf      = np.zeros((h, w), dtype=np.int16)
-                camera.sobel_x_abs_buf  = np.zeros((h, w), dtype=np.uint8)
-                camera.sobel_y_abs_buf  = np.zeros((h, w), dtype=np.uint8)
-                camera.background_buf = camera.gray_buf.astype("float32")
+                camera.sobel_x_buf       = np.zeros((h, w), dtype=np.int16)
+                camera.sobel_y_buf       = np.zeros((h, w), dtype=np.int16)
+                camera.sobel_x_abs_buf   = np.zeros((h, w), dtype=np.uint8)
+                camera.sobel_y_abs_buf   = np.zeros((h, w), dtype=np.uint8)
+                camera.background_buf    = camera.gray_buf.astype("float32")
                 camera.first_frame = False
 
             now: float = time.time()
@@ -560,6 +560,7 @@ class NVR:
                 self.set_camera_motion_profile(camera)
                 camera.last_night_time_check = time.time()
 
+            # periodic auto-tuning of motion profile
             if now - camera.last_auto_adjust > 60:
                 log_event(f"tuning profile", level="info", camera=camera)
                 camera.auto_adjust_profile()
@@ -655,7 +656,7 @@ class NVR:
                 ))
                 camera.motion_boxes_list.clear()
 
-            # --- MOTION CONFIDENCE ---
+            # --- MOTION CONFIDENCE (PIXEL + BOX + PERSISTENCE) ---
             camera.pixel_score = min(camera.score / (camera.profile.motion_threshold * 3.0), 1.0)
 
             object_area = sum(
@@ -674,32 +675,6 @@ class NVR:
                 (camera.box_score   * 0.4) +
                 (camera.persist_score * 0.2)
             )
-
-            # --- HARD RESET WHEN MOTION DISAPPEARS ---
-            if not camera.motion_boxes_list:
-                # Reset persistence immediately
-                camera.motion_persistence = 0
-                camera.persist_score = 0.0
-
-                # Collapse confidence quickly to allow fast stop
-                camera.motion_confidence = min(camera.motion_confidence, 0.05)
-
-                # Mark last_motion_time so POST_RECORD_DURATION starts now
-                camera.last_motion_time = now
-
-            # --- OBJECT-LIKE PERSISTENCE ---
-            is_object_like_motion = (
-                camera.motion_boxes_list and
-                object_area >= camera.profile.min_sum_box_area and
-                camera.edge_density >= 0.02 and
-                camera.has_moving_object and
-                camera.motion_confidence >= 0.15
-            )
-
-            if is_object_like_motion:
-                camera.motion_persistence += 1
-            else:
-                camera.motion_persistence = max(0, camera.motion_persistence - 1)
 
             # --- YOLO ---
             result = None
@@ -743,6 +718,8 @@ class NVR:
                         reason="yolo_overlap_noise",
                         details={"motion_boxes": len(camera.motion_boxes_list)}
                     ))
+                    # collapse confidence a bit when YOLO sees nothing overlapping
+                    camera.motion_confidence = min(camera.motion_confidence, 0.10)
 
                 result.boxes = result.boxes[camera.keep_mask]
 
@@ -761,6 +738,33 @@ class NVR:
                         camera=camera
                     )
 
+            # --- HARD RESET WHEN MOTION DISAPPEARS ---
+            if not camera.motion_boxes_list:
+                # Reset persistence immediately
+                camera.motion_persistence = 0
+                camera.persist_score = 0.0
+
+                # Collapse confidence quickly to allow fast stop
+                camera.motion_confidence = min(camera.motion_confidence, 0.05)
+
+                # Mark last_motion_time so POST_RECORD_DURATION starts now
+                camera.last_motion_time = now
+
+            # --- OBJECT-LIKE PERSISTENCE (AFTER YOLO) ---
+            is_object_like_motion = (
+                camera.motion_boxes_list and
+                object_area >= camera.profile.min_sum_box_area and
+                camera.edge_density >= 0.02 and
+                camera.has_moving_object and
+                camera.motion_confidence >= 0.15
+            )
+
+            if is_object_like_motion:
+                camera.motion_persistence += 1
+            else:
+                camera.motion_persistence = max(0, camera.motion_persistence - 1)
+
+            # --- DRAW STATUS TEXT ---
             self.draw_text(
                 frame_bgr, camera.status_text, (0, 2),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.7,
@@ -773,6 +777,7 @@ class NVR:
                 (255, 255, 255), 2, (32, 32, 32)
             )
 
+            # --- DEBUG PANELS / UI ---
             if camera.debug:
                 camera.debug_motion_image = self.draw_debug_panels(
                     camera,
@@ -813,10 +818,13 @@ class NVR:
             # --- ADDITIONAL CONFIDENCE DECAY WHEN YOLO SEES NOTHING ---
             if camera.recording and not camera.has_moving_object:
                 camera.motion_confidence *= 0.5
+                if camera.motion_confidence > STOP_CONF:
+                    camera.motion_confidence *= 0.5
 
             camera.should_record = should_start or should_continue
 
-            if camera.should_record:
+            # only treat as "last motion" when we actually have motion + objects
+            if camera.motion_boxes_list and camera.has_moving_object:
                 camera.last_motion_time = now
 
             # --- TUNER: insufficient persistence ---
