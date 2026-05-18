@@ -615,7 +615,11 @@ class NVR:
             camera.edge_density = cv2.countNonZero(camera.edges_buf) / self._max_pixels
 
             if white_ratio > 0.10 and camera.edge_density < 0.02:
-                # Large area changed but no edges → shadow
+                camera.auto_tuner.record(MotionDecision(
+                    passed=False,
+                    reason="shadow_low_edge2",
+                    details={"white_ratio": white_ratio, "edge_density": camera.edge_density}
+                ))
                 camera.motion_boxes_list.clear()
                 continue
 
