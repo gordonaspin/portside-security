@@ -22,7 +22,7 @@ import constants as constants
 from context import Context
 from logger.logger import log_event
 from model.model import Model
-from nvr.motion_profiles import DayMotionProfile, NightMotionProfile, MotionProfile
+from nvr.motion_profiles import DayMotionProfile, NightMotionProfile, MotionDecision
 from utils.thread_safe import ThreadSafeSet, ThreadSafePathDict, ThreadSafeList
 from nvr.lpr import LicensePlateRecognition, VideoProcessor
 
@@ -57,6 +57,7 @@ class NVR:
         for name, cfg in ctx.camera_config.items():
             self.cameras[name] = Camera(name=name,
                                         cfg=cfg,
+                                        max_pixels=self._max_pixels,
                                         recordings_dir=os.path.join(self._recordings_dir, name),
                                         segments_dir=os.path.join(self._segments_dir, name),
                                         images_dir=os.path.join(self._images_dir, name),
@@ -527,7 +528,6 @@ class NVR:
         current_thread().name = f"{camera.name} _process_frames"
 
         while not self.stop_event.is_set():
-            # get latest frame (non-blocking)
             try:
                 frame: NDArray[np.uint8] = camera.frame_queue.get(timeout=0.5)
                 frame_bgr: NDArray[np.uint8] = frame.copy()
@@ -553,13 +553,19 @@ class NVR:
                 camera.first_frame = False
 
             now: float = time.time()
+
             # periodic night/day check
             if now - camera.last_night_time_check > constants.PERIODIC_CHECK_INTERVAL:
                 camera.is_night = self._is_night_time(frame_bgr, constants.NIGHT_TIME_THRESHOLD)
                 self.set_camera_motion_profile(camera)
                 camera.last_night_time_check = time.time()
 
-            # motion
+            if now - camera.last_auto_adjust > 60:
+                log_event(f"tuning profile", level="info", camera=camera)
+                camera.auto_adjust_profile()
+                camera.last_auto_adjust = now
+
+            # --- GRAY + BLUR ---
             cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY, dst=camera.gray_buf)
             cv2.GaussianBlur(camera.gray_buf, (21, 21), 0, dst=camera.gray_buf)
 
@@ -575,7 +581,6 @@ class NVR:
                 alpha=0.12 if camera.is_night else 0.02
             )
 
-            # convert background to uint8 for diff
             cv2.convertScaleAbs(camera.background_buf, dst=camera.bg_frame_buf)
 
             # --- MOTION DIFF ---
@@ -599,51 +604,60 @@ class NVR:
             )
 
             camera.score = cv2.countNonZero(camera.thresh_buf)
+            camera.white_ratio = camera.score / camera.max_pixels
 
-            # Detect global brightness / shadow sweep
-            white_ratio: float = camera.score / self._max_pixels
-            if white_ratio > 0.15:   # 15% of frame changed
-                # Too much of the frame changed at once → lighting change, not motion
+            # --- GLOBAL SHADOW SWEEP ---
+            if camera.white_ratio > 0.10 and camera.edge_density < camera.profile.min_edge_density(camera.noise):
+                camera.auto_tuner.record(MotionDecision(
+                    passed=False,
+                    reason="shadow_low_edge",
+                    details={"white_ratio": camera.white_ratio, "edge_density": camera.edge_density}
+                ))
                 camera.motion_boxes_list.clear()
                 continue
 
+            # --- SOBEL ---
             cv2.Sobel(camera.gray_buf, cv2.CV_16S, 1, 0, dst=camera.sobel_x_buf)
             cv2.Sobel(camera.gray_buf, cv2.CV_16S, 0, 1, dst=camera.sobel_y_buf)
             cv2.convertScaleAbs(camera.sobel_x_buf, dst=camera.sobel_x_abs_buf)
             cv2.convertScaleAbs(camera.sobel_y_buf, dst=camera.sobel_y_abs_buf)
             cv2.addWeighted(camera.sobel_x_abs_buf, 0.5, camera.sobel_y_abs_buf, 0.5, 0, dst=camera.edges_buf)
-            camera.edge_density = cv2.countNonZero(camera.edges_buf) / self._max_pixels
+            camera.edge_density = cv2.countNonZero(camera.edges_buf) / camera.max_pixels
 
-            if white_ratio > 0.10 and camera.edge_density < 0.02:
+            # --- LOW-EDGE SHADOW ---
+            if camera.white_ratio > 0.10 and camera.edge_density < 0.02:
                 camera.auto_tuner.record(MotionDecision(
                     passed=False,
                     reason="shadow_low_edge2",
-                    details={"white_ratio": white_ratio, "edge_density": camera.edge_density}
+                    details={"white_ratio": camera.white_ratio, "edge_density": camera.edge_density}
                 ))
                 camera.motion_boxes_list.clear()
                 continue
 
+            # --- FIND MOTION BOXES ---
             krs, kcs, dsrs, dscs, dars, dacs = [], [], [], [], [], []
             camera.motion_boxes_list.clear()
+
             if camera.score > camera.profile.motion_threshold:
                 krs, kcs, dsrs, dscs, dars, dacs = self._find_motion_boxes(camera)
                 camera.motion_boxes_list.extend(krs)
 
-            # --- MINIMUM TOTAL MOTION AREA (suppress tiny flicker) ---
+            # --- TOTAL MOTION AREA ---
             total_motion_area = sum(
                 (x2 - x1) * (y2 - y1) for (x1, y1, x2, y2) in camera.motion_boxes_list
             )
+
             if total_motion_area < camera.profile.min_total_motion_area:
+                camera.auto_tuner.record(MotionDecision(
+                    passed=False,
+                    reason="low_total_area",
+                    details={"total_motion_area": total_motion_area}
+                ))
                 camera.motion_boxes_list.clear()
 
-            # --- NORMALIZED MOTION CONFIDENCE ---
-
-            # 1. Pixel score: normalize by expected object-level change, not threshold
-            #    This prevents leaves from saturating the score.
+            # --- MOTION CONFIDENCE ---
             camera.pixel_score = min(camera.score / (camera.profile.motion_threshold * 3.0), 1.0)
 
-            # 2. Box score: normalize by object-like area, not sum of all boxes
-            #    This prevents many small leaf boxes from inflating the score.
             object_area = sum(
                 (x2 - x1) * (y2 - y1)
                 for (x1, y1, x2, y2) in camera.motion_boxes_list
@@ -655,18 +669,25 @@ class NVR:
                 1.0 - ((now - camera.last_motion_time) / camera.profile.motion_persistence_time)
             )
 
-            motion_confidence = (
+            camera.motion_confidence = (
                 (camera.pixel_score * 0.4) +
                 (camera.box_score   * 0.4) +
                 (camera.persist_score * 0.2)
             )
 
-            camera.motion_confidence = motion_confidence
+            # --- HARD RESET WHEN MOTION DISAPPEARS ---
+            if not camera.motion_boxes_list:
+                # Reset persistence immediately
+                camera.motion_persistence = 0
+                camera.persist_score = 0.0
 
-            if not camera.motion_boxes_list and camera.score < camera.profile.motion_threshold:
-                camera.motion_confidence = 0.0
+                # Collapse confidence quickly to allow fast stop
+                camera.motion_confidence = min(camera.motion_confidence, 0.05)
 
-            # --- OBJECT-LIKE MOTION PERSISTENCE ---
+                # Mark last_motion_time so POST_RECORD_DURATION starts now
+                camera.last_motion_time = now
+
+            # --- OBJECT-LIKE PERSISTENCE ---
             is_object_like_motion = (
                 camera.motion_boxes_list and
                 object_area >= camera.profile.min_sum_box_area and
@@ -680,14 +701,12 @@ class NVR:
             else:
                 camera.motion_persistence = max(0, camera.motion_persistence - 1)
 
-            # YOLO
+            # --- YOLO ---
             result = None
             camera.classes_in_frame_dict.clear()
             camera.has_moving_object = False
-            camera.keep_mask = []
             moving_yolo_indices: set[int] = set()
 
-            # Run YOLO only if motion exists or debug is on
             if camera.debug or (camera.motion_boxes_list and camera.motion_confidence > 0.05):
                 result: Results = camera.model.model.predict(
                     frame_bgr,
@@ -697,43 +716,40 @@ class NVR:
                     imgsz=512,
                 )[0]
 
-                # --- Collect YOLO boxes ---
                 yolo_boxes = []
                 for box in result.boxes:
                     x1, y1, x2, y2 = box.xyxy[0].tolist()
-                    cls_id = int(box.cls[0].item())
                     yolo_boxes.append((int(x1), int(y1), int(x2), int(y2)))
 
-                # --- Inflate motion boxes ---
                 inflated_motion_boxes = [
                     self._inflate_box(b, camera.profile.inflate_motion_boxes)
                     for b in camera.motion_boxes_list
                 ]
 
-                # --- Determine which YOLO objects are moving ---
                 for i, yb in enumerate(yolo_boxes):
                     for mb in inflated_motion_boxes:
                         if self._boxes_overlap(mb, yb):
                             moving_yolo_indices.add(i)
                             break
 
-                # --- Build keep_mask for result.boxes ---
                 keep_mask = [i in moving_yolo_indices for i in range(len(yolo_boxes))]
                 camera.keep_mask = keep_mask
                 camera.has_moving_object = any(keep_mask)
 
-                # --- APPLY keep_mask to result.boxes ---
+                # --- TUNER: YOLO overlap noise ---
+                if camera.motion_boxes_list and not camera.has_moving_object:
+                    camera.auto_tuner.record(MotionDecision(
+                        passed=False,
+                        reason="yolo_overlap_noise",
+                        details={"motion_boxes": len(camera.motion_boxes_list)}
+                    ))
+
                 result.boxes = result.boxes[camera.keep_mask]
 
-                # --- COLOR DETECTION (preserved semantics) ---
-                # Only detect color for moving YOLO boxes
                 for i, box in enumerate(result.boxes):
                     class_name = self.model.model.names[int(box.cls)]
-                    # Extract ROI
                     roi = self.yolo_box_to_roi(frame_bgr, box)
-
                     if roi.size > 0:
-                    # Detect color
                         color = self._detect_object_color(roi)
                         camera.classes_in_frame_dict[class_name].add(color)
 
@@ -765,26 +781,21 @@ class NVR:
                     krs, kcs, dsrs, dscs, dars, dacs
                 )
 
-            # --- RECORDING DECISION (REDUCED FALSE POSITIVES) ---
-
-            # 1. Persistent motion requirement
+            # --- RECORDING DECISION ---
             motion_is_persistent = (
                 camera.motion_persistence >= camera.profile.min_motion_frames
             )
 
-            # 2. Object-level motion requirement
             object_motion = (
                 motion_is_persistent and
                 camera.has_moving_object and
                 len(moving_yolo_indices) > 0
             )
 
-            # 3. Minimum object area requirement
             object_area_ok = (
                 object_area >= camera.profile.min_sum_box_area
             )
 
-            # 4. Confidence hysteresis
             START_CONF = camera.profile.motion_confidence_min
             STOP_CONF  = START_CONF * 0.5
 
@@ -799,34 +810,73 @@ class NVR:
                 camera.motion_confidence >= STOP_CONF
             )
 
+            # --- ADDITIONAL CONFIDENCE DECAY WHEN YOLO SEES NOTHING ---
+            if camera.recording and not camera.has_moving_object:
+                camera.motion_confidence *= 0.5
+
             camera.should_record = should_start or should_continue
 
             if camera.should_record:
                 camera.last_motion_time = now
 
-            # Start recording
+            # --- TUNER: insufficient persistence ---
+            if camera.motion_boxes_list and not motion_is_persistent:
+                camera.auto_tuner.record(MotionDecision(
+                    passed=False,
+                    reason="short_motion",
+                    details={"persistence": camera.motion_persistence}
+                ))
+
+            # --- TUNER: insufficient confidence ---
+            if camera.motion_boxes_list and camera.motion_confidence < START_CONF:
+                camera.auto_tuner.record(MotionDecision(
+                    passed=False,
+                    reason="low_confidence",
+                    details={"confidence": camera.motion_confidence}
+                ))
+
+            # --- START RECORDING ---
             if should_start and not camera.recording:
                 camera.recording = True
                 camera.recording_start_time = now - constants.PRE_RECORD_DURATION
                 camera.active_objects_dict = deepcopy(camera.classes_in_frame_dict)
                 camera.last_recording_time = now
+
+                camera.auto_tuner.record(MotionDecision(
+                    passed=True,
+                    reason="recording_start",
+                    details={"confidence": camera.motion_confidence}
+                ))
+
                 log_event(
                     message=f"recording start {self._tags_to_str(camera.active_objects_dict)}",
                     level="info",
                     camera=camera
                 )
 
-            # Update active segments and objects
+            # --- CONTINUE RECORDING ---
             if camera.recording:
                 for item, colors in camera.classes_in_frame_dict.items():
                     camera.active_objects_dict[item].update(colors)
 
-            # Stop recording when motion has decayed and post duration elapsed
+                camera.auto_tuner.record(MotionDecision(
+                    passed=True,
+                    reason="recording_continue",
+                    details={"confidence": camera.motion_confidence}
+                ))
+
+            # --- STOP RECORDING ---
             if camera.recording and not should_continue:
                 if now - camera.last_motion_time > constants.POST_RECORD_DURATION:
                     camera.recording = False
                     tags = deepcopy(camera.active_objects_dict)
                     self._merge_segments_async(camera, tags, now)
+
+                    camera.auto_tuner.record(MotionDecision(
+                        passed=True,
+                        reason="recording_stop",
+                        details={"confidence": camera.motion_confidence}
+                    ))
 
                     camera.classes_in_frame_dict.clear()
                     camera.active_objects_dict.clear()
@@ -834,7 +884,7 @@ class NVR:
                     camera.no_motion_frames = 0
                     camera.motion_persistence = 0
 
-            # render YOLO plots on the frame if there was a result
+            # --- FINAL FRAME OUTPUT ---
             if result is not None:
                 img_bgr = result.plot(pil=False)  # pil=False returns BGR
             else:
@@ -935,6 +985,8 @@ class NVR:
             angular_rects, angular_contours
         """
 
+        tuner = camera.auto_tuner  # shorthand
+
         # Profile thresholds
         min_solidity = camera.profile.min_contour_solidity
         min_w = camera.profile.min_box_width
@@ -962,9 +1014,6 @@ class NVR:
         angular_rects = []
         angular_contours = []
 
-        # NOTE:
-        # Sobel edges were already computed in _process_frames into camera.edges_buf
-
         for cnt in contours:
             area = cv2.contourArea(cnt)
             if area < 1:
@@ -975,6 +1024,12 @@ class NVR:
                 x, y, w0, h0 = cv2.boundingRect(cnt)
                 small_rects.append((x, y, x + w0, y + h0))
                 small_contours.append(cnt)
+
+                tuner.record(MotionDecision(
+                    passed=False,
+                    reason="small_contour",
+                    details={"area": area, "min_area": min_area}
+                ))
                 continue
 
             # --- SOLIDITY FILTER ---
@@ -988,6 +1043,12 @@ class NVR:
                 x, y, w0, h0 = cv2.boundingRect(cnt)
                 angular_rects.append((x, y, x + w0, y + h0))
                 angular_contours.append(cnt)
+
+                tuner.record(MotionDecision(
+                    passed=False,
+                    reason="low_solidity",
+                    details={"solidity": solidity, "min_solidity": min_solidity}
+                ))
                 continue
 
             # --- MINIMUM WIDTH/HEIGHT FILTER ---
@@ -995,6 +1056,12 @@ class NVR:
             if w0 < min_w or h0 < min_h:
                 small_rects.append((x, y, x + w0, y + h0))
                 small_contours.append(cnt)
+
+                tuner.record(MotionDecision(
+                    passed=False,
+                    reason="small_dimensions",
+                    details={"w": w0, "h": h0, "min_w": min_w, "min_h": min_h}
+                ))
                 continue
 
             # --- SOBEL EDGE DENSITY FILTER ---
@@ -1005,6 +1072,12 @@ class NVR:
             if edge_density < min_edge_density:
                 angular_rects.append((x, y, x + w0, y + h0))
                 angular_contours.append(cnt)
+
+                tuner.record(MotionDecision(
+                    passed=False,
+                    reason="low_edge_density",
+                    details={"edge_density": edge_density, "min_edge_density": min_edge_density}
+                ))
                 continue
 
             # --- ASPECT RATIO FILTER ---
@@ -1012,11 +1085,28 @@ class NVR:
             if aspect > max_aspect:
                 angular_rects.append((x, y, x + w0, y + h0))
                 angular_contours.append(cnt)
+
+                tuner.record(MotionDecision(
+                    passed=False,
+                    reason="high_aspect_ratio",
+                    details={"aspect": aspect, "max_aspect": max_aspect}
+                ))
                 continue
 
             # --- ACCEPTED MOTION BOX ---
             kept_rects.append((x, y, x + w0, y + h0))
             kept_contours.append(cnt)
+
+            tuner.record(MotionDecision(
+                passed=True,
+                reason="accepted_contour",
+                details={
+                    "area": area,
+                    "solidity": solidity,
+                    "edge_density": edge_density,
+                    "aspect": aspect
+                }
+            ))
 
         return (
             kept_rects, kept_contours,
@@ -1238,27 +1328,7 @@ class NVR:
                             (255, 255, 255), 2)
 
         # --- DEBUG TEXT ---
-        vpos = 20
-        spacing = 25
-        def dbg(text):
-            nonlocal vpos
-            cv2.putText(thresh_panel, text, (10, vpos),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2)
-            vpos += spacing
-
-        dbg(f"recording={camera.recording}")
-        dbg(f"should_record={camera.should_record}")
-        dbg(f"has_moving_object={camera.has_moving_object}")
-        dbg(f"score={camera.score} / {camera.profile.motion_threshold}")
-        dbg(f"motion_confidence={camera.motion_confidence:.2f} / {camera.profile.motion_confidence_min}")
-        dbg(f"motion_persistence={camera.motion_persistence} / {camera.profile.min_motion_frames}")
-        dbg(f"total_motion_boxes={sum(map(len, [krs, dars, dsrs]))}")
-        dbg(f"motion_boxes_count={len(camera.motion_boxes_list)}")
-        dbg(f"kept rects={len(krs)}")
-        dbg(f"discarded sm rects={len(dsrs)}")
-        dbg(f"discarded angular rects={len(dars)}")
-        dbg(f"yolo_moving_boxes_count={len(result.boxes) if result else 0}")
-        dbg(f"objects={self._tags_to_str(camera.active_objects_dict)}")
+        self.draw_combined_debug_layout(camera, thresh_panel)
 
         # --- RESIZE PANELS ---
         h, w = frame_bgr.shape[:2]
@@ -1276,3 +1346,157 @@ class NVR:
         composite = np.vstack((top, bottom))
 
         return composite
+
+    def draw_tuner_dashboard(self, camera: Camera, panel):
+        """
+        Draws a live tuner dashboard overlay on the given panel.
+        Shows rule hit counts, last decisions, and recommendations.
+        """
+
+        tuner = camera.auto_tuner
+        stats = tuner.summarize()
+        recs  = tuner.recommend_adjustments()
+
+        # --- Dashboard box ---
+        x0, y0 = 10, 10
+        w, h = 420, 260
+        cv2.rectangle(panel, (x0, y0), (x0 + w, y0 + h), (32, 32, 32), -1)
+        cv2.rectangle(panel, (x0, y0), (x0 + w, y0 + h), (255, 255, 255), 2)
+
+        # --- Stats Section ---
+        y = y0 + 30
+        cv2.putText(panel, "Rule Hits:", (x0 + 10, y),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (200, 200, 200), 2)
+        y += 25
+
+        # Show top 6 most frequent rules
+        for rule, count in sorted(stats.items(), key=lambda x: -x[1])[:6]:
+            color = (0, 255, 0) if "accepted" in rule else (0, 165, 255)
+            cv2.putText(panel, f"{rule}: {count}",
+                        (x0 + 20, y),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.55,
+                        color, 2)
+            y += 22
+
+        # --- Recommendations Section ---
+        y += 10
+        cv2.putText(panel, "Recommendations:",
+                    (x0 + 10, y),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.6,
+                    (200, 200, 200), 2)
+        y += 25
+
+        if not recs:
+            cv2.putText(panel, "All thresholds stable",
+                        (x0 + 20, y),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.5,
+                        (0, 255, 0), 2)
+        else:
+            for k, v in recs.items():
+                cv2.putText(panel, f"{k}: {v}",
+                            (x0 + 20, y),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.5,
+                            (0, 255, 255), 2)
+                y += 22
+
+        return panel
+
+    def draw_combined_debug_layout(self, camera: Camera, thresh_panel):
+        """
+        Left column  = dbg() motion stats
+        Right column = auto-tuner dashboard
+        """
+
+        h, w = thresh_panel.shape[:2]
+
+        # -----------------------------
+        # LEFT COLUMN: dbg() output
+        # -----------------------------
+        xL = 10
+        yL = 20
+        spacing = 20
+
+        def dbg(text, color=(0,255,255)):
+            nonlocal yL
+            cv2.putText(
+                thresh_panel, text, (xL, yL),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.5,
+                color, 2
+            )
+            yL += spacing
+
+        # --- Your existing dbg() content ---
+        dbg(f"recording={camera.recording}")
+        dbg(f"should_record={camera.should_record}")
+        dbg(f"has_moving_object={camera.has_moving_object}")
+        dbg(f"score={camera.score} / {camera.profile.motion_threshold}")
+        dbg(f"motion_confidence={camera.motion_confidence:.2f} / {camera.profile.motion_confidence_min}")
+        dbg(f"motion_persistence={camera.motion_persistence} / {camera.profile.min_motion_frames}")
+        dbg(f"total_motion_boxes={sum(map(len, [camera.motion_boxes_list]))}")
+        dbg(f"pixel_score={camera.pixel_score:.2f}")
+        dbg(f"box_score={camera.box_score:.2f}")
+        dbg(f"persist_score={camera.persist_score:.2f}")
+        dbg(f"objects={self._tags_to_str(camera.active_objects_dict)}")
+
+        # -----------------------------
+        # RIGHT COLUMN: tuner dashboard
+        # -----------------------------
+        tuner = camera.auto_tuner
+        stats = tuner.summarize()
+        recs  = tuner.recommend_adjustments()
+
+        # Dashboard box
+        dash_w = 420
+        dash_h = 420
+        xR = w - dash_w - 10
+        yR = 10
+
+        #cv2.rectangle(thresh_panel, (xR, yR), (xR + dash_w, yR + dash_h), (32, 32, 32), -1)
+        cv2.rectangle(thresh_panel, (xR, yR), (xR + dash_w, yR + dash_h), (255, 255, 255), 2)
+
+        # Title
+        cv2.putText(thresh_panel, "AUTO-TUNER DASHBOARD",
+                    (xR + 10, yR + 30),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.7,
+                    (0, 255, 255), 2)
+
+        # Rule hits
+        y = yR + 60
+        cv2.putText(thresh_panel, "Rule Hits:",
+                    (xR + 10, y),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.6,
+                    (200, 200, 200), 2)
+        y += 25
+
+        for rule, count in sorted(stats.items(), key=lambda x: -x[1])[:6]:
+            color = (0, 255, 0) if "accepted" in rule else (0, 165, 255)
+            cv2.putText(thresh_panel, f"{rule}: {count}",
+                        (xR + 20, y),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.55,
+                        color, 2)
+            y += 22
+
+        # Recommendations
+        y += 10
+        cv2.putText(thresh_panel, "Recommendations:",
+                    (xR + 10, y),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.6,
+                    (200, 200, 200), 2)
+        y += 25
+
+        if not recs:
+            cv2.putText(thresh_panel, "All thresholds stable",
+                        (xR + 20, y),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.55,
+                        (0, 255, 0), 2)
+        else:
+            for k, v in recs.items():
+                cv2.putText(thresh_panel, f"{k}: {v}",
+                            (xR + 20, y),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.55,
+                            (0, 255, 255), 2)
+                y += 22
+
+        return thresh_panel
+
+
