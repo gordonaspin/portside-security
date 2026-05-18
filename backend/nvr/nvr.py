@@ -539,9 +539,6 @@ class NVR:
             # get latest frame (non-blocking)
             try:
                 frame: NDArray[np.uint8] = camera.frame_queue.get(timeout=0.5)
-                # we will draw on this, so copy it to avoid modifying the original frame
-                # in place which is used for motion detection and can cause weird artifacts
-                # if we draw on it directly
                 frame_bgr: NDArray[np.uint8] = frame.copy()
             except queue.Empty:
                 continue
@@ -581,11 +578,15 @@ class NVR:
                 continue
 
             # update background model
-            cv2.accumulateWeighted(camera.gray_buf, dst=camera.background_buf, alpha=0.12 if camera.is_night else 0.02)
+            cv2.accumulateWeighted(
+                camera.gray_buf,
+                dst=camera.background_buf,
+                alpha=0.12 if camera.is_night else 0.02
+            )
 
             # convert background to uint8 for diff
             cv2.convertScaleAbs(camera.background_buf, dst=camera.bg_frame_buf)
-            
+
             # --- MOTION DIFF ---
             cv2.absdiff(camera.bg_frame_buf, camera.gray_buf, dst=camera.diff_buf)
 
@@ -606,10 +607,10 @@ class NVR:
                 dst=camera.thresh_buf
             )
 
-            score: int = cv2.countNonZero(camera.thresh_buf)
+            camera.score = cv2.countNonZero(camera.thresh_buf)
 
             # Detect global brightness / shadow sweep
-            white_ratio: float = score / self._max_pixels
+            white_ratio: float = camera.score / self._max_pixels
             if white_ratio > 0.15:   # 15% of frame changed
                 # Too much of the frame changed at once → lighting change, not motion
                 camera.motion_boxes_list.clear()
@@ -620,16 +621,16 @@ class NVR:
             cv2.convertScaleAbs(camera.sobel_x_buf, dst=camera.sobel_x_abs_buf)
             cv2.convertScaleAbs(camera.sobel_y_buf, dst=camera.sobel_y_abs_buf)
             cv2.addWeighted(camera.sobel_x_abs_buf, 0.5, camera.sobel_y_abs_buf, 0.5, 0, dst=camera.edges_buf)
-            edge_density: float = cv2.countNonZero(camera.edges_buf) / self._max_pixels
+            camera.edge_density = cv2.countNonZero(camera.edges_buf) / self._max_pixels
 
-            if white_ratio > 0.10 and edge_density < 0.02:
+            if white_ratio > 0.10 and camera.edge_density < 0.02:
                 # Large area changed but no edges → shadow
                 camera.motion_boxes_list.clear()
                 continue
 
             krs, kcs, dsrs, dscs, dars, dacs = [], [], [], [], [], []
             camera.motion_boxes_list.clear()
-            if score > camera.profile.motion_threshold:
+            if camera.score > camera.profile.motion_threshold:
                 krs, kcs, dsrs, dscs, dars, dacs = self._find_motion_boxes(camera)
                 camera.motion_boxes_list.extend(krs)
 
@@ -644,7 +645,7 @@ class NVR:
 
             # 1. Pixel score: normalize by expected object-level change, not threshold
             #    This prevents leaves from saturating the score.
-            pixel_score = min(score / (camera.profile.motion_threshold * 3.0), 1.0)
+            camera.pixel_score = min(camera.score / (camera.profile.motion_threshold * 3.0), 1.0)
 
             # 2. Box score: normalize by object-like area, not sum of all boxes
             #    This prevents many small leaf boxes from inflating the score.
@@ -652,29 +653,44 @@ class NVR:
                 (x2 - x1) * (y2 - y1)
                 for (x1, y1, x2, y2) in camera.motion_boxes_list
             )
-            box_score = min(object_area / (camera.profile.min_sum_box_area * 2.0), 1.0)
+            camera.box_score = min(object_area / (camera.profile.min_sum_box_area * 2.0), 1.0)
 
-            # 3. Persistence score: unchanged (stabilizes motion)
-            persist_score = max(0.0, 1.0 - ((now - camera.last_motion_time) / camera.profile.motion_persistence_time))
+            camera.persist_score = max(
+                0.0,
+                1.0 - ((now - camera.last_motion_time) / camera.profile.motion_persistence_time)
+            )
 
-            # 4. Weighted confidence (balanced)
             motion_confidence = (
-                (pixel_score * 0.4) +
-                (box_score   * 0.4) +
-                (persist_score * 0.2)
+                (camera.pixel_score * 0.4) +
+                (camera.box_score   * 0.4) +
+                (camera.persist_score * 0.2)
             )
 
             camera.motion_confidence = motion_confidence
 
-            # Reset confidence when no motion
-            if not camera.motion_boxes_list and score < camera.profile.motion_threshold:
+            if not camera.motion_boxes_list and camera.score < camera.profile.motion_threshold:
                 camera.motion_confidence = 0.0
+
+            # --- OBJECT-LIKE MOTION PERSISTENCE ---
+            is_object_like_motion = (
+                camera.motion_boxes_list and
+                object_area >= camera.profile.min_sum_box_area and
+                camera.edge_density >= 0.02 and
+                camera.has_moving_object and
+                camera.motion_confidence >= 0.15
+            )
+
+            if is_object_like_motion:
+                camera.motion_persistence += 1
+            else:
+                camera.motion_persistence = max(0, camera.motion_persistence - 1)
 
             # YOLO
             result = None
             camera.classes_in_frame_dict.clear()
             camera.has_moving_object = False
             camera.keep_mask = []
+            moving_yolo_indices: set[int] = set()
 
             # Run YOLO only if motion exists or debug is on
             if camera.debug or (camera.motion_boxes_list and camera.motion_confidence > 0.05):
@@ -700,7 +716,6 @@ class NVR:
                 ]
 
                 # --- Determine which YOLO objects are moving ---
-                moving_yolo_indices = set()
                 for i, yb in enumerate(yolo_boxes):
                     for mb in inflated_motion_boxes:
                         if self._boxes_overlap(mb, yb):
@@ -735,53 +750,94 @@ class NVR:
                         camera=camera
                     )
 
-            self.draw_text(frame_bgr, camera.status_text, (0, 2),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255) if camera.recording else (0, 255, 0), 2, (32, 32, 32))
-            self.draw_text(frame_bgr, camera.objects_text, (0, 27),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2, (32, 32, 32))
+            self.draw_text(
+                frame_bgr, camera.status_text, (0, 2),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.7,
+                (0, 0, 255) if camera.recording else (0, 255, 0),
+                2, (32, 32, 32)
+            )
+            self.draw_text(
+                frame_bgr, camera.objects_text, (0, 27),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.7,
+                (255, 255, 255), 2, (32, 32, 32)
+            )
 
             if camera.debug:
-                camera.debug_motion_image = self.draw_debug_panels(camera,
-                                                                   frame_bgr,
-                                                                   score,
-                                                                   pixel_score,
-                                                                   box_score,
-                                                                   persist_score,
-                                                                   result,
-                                                                   krs, kcs, dsrs, dscs, dars, dacs)
+                camera.debug_motion_image = self.draw_debug_panels(
+                    camera,
+                    frame_bgr,
+                    result,
+                    krs, kcs, dsrs, dscs, dars, dacs
+                )
 
-            # start
-            camera.should_record = (
-                camera.has_moving_object and
-                camera.motion_confidence > camera.profile.motion_confidence_min
+            # --- RECORDING DECISION (REDUCED FALSE POSITIVES) ---
+
+            # 1. Persistent motion requirement
+            motion_is_persistent = (
+                camera.motion_persistence >= camera.profile.min_motion_frames
             )
+
+            # 2. Object-level motion requirement
+            object_motion = (
+                motion_is_persistent and
+                camera.has_moving_object and
+                len(moving_yolo_indices) > 0
+            )
+
+            # 3. Minimum object area requirement
+            object_area_ok = (
+                object_area >= camera.profile.min_sum_box_area
+            )
+
+            # 4. Confidence hysteresis
+            START_CONF = camera.profile.motion_confidence_min
+            STOP_CONF  = START_CONF * 0.5
+
+            should_start = (
+                object_motion and
+                object_area_ok and
+                camera.motion_confidence >= START_CONF
+            )
+
+            should_continue = (
+                camera.recording and
+                camera.motion_confidence >= STOP_CONF
+            )
+
+            camera.should_record = should_start or should_continue
+
             if camera.should_record:
                 camera.last_motion_time = now
 
-            if camera.should_record and not camera.recording:
+            # Start recording
+            if should_start and not camera.recording:
                 camera.recording = True
                 camera.recording_start_time = now - constants.PRE_RECORD_DURATION
                 camera.active_objects_dict = deepcopy(camera.classes_in_frame_dict)
                 camera.last_recording_time = now
-                log_event(message=f"recording start {self._tags_to_str(camera.active_objects_dict)}", level="info", camera=camera)
+                log_event(
+                    message=f"recording start {self._tags_to_str(camera.active_objects_dict)}",
+                    level="info",
+                    camera=camera
+                )
 
-            # update active segments and objects
+            # Update active segments and objects
             if camera.recording:
                 for item, colors in camera.classes_in_frame_dict.items():
                     camera.active_objects_dict[item].update(colors)
 
-            # stop recoding when there has been no motion for some time
-            if camera.recording and (now - camera.last_motion_time > constants.POST_RECORD_DURATION):
-                camera.recording = False
+            # Stop recording when motion has decayed and post duration elapsed
+            if camera.recording and not should_continue:
+                if now - camera.last_motion_time > constants.POST_RECORD_DURATION:
+                    camera.recording = False
+                    tags = deepcopy(camera.active_objects_dict)
+                    self._merge_segments_async(camera, tags, now)
 
-                # merge segments between camera.recording_start_time and nowm into an mp4 file with timestamp and tags
-                tags = deepcopy(camera.active_objects_dict)
-                self._merge_segments_async(camera, tags, now)
-
-                camera.classes_in_frame_dict.clear()
-                camera.active_objects_dict.clear()
-                camera.motion_frames = 0
-                camera.no_motion_frames = 0
+                    camera.classes_in_frame_dict.clear()
+                    camera.active_objects_dict.clear()
+                    camera.motion_frames = 0
+                    camera.no_motion_frames = 0
+                    camera.motion_persistence = 0
 
             # render YOLO plots on the frame if there was a result
             if result is not None:
@@ -790,7 +846,6 @@ class NVR:
                 img_bgr = frame_bgr
 
             if camera.debug and camera.debug_motion_image is not None:
-                # img_bgr = cv2.addWeighted(img_bgr, 0.5, camera.debug_motion_image, 0.5, 0)
                 img_bgr = camera.debug_motion_image
 
             camera.latest_frame = img_bgr
@@ -802,6 +857,7 @@ class NVR:
             parts.append(f"FPS {int(camera.fps.value())}:{camera.drop_rate:.2f}")
             camera.objects_text = self._tags_to_str(camera.active_objects_dict)
             camera.status_text = " | ".join(parts)
+
 
     def _process_lpr_frames(self, camera: Camera):
         """
@@ -1102,10 +1158,6 @@ class NVR:
     def draw_debug_panels(self,
                           camera: Camera,
                           frame_bgr: NDArray[np.uint8],
-                          score: float,
-                          pixel_score: float,
-                          box_score: float,
-                          persist_score: float,
                           result: Results,
                           krs: list[Tuple[int, int, int, int]],
                           kcs: list[NDArray[np.int32]],
@@ -1199,10 +1251,13 @@ class NVR:
         cv2.putText(thresh_panel, f"has_moving_object={camera.has_moving_object}", (10, vpos),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
         vpos += spacing
-        cv2.putText(thresh_panel, f"score={score} / {camera.profile.motion_threshold}", (10, vpos),
+        cv2.putText(thresh_panel, f"score={camera.score} / {camera.profile.motion_threshold}", (10, vpos),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
         vpos += spacing
         cv2.putText(thresh_panel, f"motion_confidence={camera.motion_confidence:.2f} / {camera.profile.motion_confidence_min}", (10, vpos),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
+        vpos += spacing
+        cv2.putText(thresh_panel, f"motion_persistence={camera.motion_persistence} / {camera.profile.min_motion_frames}", (10, vpos),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
         vpos += spacing
         cv2.putText(thresh_panel, f"has_moving_object={camera.has_moving_object}", (10, vpos),
@@ -1226,13 +1281,13 @@ class NVR:
         cv2.putText(thresh_panel, f"yolo_moving_boxes_count={len(result.boxes)}", (10, vpos),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
         vpos += spacing
-        cv2.putText(thresh_panel, f"pixel_score={pixel_score:.2f}", (10, vpos),
+        cv2.putText(thresh_panel, f"pixel_score={camera.pixel_score:.2f}", (10, vpos),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
         vpos += spacing
-        cv2.putText(thresh_panel, f"box_score={box_score:.2f}", (10, vpos),
+        cv2.putText(thresh_panel, f"box_score={camera.box_score:.2f}", (10, vpos),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
         vpos += spacing
-        cv2.putText(thresh_panel, f"persist_score={persist_score:.2f}", (10, vpos),
+        cv2.putText(thresh_panel, f"persist_score={camera.persist_score:.2f}", (10, vpos),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
         vpos += spacing
         cv2.putText(thresh_panel, f"objects={self._tags_to_str(camera.active_objects_dict)}", (10, vpos),

@@ -85,6 +85,11 @@ class Camera:
     recording: bool = False
     is_night: bool = False
     recording_start_time: float = 0.0
+    score: int = 0
+    pixel_score: float = 0.0
+    box_score: float = 0.0
+    persist_score: float = 0.0
+    edge_density: float = 0.0
 
     # profiles
     profile: MotionProfile = None
@@ -96,6 +101,7 @@ class Camera:
     active_objects_dict: defaultdict = field(default_factory=lambda: defaultdict(set))
     active_segments_list: list = field(default_factory=list)
     motion_condfidence: float = 0.0
+    motion_persistence: int = 0
     debug_motion_image: np.ndarray = None
     keep_mask: list = field(default_factory=list)
     has_moving_object: bool = False
