@@ -273,15 +273,6 @@ class NVR:
         Runs ffmpeg merge in a separate thread. When the process finishes,
         the log the event and delete the listing file.
         """
-        def timestamp_to_epoch(ts: str) -> int:
-            """
-            Convert 'YYYYMMDD_HHMMSS' → epoch seconds.
-
-            Example:
-                '20260428_143210' -> 1777386730
-            """
-            dt = datetime.strptime(ts, "%Y%m%d_%H%M%S")
-            return dt.timestamp()
 
         segments = self._get_segments(camera=camera, end_time=end_time)
         tags_str = self._tags_to_str(tags)
@@ -1156,34 +1147,40 @@ class NVR:
         return best
 
     def draw_debug_panels(self,
-                          camera: Camera,
-                          frame_bgr: NDArray[np.uint8],
-                          result: Results,
-                          krs: list[Tuple[int, int, int, int]],
-                          kcs: list[NDArray[np.int32]],
-                          dsrs: list[Tuple[int, int, int, int]],
-                          dscs: list[NDArray[np.int32]],
-                          dars: list[Tuple[int, int, int, int]],
-                          dacs: list[NDArray[np.int32]]
-                          ):
-                # --- BUILD 4-PANEL DEBUG COMPOSITE ---
-        # 1. Original frame
-        orig_panel = frame_bgr.copy()
-        cv2.putText(orig_panel, "Original Frame", (10, 25),
+                      camera: Camera,
+                      frame_bgr: NDArray[np.uint8],
+                      result: Results,
+                      krs: list[Tuple[int, int, int, int]],
+                      kcs: list[NDArray[np.int32]],
+                      dsrs: list[Tuple[int, int, int, int]],
+                      dscs: list[NDArray[np.int32]],
+                      dars: list[Tuple[int, int, int, int]],
+                      dacs: list[NDArray[np.int32]]
+                      ):
+
+        # --- BUILD 4-PANEL DEBUG COMPOSITE ---
+
+        # 1. Original frame (with YOLO annotations via result.plot)
+        if result is not None:
+            orig_panel = result.plot(pil=False).copy()
+        else:
+            orig_panel = frame_bgr.copy()
+
+        cv2.putText(orig_panel, "Original Frame (YOLO)", (10, 25),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
 
-        # 2. Background model (convert float32 → uint8)
+        # 2. Background model
         bg_panel = cv2.convertScaleAbs(camera.background_buf)
         bg_panel = cv2.cvtColor(bg_panel, cv2.COLOR_GRAY2BGR)
         cv2.putText(bg_panel, "Background Model", (10, 25),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
 
-        # 3. Diff (or diff_filtered)
+        # 3. Diff (filtered)
         diff_panel = cv2.cvtColor(camera.diff_filtered_buf, cv2.COLOR_GRAY2BGR)
         cv2.putText(diff_panel, "Diff (Filtered)", (10, 25),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
 
-        # 4. Threshold image (with motion boxes)
+        # 4. Threshold panel
         thresh_panel = cv2.cvtColor(camera.thresh_buf, cv2.COLOR_GRAY2BGR)
 
         # --- DRAW MOTION BOXES ON THRESH PANEL ---
@@ -1196,102 +1193,69 @@ class NVR:
         for (x1, y1, x2, y2) in dars:
             cv2.rectangle(thresh_panel, (x1, y1), (x2, y2), (0, 0, 255), 2)
 
-        # --- DEBUG: DRAW PER-CONTOUR METRICS ---
-        for cnt in kcs + dscs + dacs:  # kept + small + angular
+        # --- PER-CONTOUR METRICS ---
+        for cnt in kcs + dscs + dacs:
             x, y, w0, h0 = cv2.boundingRect(cnt)
 
-            # Compute solidity
             area = cv2.contourArea(cnt)
             hull = cv2.convexHull(cnt)
             hull_area = cv2.contourArea(hull)
             solidity = area / hull_area if hull_area > 0 else 0
 
-            # Compute edge density
-            # Compute edge density using precomputed Sobel edges
             roi_edges = camera.edges_buf[y:y+h0, x:x+w0]
             edge_density = cv2.countNonZero(roi_edges) / max(1, (w0 * h0))
 
-            # Compute aspect ratio
             aspect = max(w0, h0) / max(1, min(w0, h0))
 
-            # Choose color based on classification
             if any(cnt is kc for kc in kcs):
-                color = (0, 255, 0)      # kept = green
+                color = (0, 255, 0)
             elif any(cnt is dsc for dsc in dscs):
-                color = (0, 165, 255)    # small = orange
+                color = (0, 165, 255)
             else:
-                color = (0, 0, 255)      # angular = red
+                color = (0, 0, 255)
 
-            # Draw bounding box
             cv2.rectangle(thresh_panel, (x, y), (x + w0, y + h0), color, 2)
 
-            # Draw text block
             text = f"S:{solidity:.2f} E:{edge_density:.2f} A:{aspect:.1f}"
-            cv2.putText(
-                thresh_panel, text,
-                (x, y - 5),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.5,
-                color, 1
-            )
+            cv2.putText(thresh_panel, text, (x, y - 5),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
 
-        # --- Draw YOLO boxes that are moving on original panel and thresh panel
-        for box in result.boxes:
-            x1, y1, x2, y2 = map(int, box.xyxy[0])
-            cv2.rectangle(thresh_panel, (x1, y1), (x2, y2), (255, 255, 255), 2)
-            cv2.rectangle(orig_panel, (x1, y1), (x2, y2), (255, 255, 255), 2)
+        # --- YOLO ANNOTATIONS ON THRESH PANEL ---
+        if result is not None:
+            for box in result.boxes:
+                x1, y1, x2, y2 = map(int, box.xyxy[0])
+                cls_id = int(box.cls[0].item())
+                conf = float(box.conf[0].item())
+                label = f"{self.model.model.names[cls_id]} {conf:.2f}"
 
+                cv2.rectangle(thresh_panel, (x1, y1), (x2, y2), (255, 255, 255), 2)
+                cv2.putText(thresh_panel, label, (x1, y1 - 6),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.5,
+                            (255, 255, 255), 2)
+
+        # --- DEBUG TEXT ---
         vpos = 20
         spacing = 25
-        cv2.putText(thresh_panel, f"recording={camera.recording}", (10, vpos),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
-        vpos += spacing
-        cv2.putText(thresh_panel, f"should_record={camera.should_record}", (10, vpos),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
-        vpos += spacing
-        cv2.putText(thresh_panel, f"has_moving_object={camera.has_moving_object}", (10, vpos),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
-        vpos += spacing
-        cv2.putText(thresh_panel, f"score={camera.score} / {camera.profile.motion_threshold}", (10, vpos),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
-        vpos += spacing
-        cv2.putText(thresh_panel, f"motion_confidence={camera.motion_confidence:.2f} / {camera.profile.motion_confidence_min}", (10, vpos),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
-        vpos += spacing
-        cv2.putText(thresh_panel, f"motion_persistence={camera.motion_persistence} / {camera.profile.min_motion_frames}", (10, vpos),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
-        vpos += spacing
-        cv2.putText(thresh_panel, f"has_moving_object={camera.has_moving_object}", (10, vpos),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
-        vpos += spacing
-        cv2.putText(thresh_panel, f"total_motion_boxes={sum(map(len, [krs, dars, dsrs]))}", (10, vpos),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
-        vpos += spacing
-        cv2.putText(thresh_panel, f"motion_boxes_count={len(camera.motion_boxes_list)}", (10, vpos),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
-        vpos += spacing
-        cv2.putText(thresh_panel, f"kept rects={len(krs)}", (10, vpos),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
-        vpos += spacing
-        cv2.putText(thresh_panel, f"discarded sm rects={len(dsrs)}", (10, vpos),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 165, 255), 2)
-        vpos += spacing
-        cv2.putText(thresh_panel, f"discarded angular rects={len(krs)}", (10, vpos),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 165, 255), 2)
-        vpos += spacing
-        cv2.putText(thresh_panel, f"yolo_moving_boxes_count={len(result.boxes)}", (10, vpos),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
-        vpos += spacing
-        cv2.putText(thresh_panel, f"pixel_score={camera.pixel_score:.2f}", (10, vpos),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
-        vpos += spacing
-        cv2.putText(thresh_panel, f"box_score={camera.box_score:.2f}", (10, vpos),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
-        vpos += spacing
-        cv2.putText(thresh_panel, f"persist_score={camera.persist_score:.2f}", (10, vpos),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
-        vpos += spacing
-        cv2.putText(thresh_panel, f"objects={self._tags_to_str(camera.active_objects_dict)}", (10, vpos),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
+        def dbg(text):
+            nonlocal vpos
+            cv2.putText(thresh_panel, text, (10, vpos),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
+            vpos += spacing
+
+        dbg(f"recording={camera.recording}")
+        dbg(f"should_record={camera.should_record}")
+        dbg(f"has_moving_object={camera.has_moving_object}")
+        dbg(f"score={camera.score} / {camera.profile.motion_threshold}")
+        dbg(f"motion_confidence={camera.motion_confidence:.2f} / {camera.profile.motion_confidence_min}")
+        dbg(f"motion_persistence={camera.motion_persistence} / {camera.profile.min_motion_frames}")
+        dbg(f"total_motion_boxes={sum(map(len, [krs, dars, dsrs]))}")
+        dbg(f"motion_boxes_count={len(camera.motion_boxes_list)}")
+        dbg(f"kept rects={len(krs)}")
+        dbg(f"discarded sm rects={len(dsrs)}")
+        dbg(f"discarded angular rects={len(dars)}")
+        dbg(f"yolo_moving_boxes_count={len(result.boxes) if result else 0}")
+        dbg(f"objects={self._tags_to_str(camera.active_objects_dict)}")
+
         # --- RESIZE PANELS ---
         h, w = frame_bgr.shape[:2]
         half_w = w // 2
