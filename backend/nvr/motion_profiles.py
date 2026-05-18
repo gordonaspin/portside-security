@@ -13,14 +13,14 @@ class DayMotionProfile(MotionProfile):
         self.min_box_width = 20
         self.min_box_height = 20
         self.min_contour_solidity = 0.60
-        self.min_contour_area_ratio = 0.0035
+        self.min_contour_area_ratio = 0.0040
         self.max_allowed_aspect_ratio = 6.0
         self.motion_confidence_min = 0.35
         self.min_total_motion_area = 0.006 * max_pixels
-        self.min_sum_box_area = 0.005 * max_pixels
+        self.min_sum_box_area = 0.007 * max_pixels
         self.inflate_motion_boxes = 18
         self.motion_persistence_time = 2.0
-        self.min_motion_frames = 8
+        self.min_motion_frames = 10
     def set_motion_threshold(self, val):
             self.motion_threshold = int(val * self.max_pixels / 100)
 
@@ -42,7 +42,7 @@ class NightMotionProfile(MotionProfile):
         self.min_sum_box_area = 0.010 * max_pixels                                      # require sum of box areas to be larger
         self.inflate_motion_boxes = 15
         self.motion_persistence_time = 3.0   # seconds
-        self.min_motion_frames = 10
+        self.min_motion_frames = 12
           
     def set_motion_threshold(self, val):
             self.motion_threshold = int(val * 1.5 * self.max_pixels / 100)

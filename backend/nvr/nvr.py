@@ -1187,14 +1187,14 @@ class NVR:
         for (x1, y1, x2, y2) in krs:
             cv2.rectangle(thresh_panel, (x1, y1), (x2, y2), (0, 255, 0), 2)
 
-        for (x1, y1, x2, y2) in dsrs:
-            cv2.rectangle(thresh_panel, (x1, y1), (x2, y2), (0, 165, 255), 2)
+        #for (x1, y1, x2, y2) in dsrs:
+        #    cv2.rectangle(thresh_panel, (x1, y1), (x2, y2), (0, 165, 255), 2)
 
-        for (x1, y1, x2, y2) in dars:
-            cv2.rectangle(thresh_panel, (x1, y1), (x2, y2), (0, 0, 255), 2)
+        #for (x1, y1, x2, y2) in dars:
+        #    cv2.rectangle(thresh_panel, (x1, y1), (x2, y2), (0, 0, 255), 2)
 
         # --- PER-CONTOUR METRICS ---
-        for cnt in kcs + dscs + dacs:
+        for cnt in kcs:# + dscs + dacs:
             x, y, w0, h0 = cv2.boundingRect(cnt)
 
             area = cv2.contourArea(cnt)
@@ -1218,7 +1218,7 @@ class NVR:
 
             text = f"S:{solidity:.2f} E:{edge_density:.2f} A:{aspect:.1f}"
             cv2.putText(thresh_panel, text, (x, y - 5),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.8, color, 1)
 
         # --- YOLO ANNOTATIONS ON THRESH PANEL ---
         if result is not None:
@@ -1230,7 +1230,7 @@ class NVR:
 
                 cv2.rectangle(thresh_panel, (x1, y1), (x2, y2), (255, 255, 255), 2)
                 cv2.putText(thresh_panel, label, (x1, y1 - 6),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.5,
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.8,
                             (255, 255, 255), 2)
 
         # --- DEBUG TEXT ---
@@ -1239,7 +1239,7 @@ class NVR:
         def dbg(text):
             nonlocal vpos
             cv2.putText(thresh_panel, text, (10, vpos),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2)
             vpos += spacing
 
         dbg(f"recording={camera.recording}")
