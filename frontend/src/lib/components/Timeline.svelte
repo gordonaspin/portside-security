@@ -225,6 +225,12 @@
   }
 
   function drawTimeTicks(w) {
+    
+    const DATE_LABEL_Y = 2;       // day/date
+    const TIME_LABEL_Y = 20;      // HH:MM
+    const TICK_TOP_Y   = 36;      // tick lines start here
+    const HEADER_HEIGHT = 48; // enough room for both label bands
+    
     ctx.fillStyle = "#888";
     ctx.font = "12px sans-serif";
 
@@ -232,53 +238,57 @@
     const usableWidth = w - computedLeftMargin;
     const totalSeconds = end - start;
 
-    const isMobileView = isMobile;
+    //
+    // 1. Draw day/date headers at local midnights
+    //
+    const d = new Date(start * 1000);
+    d.setHours(0, 0, 0, 0);
+    let dayTs = d.getTime() / 1000;
 
-    // Desktop: day/date headers at local midnights
-    if (!isMobileView) {
-      const d = new Date(start * 1000);
-      d.setHours(0, 0, 0, 0); // local midnight
-      let dayTs = d.getTime() / 1000;
+    ctx.font = "13px sans-serif";
+    ctx.fillStyle = "#ccc";
+    ctx.textBaseline = "top";
 
-      ctx.font = "13px sans-serif";
-      ctx.fillStyle = "#ccc";
-      ctx.textBaseline = "top";
+    while (dayTs < end) {
+      const x = xFor(dayTs);
 
-      while (dayTs < end) {
-        const x = xFor(dayTs);
+      const label = d.toLocaleDateString(undefined, {
+        weekday: "short",
+        month: "short",
+        day: "numeric"
+      });
 
-        const label = d.toLocaleDateString(undefined, {
-          weekday: "short",
-          month: "short",
-          day: "numeric"
-        });
+      ctx.fillText(label, x + 4, DATE_LABEL_Y);
 
-        ctx.fillText(label, x + 4, 2);
-
-        d.setDate(d.getDate() + 1);
-        dayTs = d.getTime() / 1000;
-      }
+      d.setDate(d.getDate() + 1);
+      dayTs = d.getTime() / 1000;
     }
 
-    let tickStep;
-    let labelEvery;
+    //
+    // Determine tickStep dynamically based on pixel spacing
+    //
+    const secondsPerPixel = totalSeconds / usableWidth;
+    const TARGET_TICK_SPACING_PX = 50;
+    const minTickInterval = secondsPerPixel * TARGET_TICK_SPACING_PX;
 
-    if (zoomHours >= 12) {
-      tickStep = 4 * 3600;
-      labelEvery = 4 * 3600;
-    } else if (zoomHours >= 6) {
-      tickStep = 2 * 3600;
-      labelEvery = 2 * 3600;
-    } else if (zoomHours >= 4) {
-      tickStep = 3600;
-      labelEvery = 3600;
-    } else if (zoomHours >= 1) {
-      tickStep = 900;
-      labelEvery = isMobileView ? 1800 : 900;
-    } else {
-      tickStep = 60;
-      labelEvery = isMobileView ? 300 : 120;
-    }
+    // “Nice” intervals in seconds
+    const niceIntervals = [
+      60,        // 1 min
+      120,       // 2 min
+      300,       // 5 min
+      600,       // 10 min
+      900,       // 15 min
+      1800,      // 30 min
+      3600,      // 1 hour
+      7200,      // 2 hours
+      14400      // 4 hours
+    ];
+
+    // Pick the smallest nice interval >= minTickInterval
+    let tickStep = niceIntervals.find(v => v >= minTickInterval) || niceIntervals[niceIntervals.length - 1];
+
+    // Labels every tickStep (or every other if needed)
+    let labelEvery = tickStep;
 
     const labelFormat = (ts) => {
       const d = new Date(ts * 1000);
@@ -289,38 +299,56 @@
       );
     };
 
+    //
+    // 3. Draw hour/minute ticks (label-width aware, overlap-free)
+    //
     let t = Math.ceil(start / tickStep) * tickStep;
+    let k = 0;
 
     ctx.font = "12px sans-serif";
     ctx.fillStyle = "#888";
 
+    const pxPerSecond = usableWidth / totalSeconds;
+    const pxPerTick = tickStep * pxPerSecond;
+
+    // Measure a sample label
+    const sampleLabel = labelFormat(start);
+    const labelWidth = ctx.measureText(sampleLabel).width;
+
+    // Track last drawn label position
+    let lastLabelRight = -Infinity;
+
     while (t < end) {
       const x = xFor(t);
 
-      if (isMobileView) {
-        const pxPerTick = (tickStep / totalSeconds) * usableWidth;
-        if (pxPerTick < 40) {
-          if ((t / tickStep) % 2 !== 0) {
-            t += tickStep;
-            continue;
-          }
+      const isLabelTick = (t % labelEvery === 0);
+
+      //
+      // LABEL DRAWING (no overlap)
+      //
+      if (isLabelTick) {
+        const label = labelFormat(t);
+        const w = ctx.measureText(label).width;
+
+        // Only draw if it won't overlap previous label
+        if (x > lastLabelRight + 8) {
+          ctx.fillText(label, x + 4, TIME_LABEL_Y);
+          lastLabelRight = x + 4 + w;
         }
       }
 
-      const hourLabelY = isMobileView ? 2 : 20;
-
-      if (t % labelEvery === 0) {
-        ctx.fillText(labelFormat(t), x + 4, hourLabelY);
-      }
-
+      //
+      // TICK DRAWING (always allowed)
+      //
       ctx.fillRect(
         x,
-        TICK_HEIGHT,
+        TICK_TOP_Y,
         1,
-        canvas.height - TICK_HEIGHT - LEGEND_HEIGHT
+        canvas.height - TICK_TOP_Y - LEGEND_HEIGHT
       );
 
       t += tickStep;
+      k += 1;
     }
   }
 
