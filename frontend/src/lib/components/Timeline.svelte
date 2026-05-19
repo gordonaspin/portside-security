@@ -823,7 +823,7 @@
   .tooltip-class-row {
     display: flex;
     gap: 4px;
-    white-space: nowrap;
+    white-space: normal;
   }
 
   .tooltip-class-name {
