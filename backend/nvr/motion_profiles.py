@@ -19,12 +19,12 @@ class DayMotionProfile(MotionProfile):
         self.min_contour_solidity = 0.60
         self.min_contour_area_ratio = 0.0040 + 0.0005
         self.max_allowed_aspect_ratio = 6.0
-        self.motion_confidence_min = 0.35
-        self.min_total_motion_area = 0.007 * max_pixels
+        self.motion_confidence_min = 0.30
+        self.min_total_motion_area = 0.006 * max_pixels
         self.min_sum_box_area = 0.007 * max_pixels
         self.inflate_motion_boxes = 13
         self.motion_persistence_time = 2.0
-        self.min_motion_frames = 12
+        self.min_motion_frames = 8
     def set_motion_threshold(self, val):
             self.motion_threshold = int(val * self.max_pixels / 100)
 
@@ -41,12 +41,12 @@ class NightMotionProfile(MotionProfile):
         self.min_contour_solidity = 0.80                                                # stricter
         self.min_contour_area_ratio = 0.012                                             # larger min area of a single contour
         self.max_allowed_aspect_ratio = 5.0                                             # keeps square-ish objects, discards skinny long ones
-        self.motion_confidence_min = 0.50                                               # require stronger motion
+        self.motion_confidence_min = 0.45                                               # require stronger motion
         self.min_total_motion_area = 0.008 * max_pixels                                 # require more total motion
-        self.min_sum_box_area = 0.010 * max_pixels                                      # require sum of box areas to be larger
+        self.min_sum_box_area = 0.009 * max_pixels                                      # require sum of box areas to be larger
         self.inflate_motion_boxes = 10
         self.motion_persistence_time = 3.0   # seconds
-        self.min_motion_frames = 12
+        self.min_motion_frames = 10
           
     def set_motion_threshold(self, val):
             self.motion_threshold = int(val * 1.5 * self.max_pixels / 100)
