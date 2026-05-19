@@ -1,8 +1,17 @@
 from collections import deque, defaultdict
-from queue import Queue
+from queue import Queue, Empty
 from subprocess import Popen
+from datetime import datetime
+import os
+import json
+import time
+from copy import deepcopy
+from pathlib import Path
+
 import numpy as np
 from numpy.typing import NDArray
+
+from logger.logger import log_event
 from model.model import Model
 from nvr.motion_profiles import MotionProfile, DayMotionProfile, MotionProfileAutoTuner
 
@@ -32,6 +41,7 @@ class Camera:
         cfg: dict,
         max_pixels: int,
         name: str,
+        logs_dir: str,
         recordings_dir: str,
         segments_dir: str,
         images_dir: str,
@@ -45,6 +55,7 @@ class Camera:
         self.cfg: dict = cfg
         self.max_pixels = max_pixels
         self.name: str = name
+        self.logs_dir: str = logs_dir
         self.recordings_dir: str = recordings_dir
         self.segments_dir: str = segments_dir
         self.images_dir: str = images_dir
@@ -90,10 +101,12 @@ class Camera:
         self.objects_text: str = ""
 
         # --- Logic state ---
+        self.should_record: bool = False
+        self.should_start: bool = False
+        self.should_continue: bool = False
         self.last_recording_time: float = 0.0
         self.last_night_time_check: float = 0.0
         self.last_motion_time: float = 0.0
-        self.should_record: bool = False
         self.recording: bool = False
         self.is_night: bool = False
         self.recording_start_time: float = 0.0
@@ -144,55 +157,237 @@ class Camera:
             "inflate_motion_boxes": self.profile.inflate_motion_boxes,
         }
 
+    def _profile_to_dict(self) -> dict:
+        """
+        Return a JSON‑safe snapshot of the motion profile.
+        Skips callables (like min_edge_density lambdas).
+        Uses adaptive_profile for values that back functions.
+        """
+        prof = self.profile
+        ap = self.adaptive_profile  # your numeric backing store
+
+        data = {}
+
+        for k, v in vars(prof).items():
+            # skip private attrs
+            if k.startswith("_"):
+                continue
+            # skip callables (functions, lambdas, methods)
+            if callable(v):
+                continue
+            data[k] = v
+
+        # explicitly include the numeric base for min_edge_density
+        if "min_edge_density" in ap:
+            data["min_edge_density_base"] = ap["min_edge_density"]
+
+        return data
+
     def is_lpr(self) -> bool:
         return hasattr(self, "lpr")
 
-    def auto_adjust_profile(self):
+    def get_frame(self) -> NDArray[np.uint8] | None:
+        """
+        Retrieve the latest frame from the camera queue.
+        This preserves the original behavior:
+        - latest-frame-wins
+        - drop frames if queue is full
+        - timeout every 0.5s so thread can exit cleanly
+        """
+        try:
+            frame: NDArray[np.uint8] = self.frame_queue.get(timeout=0.5)
+            self.initialize_buffers(frame)
+            return frame.copy()  # always work on a copy
+        except Empty:
+            return None
+
+    def initialize_buffers(self, frame_bgr: NDArray[np.uint8]) -> None:
+        """
+        Initialize all OpenCV buffers on the first frame.
+        This preserves your original logic exactly:
+        - allocate all buffers once
+        - reuse them forever
+        - initialize background model from first gray frame
+        """
+        if not self.first_frame:
+            return
+
+        self.first_frame = False
+        log_event(message="reading from stream", level="info", camera=self)
+
+        h, w = frame_bgr.shape[:2]
+
+        # Allocate all working buffers
+        self.bg_frame_buf      = np.zeros((h, w), dtype=np.uint8)
+        self.diff_blur_buf     = np.zeros((h, w), dtype=np.uint8)
+        self.diff_buf          = np.zeros((h, w), dtype=np.uint8)
+        self.diff_filtered_buf = np.zeros((h, w), dtype=np.uint8)
+        self.diff_mask_buf     = np.zeros((h, w), dtype=np.uint8)
+        self.edges_buf         = np.zeros((h, w), dtype=np.uint8)
+        self.gray_buf          = np.zeros((h, w), dtype=np.uint8)
+        self.thresh_buf        = np.zeros((h, w), dtype=np.uint8)
+        self.sobel_x_buf       = np.zeros((h, w), dtype=np.int16)
+        self.sobel_y_buf       = np.zeros((h, w), dtype=np.int16)
+        self.sobel_x_abs_buf   = np.zeros((h, w), dtype=np.uint8)
+        self.sobel_y_abs_buf   = np.zeros((h, w), dtype=np.uint8)
+
+        # Background model starts as float32 version of first gray frame
+        self.background_buf = self.gray_buf.astype("float32")
+
+    def auto_adjust_if_needed(self, now: float) -> None:
+        """
+        Periodically auto-tune the motion profile.
+        This preserves your original logic:
+        - run auto_adjust_profile() every 60 seconds
+        - log the tuning event
+        """
+        if now - self.last_auto_adjust <= 60:
+            return
+
+        log_event("tuning profile", level="info", camera=self)
+        self._auto_adjust_profile()
+        self.last_auto_adjust = now
+
+
+    def _auto_adjust_profile(self):
         tuner = self.auto_tuner
         stats = tuner.summarize()
-        recs  = tuner.recommend_adjustments()
+        recs = tuner.recommend_adjustments()
 
+        # nothing to do
+        if not recs:
+            tuner.reset()
+            return
+
+        before = self._profile_to_dict()
+        ap = self.adaptive_profile
         prof = self.profile
-        ap   = self.adaptive_profile
+        max_pixels = prof.max_pixels
 
-        # --- 1. Adjust min_edge_density ---
+        def clamp(v, lo, hi):
+            return max(lo, min(hi, v))
+
+        # apply SAFE recommendations
+
         if "min_edge_density" in recs:
-            ap["min_edge_density"] += 0.002
-            ap["min_edge_density"] = min(ap["min_edge_density"], 0.08)  # safety cap
+            ap["min_edge_density"] += 0.002 * 0.2
+            ap["min_edge_density"] = clamp(ap["min_edge_density"], 0.015, 0.04)
 
-        # --- 2. Adjust min_contour_area_ratio ---
-        if "min_contour_area_ratio" in recs:
-            ap["min_contour_area_ratio"] += 0.0005
-            ap["min_contour_area_ratio"] = min(ap["min_contour_area_ratio"], 0.02)
-
-        # --- 3. Adjust min_total_motion_area ---
-        if "min_total_motion_area" in recs:
-            ap["min_total_motion_area"] += 0.001 * self.max_pixels
-            ap["min_total_motion_area"] = min(ap["min_total_motion_area"], 0.05 * self.max_pixels)
-
-        # --- 4. Adjust min_motion_frames ---
         if "min_motion_frames" in recs:
-            ap["min_motion_frames"] += 2
-            ap["min_motion_frames"] = min(ap["min_motion_frames"], 20)
+            ap["min_motion_frames"] += max(1, int(2 * 0.2))
+            ap["min_motion_frames"] = clamp(ap["min_motion_frames"], 4, 16)
 
-        # --- 5. Adjust inflate_motion_boxes ---
-        if "inflate_motion_boxes" in recs:
-            ap["inflate_motion_boxes"] -= 5
-            ap["inflate_motion_boxes"] = max(ap["inflate_motion_boxes"], 5)
+        if "min_total_motion_area" in recs:
+            ap["min_total_motion_area"] += 0.001 * 0.2 * max_pixels
+            ap["min_total_motion_area"] = clamp(
+                ap["min_total_motion_area"],
+                0.003 * max_pixels,
+                0.006 * max_pixels,
+            )
 
-        # --- APPLY ADAPTIVE VALUES BACK TO PROFILE ---
-        prof.min_contour_area_ratio = ap["min_contour_area_ratio"]
-        prof.min_total_motion_area  = ap["min_total_motion_area"]
-        prof.min_motion_frames      = ap["min_motion_frames"]
-        prof.inflate_motion_boxes   = ap["inflate_motion_boxes"]
+        # push adaptive values back into profile
+        prof.min_total_motion_area = ap["min_total_motion_area"]
+        prof.min_motion_frames = ap["min_motion_frames"]
+        prof.inflate_motion_boxes = ap["inflate_motion_boxes"]
 
-        # min_edge_density is a function → wrap it
         base = ap["min_edge_density"]
         prof.min_edge_density = lambda noise: base + noise * 0.0012
 
-        # Reset tuner stats periodically
-        tuner.decisions.clear()
-        tuner.stats.clear()
+        after = self._profile_to_dict()
+
+        # --- RESET TUNER ---
+        tuner.reset()
+
+        # --- WRITE JSON LOG ---
+        log = {
+            "timestamp": time.time(),
+            "camera": getattr(self, "name", "unknown_camera"),
+            "before_profile": before,
+            "after_profile": after,
+            "tuner_stats": stats,
+            "recommendations": recs,
+        }
+
+        timestamp_str = datetime.fromtimestamp(time.time()).strftime("%Y%m%d_%H%M%S")
+        log_filename = os.path.join(self.logs_dir, f"{timestamp_str}_{self.name}_tuner.json")
+
+        with open(log_filename, "w") as f:
+            json.dump(log, f, indent=4)
+
+    def update_confidence(
+        self,
+        motion_boxes: list[tuple[int, int, int, int]],
+        now: float
+    ) -> None:
+        """
+        Compute pixel_score, box_score, persist_score, and motion_confidence.
+        This preserves your original weighting:
+        - pixel_score: 40%
+        - box_score:   40%
+        - persist:     20%
+        """
+
+        # --- PIXEL SCORE ---
+        self.pixel_score = min(
+            self.score / (self.profile.motion_threshold * 3.0),
+            1.0
+        )
+
+        # --- BOX SCORE ---
+        object_area = sum(
+            (x2 - x1) * (y2 - y1)
+            for (x1, y1, x2, y2) in motion_boxes
+        )
+        self.box_score = min(
+            object_area / (self.profile.min_sum_box_area * 2.0),
+            1.0
+        )
+
+        # --- PERSISTENCE SCORE ---
+        self.persist_score = max(
+            0.0,
+            1.0 - ((now - self.last_motion_time) / self.profile.motion_persistence_time)
+        )
+
+        # --- FINAL MOTION CONFIDENCE ---
+        self.motion_confidence = (
+            (self.pixel_score * 0.4) +
+            (self.box_score   * 0.4) +
+            (self.persist_score * 0.2)
+        )
+
+    def update_persistence(
+        self,
+        motion_boxes: list[tuple[int, int, int, int]]
+    ) -> None:
+        """
+        Update motion_persistence AFTER YOLO has determined:
+        - camera.has_moving_object
+        - object_area
+        - edge_density
+        - motion_confidence
+
+        This preserves your original logic but moves it to the correct place.
+        """
+
+        object_area = sum(
+            (x2 - x1) * (y2 - y1)
+            for (x1, y1, x2, y2) in motion_boxes
+        )
+
+        is_object_like_motion = (
+            motion_boxes and
+            object_area >= self.profile.min_sum_box_area and
+            self.edge_density >= 0.02 and
+            self.has_moving_object and
+            self.motion_confidence >= 0.15
+        )
+
+        if is_object_like_motion:
+            self.motion_persistence += 1
+        else:
+            self.motion_persistence = max(0, self.motion_persistence - 1)
+
 
 class LPR:
     def __init__(self, cfg: dict):

@@ -54,18 +54,35 @@ class NightMotionProfile(MotionProfile):
     def set_yolo_confidence_threshold(self, val):
             self.yolo_confidence_threshold = min(0.6, val + 0.15)
 
+from dataclasses import dataclass
+from collections import defaultdict
+
 @dataclass
 class MotionDecision:
     passed: bool
     reason: str
     details: dict
 
+
 class MotionProfileAutoTuner:
     def __init__(self):
-        self.decisions = []
+        self.decisions: list[MotionDecision] = []
         self.stats = defaultdict(int)
 
-    def record(self, decision: MotionDecision):
+    def record(self, decision: MotionDecision, camera=None):
+        # Ignore during recording – scene is too dynamic
+        if camera is not None and camera.recording:
+            return
+
+        # Ignore when confidence is already good – motion was real
+        if camera is not None:
+            if camera.motion_confidence >= camera.profile.motion_confidence_min:
+                return
+
+        # YOLO overlap noise is not a motion error
+        if decision.reason == "yolo_overlap_noise":
+            return
+
         self.decisions.append(decision)
         self.stats[decision.reason] += 1
 
@@ -73,26 +90,29 @@ class MotionProfileAutoTuner:
         return dict(self.stats)
 
     def recommend_adjustments(self):
-        rec = {}
+        rec: dict[str, str] = {}
+        s = self.stats
+        SCALE = 0.2  # 20% of original aggressiveness
 
-        # Too many shadow rejections → edge density too low
-        if self.stats["shadow_low_edge"] > 50:
-            rec["min_edge_density"] = "increase by +0.002"
+        # Only keep SAFE rules
 
-        # Too many small-area rejections → min_contour_area_ratio too low
-        if self.stats["small_contour"] > 50:
-            rec["min_contour_area_ratio"] = "increase by +0.0005"
+        # Too many shadow rejections → edge density slightly too low
+        if s["shadow_low_edge"] > 100:
+            rec["min_edge_density"] = f"increase by +{0.002 * SCALE:.4f}"
 
-        # Too many total-motion-area rejections → min_total_motion_area too low
-        if self.stats["low_total_area"] > 50:
-            rec["min_total_motion_area"] = "increase by +0.001 * max_pixels"
+        # Too many short motions → min_motion_frames slightly too low
+        if s["short_motion"] > 100:
+            rec["min_motion_frames"] = f"increase by +{int(2 * SCALE) or 1}"
 
-        # Too many false starts → min_motion_frames too low
-        if self.stats["short_motion"] > 50:
-            rec["min_motion_frames"] = "increase by +2"
+        # Too many low_total_area → min_total_motion_area slightly too low
+        if s["low_total_area"] > 200:
+            rec["min_total_motion_area"] = f"increase by +{0.001 * SCALE:.4f} * max_pixels"
 
-        # YOLO overlap too permissive → inflate_motion_boxes too large
-        if self.stats["yolo_overlap_noise"] > 20:
-            rec["inflate_motion_boxes"] = "decrease by -5"
+        # DO NOT tune min_contour_area_ratio here – too dangerous
+        # DO NOT tune motion_confidence_min here – keep manual
 
         return rec
+
+    def reset(self):
+        self.decisions.clear()
+        self.stats.clear()
