@@ -307,7 +307,7 @@ class NVR:
                         "output": mp4_filename,
                         "start_time": adjusted_start_time,
                         "end_time": end_time,
-                        "start_time_hms": datetime.fromtimestamp(adjusted_start_time - constants.PRE_RECORD_DURATION).strftime("%Y%m%d_%H%M%S"),
+                        "start_time_hms": datetime.fromtimestamp(adjusted_start_time).strftime("%Y%m%d_%H%M%S"),
                         "end_time_hms": datetime.fromtimestamp(end_time).strftime("%Y%m%d_%H%M%S"),
                         "metadata": metadata_filename,
                         "segments": segments,
