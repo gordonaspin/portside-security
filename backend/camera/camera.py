@@ -244,7 +244,6 @@ class Camera:
         if now - self.last_auto_adjust <= 60:
             return
 
-        log_event("tuning profile", level="info", camera=self)
         self._auto_adjust_profile()
         self.last_auto_adjust = now
 
