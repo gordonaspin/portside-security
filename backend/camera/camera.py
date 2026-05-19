@@ -157,7 +157,7 @@ class Camera:
             "inflate_motion_boxes": self.profile.inflate_motion_boxes,
         }
 
-    def _profile_to_dict(self) -> dict:
+    def profile_to_dict(self) -> dict:
         """
         Return a JSON‑safe snapshot of the motion profile.
         Skips callables (like min_edge_density lambdas).
@@ -258,7 +258,7 @@ class Camera:
             tuner.reset()
             return
 
-        before = self._profile_to_dict()
+        before = self.profile_to_dict()
         ap = self.adaptive_profile
         prof = self.profile
         max_pixels = prof.max_pixels
@@ -292,7 +292,7 @@ class Camera:
         base = ap["min_edge_density"]
         prof.min_edge_density = lambda noise: base + noise * 0.0012
 
-        after = self._profile_to_dict()
+        after = self.profile_to_dict()
 
         # --- RESET TUNER ---
         tuner.reset()

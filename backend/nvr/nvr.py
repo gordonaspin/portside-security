@@ -250,35 +250,27 @@ class NVR:
             except Exception as e:
                 log_event(message=f"exception in cleanup_segments {e}", level="error")
 
-    def _get_segments(self, camera: Camera, end_time: float):
+    def _get_segments(self, camera: Camera, start_time: float, end_time: float):
         """
         Return all .ts segments whose timestamp falls within camera.recording_start_time and now.
         Don't add edge-case files of length zero (partial .ts file)
         """
-        files = sorted(glob.glob(os.path.join(camera.segments_dir, "*.ts")))
-        selected = []
-
-        for f in files:
-            ts_str = os.path.basename(f).split(".")[0]  # "20260508_221056"
-            try:
-                ts = datetime.strptime(ts_str, "%Y%m%d_%H%M%S").timestamp()
-            except ValueError:
-                continue
-
-            if camera.recording_start_time <= ts <= end_time:
-                selected.append(f)
-
-        return selected
+        selected = sorted([(os.path.join(camera.segments_dir, f.name), f.stat().st_mtime)
+                            for f in os.scandir(camera.segments_dir)
+                            if f.name.endswith(".ts")
+                            and start_time <= f.stat().st_mtime <= end_time],
+                            key=lambda x: x[1])
+        return [f[0] for f in selected]
     
     def _merge_segments_async(self, camera: Camera, tags: defaultdict[set], end_time: float):
         """
         Runs ffmpeg merge in a separate thread. When the process finishes,
         the log the event and delete the listing file.
         """
-
-        segments = self._get_segments(camera=camera, end_time=end_time)
+        adjusted_start_time = camera.recording_start_time - constants.PRE_RECORD_DURATION
+        segments = self._get_segments(camera=camera, start_time=adjusted_start_time, end_time=end_time)
         tags_str = self._tags_to_str(tags)
-        timestamp_str = datetime.fromtimestamp(camera.recording_start_time).strftime("%Y%m%d_%H%M%S")
+        timestamp_str = datetime.fromtimestamp(adjusted_start_time).strftime("%Y%m%d_%H%M%S")
         timestamp_name_tags = timestamp_str + "_" + tags_str
         list_filename = os.path.join(self.ctx.log_directory, f"{camera.name}_{timestamp_name_tags}.txt")
         metadata_filename = os.path.join(camera.metadata_dir, timestamp_name_tags + ".json")
@@ -304,16 +296,24 @@ class NVR:
                 
                 # Convert to a standard dict and sets to lists
                 serializable_tags = {k: list(v) for k, v in tags.items()}
+                profile = camera.profile_to_dict()
+                stats = camera.auto_tuner.summarize()
+                recs = camera.auto_tuner.recommend_adjustments()
 
                 with open(metadata_filename, "w") as f:
                     json_data = {
                         "camera": camera.name,
                         "tags": serializable_tags,
-                        "segments": segments,
                         "output": mp4_filename,
-                        "start_time": camera.recording_start_time,
+                        "start_time": adjusted_start_time,
                         "end_time": end_time,
+                        "start_time_hms": datetime.fromtimestamp(adjusted_start_time - constants.PRE_RECORD_DURATION).strftime("%Y%m%d_%H%M%S"),
+                        "end_time_hms": datetime.fromtimestamp(end_time).strftime("%Y%m%d_%H%M%S"),
                         "metadata": metadata_filename,
+                        "segments": segments,
+                        "profile": profile,
+                        "tuner_stats": stats,
+                        "recommendations": recs,
                     }
                     f.write(json.dumps(json_data, indent=4))
 
@@ -397,6 +397,9 @@ class NVR:
                         with open(f) as fp:
                             event = json.load(fp)
                             event.pop("segments", None)
+                            event.pop("profile", None)
+                            event.pop("tuner_stats", None)
+                            event.pop("recommendations", None)
                             flat.append(event)
                     except FileNotFoundError:
                         pass # it's possible a clean-up job whacked the file
@@ -881,7 +884,7 @@ class NVR:
         # --- START RECORDING ---
         if camera.should_start and not camera.recording:
             camera.recording = True
-            camera.recording_start_time = now - constants.PRE_RECORD_DURATION
+            camera.recording_start_time = now
             camera.active_objects_dict = deepcopy(camera.classes_in_frame_dict)
             camera.last_recording_time = now
 
