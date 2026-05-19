@@ -106,7 +106,7 @@ class Camera:
         self.should_continue: bool = False
         self.last_recording_time: float = 0.0
         self.last_night_time_check: float = 0.0
-        self.last_motion_time: float = 0.0
+        self.last_motion_time: float = time.time()
         self.recording: bool = False
         self.is_night: bool = False
         self.recording_start_time: float = 0.0

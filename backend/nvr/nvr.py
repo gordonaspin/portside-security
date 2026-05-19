@@ -956,6 +956,12 @@ class NVR:
             [], [], [], [], []  # placeholders for krs/kcs/dsrs/dscs/dars/dacs
         )
 
+        if camera.recording:
+            timestamp_str = datetime.fromtimestamp(time.time()).strftime("%Y%m%d_%H%M%S_%f")
+            filename_str = os.path.join(camera.images_dir, f"{timestamp_str}.jpg")
+            cv2.imwrite(filename_str, camera.debug_motion_image)
+
+
     def _draw_status_text(
         self,
         camera: Camera,
@@ -1504,23 +1510,28 @@ class NVR:
         else:
             orig_panel = frame_bgr.copy()
 
-        cv2.putText(orig_panel, "Original Frame (YOLO)", (10, 25),
+        self._draw_status_text(camera, orig_panel)
+
+        TITLE_Y = 40
+        cv2.putText(orig_panel, "Original Frame (YOLO)", (10, TITLE_Y),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
 
         # 2. Background model
         bg_panel = cv2.convertScaleAbs(camera.background_buf)
         bg_panel = cv2.cvtColor(bg_panel, cv2.COLOR_GRAY2BGR)
-        cv2.putText(bg_panel, "Background Model", (10, 25),
+        cv2.putText(bg_panel, "Background Model", (10, TITLE_Y),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
 
         # 3. Diff (filtered)
         diff_panel = cv2.cvtColor(camera.diff_filtered_buf, cv2.COLOR_GRAY2BGR)
-        cv2.putText(diff_panel, "Diff (Filtered)", (10, 25),
+        cv2.putText(diff_panel, "Diff (Filtered)", (10, TITLE_Y),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
 
         # 4. Threshold panel
         thresh_panel = cv2.cvtColor(camera.thresh_buf, cv2.COLOR_GRAY2BGR)
-
+        cv2.putText(thresh_panel, "Threshold", (10, TITLE_Y),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
+        
         # --- DRAW MOTION BOXES ON THRESH PANEL ---
         for (x1, y1, x2, y2) in krs:
             cv2.rectangle(thresh_panel, (x1, y1), (x2, y2), (0, 255, 0), 2)
@@ -1657,7 +1668,7 @@ class NVR:
         # LEFT COLUMN: dbg() output
         # -----------------------------
         xL = 10
-        yL = 20
+        yL = 60
         spacing = 20
 
         def dbg(text, color=(0,255,255)):
