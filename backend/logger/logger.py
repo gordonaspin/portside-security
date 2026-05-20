@@ -46,7 +46,7 @@ def log_event(message, level="info", camera=None, file_path=None):
     color = colors.get(level,"#fff")
 
     #print(f"[{timestamp}] {camera:<8} {message}")
-    fstr = f"{camera.name + " " if camera else ""}{message}"
+    fstr = f"{camera.name + " " if camera else ""}{message}" + f" {file_path}" if file_path else ""
     match level:
         case "info": logger.info(fstr)
         case "debug": logger.debug(fstr)
