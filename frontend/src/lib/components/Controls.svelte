@@ -3,16 +3,28 @@
   const log = window.mosaic.log;
   const error = window.mosaic.error;
 
-  let confidence = 0.5;
-  let motion = 0.1;
+  let yoloConfidence = 0;
+  let motionThreshold = 0;
+  let minMotionConfidence = 0;
+  let minMotionFrames = 0;
+  let minSumBoxArea = 0;
   let debug = false;
   let cameras = [];
   let cameraDebug = {};
 
   onMount(async () => {
-    confidence = (await (await fetch("/api/settings/confidence", { credentials: "include" })).json()).value;
-    motion     = (await (await fetch("/api/settings/motion", { credentials: "include" })).json()).value;
-    debug      = (await (await fetch("/api/settings/debug", { credentials: "include" })).json()).value;
+    const load = async (val) => {
+        const r = await fetch(`/api/settings/${val}`, { credentials: "include" });
+        if (r.ok) return (await r.json()).value;
+    };
+
+    yoloConfidence      = await load("yolo_confidence");
+    motionThreshold     = await load("motion_threshold");
+    debug               = await load("debug");
+    minMotionFrames     = await load("min_motion_frames");
+    minMotionConfidence = await load("min_motion_confidence");
+    minSumBoxArea       = await load("min_sum_box_area");
+
     cameras    = await (await fetch("/api/cameras", { credentials: "include" })).json();
 
     cameras.forEach(cam => {
@@ -20,23 +32,16 @@
     });
   });
 
-  async function updateConfidence() {
-    await fetch('/api/settings/confidence', {
-      credentials: "include",
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ value: Number(confidence) })
-    });
+  // Update backend when sliders move
+  async function update(path, value) {
+      await fetch(`/api/settings/${path}`, {
+          credentials: "include",
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ value })
+      });
   }
 
-  async function updateMotion() {
-    await fetch('/api/settings/motion', {
-      credentials: "include",
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ value: Number(motion) })
-    });
-  }
 
   async function updateDebug() {
     await fetch('/api/settings/debug', {
@@ -69,86 +74,83 @@
   </div>
 
   {#if !collapsed}
-    <fieldset>
-
-      <!-- Detection Confidence -->
+    <div class="controls-section">
+      <h3>Motion Detection</h3>
       <div class="control-row">
-        <span class="control-label">Detection Confidence</span>
+        <div class="slider-grid">
+            <!-- YOLO confidence -->
+            <div class="slider-block">
+                <label>YOLO Confidence: {yoloConfidence.toFixed(2)}</label>
+                <input type="range"
+                    min="0.1" max="0.9" step="0.01"
+                    bind:value={yoloConfidence}
+                    on:change={() => update("yolo_confidence", yoloConfidence)} />
+            </div>
 
-        <input
-          class="value-display"
-          type="text"
-          value={confidence.toFixed(2)}
-          readonly
-          tabindex="-1"
-        />
+            <!-- motion_threshold -->
+            <div class="slider-block">
+                <label>Motion Threshold: {motionThreshold}</label>
+                <input type="range"
+                    min="0.1" max="0.9" step="0.01"
+                    bind:value={motionThreshold}
+                    on:change={() => update("motion_threshold", motionThreshold)} />
+            </div>
 
-        <input
-          class="range-slider"
-          type="range"
-          min="0"
-          max="1"
-          step="0.01"
-          bind:value={confidence}
-          on:change={updateConfidence}
-        />
-      </div>
+            <!-- motion_confidence_min -->
+            <div class="slider-block">
+                <label>Min Motion Confidence: {minMotionConfidence.toFixed(2)}</label>
+                <input type="range"
+                    min="0.1" max="1.0" step="0.01"
+                    bind:value={minMotionConfidence}
+                    on:change={() => update("min_motion_confidence", minMotionConfidence)} />
+            </div>
 
-      <!-- Motion -->
-      <div class="control-row">
-        <span class="control-label">% Pixel Change in Motion</span>
+            <!-- min_motion_frames -->
+            <div class="slider-block">
+                <label>Min Motion Frames: {minMotionFrames}</label>
+                <input type="range"
+                    min="1" max="20" step="1"
+                    bind:value={minMotionFrames}
+                    on:change={() => update("min_motion_frames", minMotionFrames)} />
+            </div>
 
-        <input
-          class="value-display"
-          type="text"
-          value={motion.toFixed(2)}
-          readonly
-          tabindex="-1"
-        />
-
-        <input
-          class="range-slider"
-          type="range"
-          min="0"
-          max="1"
-          step="0.01"
-          bind:value={motion}
-          on:change={updateMotion}
-        />
-      </div>
-
-      <!-- Camera Debug -->
-      <div class="camera-debug-section">
-        <h3>Camera Debug and Logging</h3>
-
-        <div class="camera-debug-row">
-          {#each cameras as cam}
-            <label class="camera-debug-item">
-              <input
-                type="checkbox"
-                bind:checked={cameraDebug[cam.name]}
-                on:change={() => updateCameraDebug(cam.name)}
-              />
-              {cam.name}
-            </label>
-          {/each}
-          <label class="verbose-label">
-            <input
-              type="checkbox"
-              bind:checked={debug}
-              on:change={updateDebug}
-            />
-            Verbose Logging
-          </label>
+            <!-- min_sum_box_area -->
+            <div class="slider-block">
+                <label>Min Sum Box Area: {(minSumBoxArea).toFixed(2)}</label>
+                <input type="range"
+                    min="1000" max="5000" step="100"
+                    bind:value={minSumBoxArea}
+                    on:change={() => update("min_sum_box_area", minSumBoxArea)} />
+            </div>
         </div>
       </div>
+    </div>
 
-      <!-- Verbose -->
-      <div class="verbose-row">
+    <!-- Camera Debug -->
+    <div class="controls-section">
+      <h3>Camera Debug and Logging</h3>
 
+      <div class="camera-debug-row">
+        {#each cameras as cam}
+          <label class="camera-debug-item">
+            <input
+              type="checkbox"
+              bind:checked={cameraDebug[cam.name]}
+              on:change={() => update(`debug/${cam.name}`, cameraDebug[cam.name])}
+            />
+            {cam.name}
+          </label>
+        {/each}
+        <label class="verbose-label">
+          <input
+            type="checkbox"
+            bind:checked={debug}
+            on:change={() => update("debug", minSumBoxArea)}
+          />
+          Verbose Logging
+        </label>
       </div>
-
-    </fieldset>
+    </div>
   {/if}
 </div>
 
@@ -185,51 +187,37 @@
     border-radius: 4px;
   }
 
-  fieldset {
-    padding: 1.25rem;
-    border: 1px solid #666;
-    background: #111;
-    border-radius: 4px;
-    margin: 0.5rem;
+  .slider-grid {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 16px;
+      margin-top: 12px;
   }
 
-  /* ⭐ CONTROL ROWS — aligned label | textbox | slider */
+  .slider-block {
+      display: flex;
+      flex-direction: column;
+      min-width: 150px;
+  }
+
+  .slider-block label {
+      margin-bottom: 4px;
+      color: #ddd;
+  }
+
+  input[type="range"] {
+      width: 100%;
+  }
+
   .control-row {
     display: flex;
     flex-direction: row;
     align-items: center;
-    gap: 12px;
-    margin-bottom: 12px;
   }
 
-  .control-label {
-    width: 80px;
-    flex: 0 0 80px;
-    text-align: right;
-    color: #eee;
-  }
-
-  .value-display {
-    width: 60px;
-    flex: 0 0 60px;
-    padding: 4px 6px;
-    background: #222;
-    color: #eee;
-    border: 1px solid #555;
-    border-radius: 4px;
-    text-align: right;
-  }
-
-  .range-slider {
-    flex: 1 1 auto;
-    min-width: 120px;
-    accent-color: #4af;
-  }
-
-  /* ⭐ CAMERA DEBUG */
-  .camera-debug-section {
+  .controls-section {
+    padding: 0.6rem 0.8rem;
     margin-top: 1rem;
-    padding-top: 0.5rem;
     border-top: 1px solid #444;
   }
 
@@ -244,11 +232,6 @@
     align-items: center;
     gap: 0.25rem;
     white-space: nowrap;
-  }
-
-  /* ⭐ VERBOSE ROW — aligned flush-left with camera debug */
-  .verbose-row {
-    margin-top: 1rem;
   }
 
   .verbose-label {

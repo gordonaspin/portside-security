@@ -22,18 +22,8 @@
 
   let selectedEvent = null;
 
-  function fmt(ts) {
-    const d = new Date(ts * 1000);
-    const pad = n => String(n).padStart(2, '0');
-    return `${pad(d.getMonth()+1)}/${pad(d.getDate())}/${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
-  }
-
   function handleSelectEvent(e) {
-    selectedEvent = {
-      ...e,
-      start_fmt: fmt(e.start_time),
-      end_fmt: fmt(e.end_time)
-    };
+    selectedEvent = e;
     log("Selected video: ", selectedEvent)
   }
 
@@ -46,17 +36,11 @@
     const data = await res.json();
   
     selectedEvent = {
-      camera: data.camera,
-      tags: data.tags,
-      output: data.output,
-      metadata: data.metadata,
-      media_url: "/" + data.output.split("/").map(encodeURIComponent).join("/"),
-      metadata_url: "/" + data.metadata.split("/").map(encodeURIComponent).join("/"),
-      start_time: data.start_time,
-      end_time: data.end_time,
-      start_fmt: fmt(data.start_time),
-      end_fmt: fmt(data.end_time)
+      ...data,
+      media_url: "/" + data.media_filename.split("/").map(encodeURIComponent).join("/"),
+      metadata_url: "/" + data.metadata_filename.split("/").map(encodeURIComponent).join("/"),
     };
+    log("Selected video: ", selectedEvent)
     loadingEvent = false;
   }
 

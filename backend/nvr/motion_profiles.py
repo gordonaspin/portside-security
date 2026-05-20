@@ -19,7 +19,7 @@ class DayMotionProfile(MotionProfile):
         self.min_contour_solidity = 0.60
         self.min_contour_area_ratio = 0.0040 + 0.0005
         self.max_allowed_aspect_ratio = 6.0
-        self.motion_confidence_min = 0.30
+        self.min_motion_confidence = 0.30
         self.min_total_motion_area = 0.006 * max_pixels
         self.min_sum_box_area = 0.007 * max_pixels
         self.inflate_motion_boxes = 13
@@ -41,7 +41,7 @@ class NightMotionProfile(MotionProfile):
         self.min_contour_solidity = 0.80                                                # stricter
         self.min_contour_area_ratio = 0.012                                             # larger min area of a single contour
         self.max_allowed_aspect_ratio = 5.0                                             # keeps square-ish objects, discards skinny long ones
-        self.motion_confidence_min = 0.45                                               # require stronger motion
+        self.min_motion_confidence = 0.45                                               # require stronger motion
         self.min_total_motion_area = 0.008 * max_pixels                                 # require more total motion
         self.min_sum_box_area = 0.009 * max_pixels                                      # require sum of box areas to be larger
         self.inflate_motion_boxes = 10
@@ -76,7 +76,7 @@ class MotionProfileAutoTuner:
 
         # Ignore when confidence is already good – motion was real
         if camera is not None:
-            if camera.motion_confidence >= camera.profile.motion_confidence_min:
+            if camera.motion_confidence >= camera.profile.min_motion_confidence:
                 return
 
         # YOLO overlap noise is not a motion error
@@ -109,7 +109,7 @@ class MotionProfileAutoTuner:
             rec["min_total_motion_area"] = f"increase by +{0.001 * SCALE:.4f} * max_pixels"
 
         # DO NOT tune min_contour_area_ratio here – too dangerous
-        # DO NOT tune motion_confidence_min here – keep manual
+        # DO NOT tune min_motion_confidence here – keep manual
 
         return rec
 

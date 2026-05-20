@@ -12,9 +12,11 @@ from pydantic import BaseModel
 from passlib.context import CryptContext
 
 from webrtc.webrtc import CameraTrack, MosaicTrack
-from logger.logger import event_log
+from logger.logger import log_event, event_log
 from nvr.nvr import NVR
 from context import Context
+from camera.camera import Camera
+from nvr.motion_profiles import DayMotionProfile
 
 # -------------------------
 # AUTH SETUP
@@ -193,37 +195,95 @@ def create_app(ctx: Context, nvr: NVR):
         html = "\n".join(event_log)
         return {"html": html}
 
-    @app.get("/api/settings/confidence")
-    async def get_confidence(user=Depends(require_user)):
+    # yolo confidence
+    @app.get("/api/settings/yolo_confidence")
+    async def get_yolo_confidence(user=Depends(require_user)):
         return {"value": nvr.yolo_confidence_threshold}
 
-    @app.get("/api/settings/motion")
-    async def get_motion(user=Depends(require_user)):
-        return {"value": nvr.motion_threshold}
-
-    @app.get("/api/settings/debug")
-    async def get_debug(user=Depends(require_user)):
-        return {"value": nvr.debug}
-
-    @app.post("/api/settings/confidence")
-    async def set_confidence(payload: SettingValue, user=Depends(require_user)):
+    @app.post("/api/settings/yolo_confidence")
+    async def set_yolo_confidence(payload: SettingValue, user=Depends(require_user)):
+        log_event(f"yolo confidence threshold update from {nvr.yolo_confidence_threshold} to {payload.value}")
         nvr.update_yolo_confidence_threshold(payload.value)
         return {"status": "ok", "value": payload.value}
 
-    @app.post("/api/settings/motion")
-    async def set_motion(payload: SettingValue, user=Depends(require_user)):
+    # motion threshold
+    @app.get("/api/settings/motion_threshold")
+    async def get_motion_threshold(user=Depends(require_user)):
+        return {"value": nvr.motion_threshold}
+
+    @app.post("/api/settings/motion_threshold")
+    async def set_motion_threshold(payload: SettingValue, user=Depends(require_user)):
+        log_event(f"motion confidence threshold updated from {nvr.motion_threshold} to {payload.value}")
         nvr.update_motion_threshold(payload.value)
         return {"status": "ok", "value": payload.value}
+    
+    # camera debug
+    @app.get("/api/settings/debug/{camera_name}")
+    def get_camera_debug(camera_name: str):
+        camera = nvr.cameras.get(camera_name)
+
+        return {
+            "camera": camera_name,
+            "debug": camera.debug if camera else False
+        }
 
     @app.post("/api/settings/debug/{camera_name}")
     async def set_camera_debug(camera_name: str, payload: SettingValue, user=Depends(require_user)):
+        log_event(f"debug {payload.value}", camera=nvr.cameras[camera_name])
         cam = nvr.cameras.get(camera_name)
         if cam:
             cam.debug = payload.value
         return {"status": "ok", "camera": camera_name, "value": payload.value}
+    
+    # minimum sum box area
+    @app.get("/api/settings/min_sum_box_area")
+    async def get_min_sum_box_area(user=Depends(require_user)):
+        camera = next(iter(nvr.cameras.values()))
+        return {"status": "ok", "value": camera.profile.min_sum_box_area}
 
+    @app.post("/api/settings/min_sum_box_area")
+    async def set_min_sum_box_area(payload: SettingValue, user=Depends(require_user)):
+        current = next(iter(nvr.cameras.values())).profile.min_sum_box_area
+        log_event(f"minimum sum box area updated from {current} to {payload.value}")
+        for camera in nvr.cameras.values():
+            camera.profile.min_sum_box_area = payload.value
+            return {"status": "ok", "value": payload.value}
+
+    # minimum motion confidence
+    @app.get("/api/settings/min_motion_confidence")
+    async def get_min_motion_confidence(user=Depends(require_user)):
+        camera = next(iter(nvr.cameras.values()))
+        return {"status": "ok", "value": camera.profile.min_motion_confidence}
+
+    @app.post("/api/settings/min_motion_confidence")
+    async def set_min_motion_confidence(payload: SettingValue, user=Depends(require_user)):
+        current = next(iter(nvr.cameras.values())).profile.min_motion_confidence
+        log_event(f"minimum motion confidence updated from {current} to {payload.value}")
+        for camera in nvr.cameras.values():
+            camera.profile.min_motion_confidence = payload.value
+            return {"status": "ok", "value": camera.profile.min_motion_confidence}
+
+    # minimum motion frames
+    @app.get("/api/settings/min_motion_frames")
+    async def get_min_motion_frames(user=Depends(require_user)):
+        camera = next(iter(nvr.cameras.values()))
+        return {"status": "ok", "value": camera.profile.min_motion_frames}
+
+    @app.post("/api/settings/min_motion_frames")
+    async def set_min_motion_frames(payload: SettingValue, user=Depends(require_user)):
+        current = next(iter(nvr.cameras.values())).profile.min_motion_frames
+        log_event(f"minimum motion frames updated from {current} to {payload.value}")
+        for camera in nvr.cameras.values():
+            camera.profile.min_motion_frames = payload.value
+            return {"status": "ok", "value": camera.profile.min_motion_frames}
+
+    @app.get("/api/settings/debug")
+    async def get_debug(user=Depends(require_user)):
+        return {"value": nvr.debug}
+    
     @app.post("/api/settings/debug")
     async def set_debug(payload: SettingValue, user=Depends(require_user)):
+        log_event(f"verbose logging {payload.value}")
         nvr.debug = payload.value
         return {"status": "ok", "value": payload.value}
 

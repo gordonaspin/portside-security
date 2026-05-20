@@ -255,11 +255,16 @@ class NVR:
         Return all .ts segments whose timestamp falls within camera.recording_start_time and now.
         Don't add edge-case files of length zero (partial .ts file)
         """
-        selected = sorted([(os.path.join(camera.segments_dir, f.name), f.stat().st_mtime)
-                            for f in os.scandir(camera.segments_dir)
-                            if f.name.endswith(".ts")
-                            and start_time <= f.stat().st_mtime <= end_time],
-                            key=lambda x: x[1])
+        selected = []
+        for f in os.scandir(camera.segments_dir):
+            if f.name.endswith(".ts"):
+                try:
+                    stat_entry = f.stat()
+                    if start_time <= stat_entry.st_mtime <= end_time:
+                        selected.append((os.path.join(camera.segments_dir, f.name), stat_entry.st_mtime))
+                except:
+                    pass
+        selected.sort(key=lambda x: x[1])
         return [f[0] for f in selected]
     
     def _merge_segments_async(self, camera: Camera, tags: defaultdict[set], end_time: float):
@@ -304,12 +309,12 @@ class NVR:
                     json_data = {
                         "camera": camera.name,
                         "tags": serializable_tags,
-                        "output": mp4_filename,
+                        "media_filename": mp4_filename,
                         "start_time": adjusted_start_time,
                         "end_time": end_time,
-                        "start_time_hms": datetime.fromtimestamp(adjusted_start_time).strftime("%Y%m%d_%H%M%S"),
-                        "end_time_hms": datetime.fromtimestamp(end_time).strftime("%Y%m%d_%H%M%S"),
-                        "metadata": metadata_filename,
+                        "start_fmt": datetime.fromtimestamp(adjusted_start_time).strftime("%Y/%m/%d %H:%M:%S"),
+                        "end_fmt": datetime.fromtimestamp(end_time).strftime("%Y/%m/%d/ %H:%M:%S"),
+                        "metadata_filename": metadata_filename,
                         "segments": segments,
                         "profile": profile,
                         "tuner_stats": stats,
@@ -766,7 +771,7 @@ class NVR:
         if camera.recording and not camera.has_moving_object:
             camera.motion_confidence *= 0.5
             # apply decay twice if still above STOP_CONF
-            stop_conf = camera.profile.motion_confidence_min * 0.5
+            stop_conf = camera.profile.min_motion_confidence * 0.5
             if camera.motion_confidence > stop_conf:
                 camera.motion_confidence *= 0.5
 
@@ -800,7 +805,7 @@ class NVR:
             object_area >= camera.profile.min_sum_box_area
         )
 
-        START_CONF = camera.profile.motion_confidence_min
+        START_CONF = camera.profile.min_motion_confidence
 
         return (
             object_motion and
@@ -817,7 +822,7 @@ class NVR:
         Post-record timing is handled in _update_recording_state.
         """
 
-        START_CONF = camera.profile.motion_confidence_min
+        START_CONF = camera.profile.min_motion_confidence
         STOP_CONF  = max(0.10, START_CONF * 0.30)
 
         if not camera.recording:
@@ -859,7 +864,7 @@ class NVR:
         if (
             motion_boxes and
             camera.has_moving_object and
-            camera.motion_confidence >= camera.profile.motion_confidence_min
+            camera.motion_confidence >= camera.profile.min_motion_confidence
         ):
             camera.last_motion_time = now
 
@@ -872,7 +877,7 @@ class NVR:
             ))
 
         # --- TUNER: insufficient confidence ---
-        START_CONF = camera.profile.motion_confidence_min
+        START_CONF = camera.profile.min_motion_confidence
         if motion_boxes and camera.motion_confidence < START_CONF:
             pass
             #camera.auto_tuner.record(MotionDecision(
@@ -1171,10 +1176,12 @@ class NVR:
                             "tags":  {
                                 "license": [plate]
                             },
-                            "output": image_path,
+                            "media_filename": image_path,
                             "start_time": epoch,
                             "end_time": epoch + 5.0, # fudge a duration so we can feed to timeline
-                            "metadata": metadata_path
+                            "start_fmt": datetime.fromtimestamp(epoch).strftime("%Y/%m/%d %H:%M:%S"),
+                            "end_fmt": datetime.fromtimestamp(epoch + 5.0).strftime("%Y/%m/%d/ %H:%M:%S"),
+                            "metadata_filename": metadata_path,
                         }
                     )
                 )
@@ -1693,8 +1700,8 @@ class NVR:
         dbg(f"motion_boxes={len(camera.motion_boxes_list)}")
 
         dbg(f"score={camera.score} / {camera.profile.motion_threshold}")
-        dbg(f"motion_confidence={camera.motion_confidence:.2f} / {camera.profile.motion_confidence_min}")
-        dbg(f"STOP_CONF={max(0.10, camera.profile.motion_confidence_min * 0.30):.2f}")
+        dbg(f"motion_confidence={camera.motion_confidence:.2f} / {camera.profile.min_motion_confidence}")
+        dbg(f"STOP_CONF={max(0.10, camera.profile.min_motion_confidence * 0.30):.2f}")
 
         dbg(f"motion_persistence={camera.motion_persistence} / {camera.profile.min_motion_frames}")
         dbg(f"persist_score={camera.persist_score:.2f}")

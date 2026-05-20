@@ -69,18 +69,18 @@
     const data = await res.json();
 
     events = data.events.map((rec) => {
-      const video_url_encoded = rec.output
+      const media_url_encoded = rec.media_filename
         .split("/")
         .map(encodeURIComponent)
         .join("/");
-      const metadata_url_encoded = rec.metadata
+      const metadata_url_encoded = rec.metadata_filename
         .split("/")
         .map(encodeURIComponent)
         .join("/");
 
       return {
         ...rec,
-        media_url: "/" + video_url_encoded,
+        media_url: "/" + media_url_encoded,
         metadata_url: "/" + metadata_url_encoded
       };
     });
