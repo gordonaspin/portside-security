@@ -877,7 +877,7 @@
     border: 1px solid #666;
     background: #111;
     cursor: default;
-    touch-action: pan-y !important;
+    /*touch-action: pan-y !important;*/
   }
 
   .timeline-wrapper {
