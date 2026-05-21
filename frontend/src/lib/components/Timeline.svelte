@@ -848,8 +848,8 @@
   {#if hoverEvent}
     <div
       class="tooltip"
-      style="left: {mouseX + 12}px; top: {mouseY + 12}px;"
-    >
+      style="left: {tooltipLeft}px; top: {tooltipTop}px;"
+      >
       <div class="tooltip-title">{hoverEvent.camera}</div>
       <div class="tooltip-times">
         <div><strong>Start:</strong> {new Date(hoverEvent.start_time * 1000).toLocaleString()}</div>
