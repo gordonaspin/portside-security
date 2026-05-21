@@ -462,48 +462,52 @@
     hoverEvent = findEventAt(mouseX, mouseY);
   }
 
-  $: positionTooltip();
+  $: if (hoverEvent) updateTooltipPosition();
 
-  async function positionTooltip() {
-      if (!hoverEvent) return;
-
-      // Wait for tooltip to render
-      await tick();
+  async function updateTooltipPosition() {
+      await tick(); // wait for tooltip to render
 
       const margin = 12;
-      const viewportWidth = window.innerWidth;
-      const viewportHeight = window.innerHeight;
 
-      let left = mouseX + margin;
-      let top = mouseY + margin;
-
+      // Tooltip element
       const tooltipEl = document.querySelector(".tooltip");
       if (!tooltipEl) return;
 
-      const rect = tooltipEl.getBoundingClientRect();
+      const tooltipRect = tooltipEl.getBoundingClientRect();
 
-      // Flip horizontally if overflowing right edge
-      if (left + rect.width > viewportWidth) {
-          left = mouseX - rect.width - margin;
+      // Timeline wrapper element (tooltip is positioned relative to this)
+      const wrapperEl = document.querySelector(".timeline-wrapper");
+      const wrapperRect = wrapperEl.getBoundingClientRect();
+
+      // Convert mouse coords (canvas-relative) to viewport coords
+      const canvasRect = canvas.getBoundingClientRect();
+      const mouseViewportX = canvasRect.left + mouseX;
+      const mouseViewportY = canvasRect.top + mouseY;
+
+      // Default position (to the right of cursor)
+      let left = mouseViewportX + margin;
+      let top = mouseViewportY + margin;
+
+      // Clamp horizontally (flip if needed)
+      if (left + tooltipRect.width > window.innerWidth) {
+          left = mouseViewportX - tooltipRect.width - margin;
       }
-
-      // Clamp horizontally (left edge)
       if (left < margin) {
           left = margin;
       }
 
       // Clamp vertically
-      if (top + rect.height > viewportHeight) {
-          top = viewportHeight - rect.height - margin;
+      if (top + tooltipRect.height > window.innerHeight) {
+          top = window.innerHeight - tooltipRect.height - margin;
       }
       if (top < margin) {
           top = margin;
       }
 
-      tooltipLeft = left;
-      tooltipTop = top;
+      // Convert viewport coords → wrapper coords
+      tooltipLeft = left - wrapperRect.left;
+      tooltipTop = top - wrapperRect.top;
   }
-
 
   function findEventAt(x, y) {
     const { start, end } = getTimelineBounds();
