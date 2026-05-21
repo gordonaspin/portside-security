@@ -1,5 +1,5 @@
 <script>
-  import { onMount, onDestroy } from "svelte";
+  import { onMount, onDestroy, tick } from "svelte";
 
   export let onSelectEvent = () => {};
   const TICK_HEIGHT = 20;
@@ -462,37 +462,48 @@
     hoverEvent = findEventAt(mouseX, mouseY);
   }
 
-  $: if (hoverEvent) {
+  $: positionTooltip();
+
+  async function positionTooltip() {
+      if (!hoverEvent) return;
+
+      // Wait for tooltip to render
+      await tick();
+
       const margin = 12;
       const viewportWidth = window.innerWidth;
       const viewportHeight = window.innerHeight;
 
-      // Default position (to the right of cursor)
       let left = mouseX + margin;
       let top = mouseY + margin;
 
-      // Measure tooltip
       const tooltipEl = document.querySelector(".tooltip");
-      if (tooltipEl) {
-          const rect = tooltipEl.getBoundingClientRect();
+      if (!tooltipEl) return;
 
-          // Flip horizontally if overflowing right edge
-          if (left + rect.width > viewportWidth) {
-              left = mouseX - rect.width - margin;
-          }
+      const rect = tooltipEl.getBoundingClientRect();
 
-          // Clamp vertically
-          if (top + rect.height > viewportHeight) {
-              top = viewportHeight - rect.height - margin;
-          }
-          if (top < margin) {
-              top = margin;
-          }
+      // Flip horizontally if overflowing right edge
+      if (left + rect.width > viewportWidth) {
+          left = mouseX - rect.width - margin;
+      }
+
+      // Clamp horizontally (left edge)
+      if (left < margin) {
+          left = margin;
+      }
+
+      // Clamp vertically
+      if (top + rect.height > viewportHeight) {
+          top = viewportHeight - rect.height - margin;
+      }
+      if (top < margin) {
+          top = margin;
       }
 
       tooltipLeft = left;
       tooltipTop = top;
   }
+
 
   function findEventAt(x, y) {
     const { start, end } = getTimelineBounds();
