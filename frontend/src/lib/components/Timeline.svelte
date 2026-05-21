@@ -555,7 +555,6 @@
 
       const minOffset = 0;
       const maxOffset = DAY - zoomHours * HOUR;
-      //offsetSeconds = Math.max(minOffset, Math.min(maxOffset, offsetSeconds));
       offsetSeconds = Math.max(0, offsetSeconds);
       
       requestAnimationFrame(drawTimeline);
@@ -631,6 +630,14 @@
   }
 
   function handleWheel(e) {
+    if (isMobile) {
+        return; // ignore scroll
+    }
+
+    if (!e.shiftKey) {
+        return; // ignore scroll
+    }
+
     e.preventDefault();
 
     const rect = canvas.getBoundingClientRect();
@@ -653,7 +660,6 @@
 
     const newOffset = serverNow - newStart - newZoom * HOUR;
 
-    //offsetSeconds = Math.max(0, Math.min(DAY - newZoom * HOUR, newOffset));
     offsetSeconds = Math.max(0, newOffset);
     zoomHours = newZoom;
 
