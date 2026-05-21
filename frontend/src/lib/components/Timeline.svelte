@@ -484,6 +484,10 @@
   }
 
   // Pointer / gestures
+  let gestureMode = "none"; // "pending" | "pan-x" | "pan-y"
+  let startX = 0;
+  let startY = 0;
+
   let pointers = new Map();
   let panStartX = 0;
   let panStartOffset = 0;
@@ -497,8 +501,23 @@
   let tapStart = null;
 
   function onPointerDown(e) {
+    // Track pointer
     pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
-    canvas.setPointerCapture(e.pointerId);
+
+    // --- MOBILE / TOUCH LOGIC ---
+    if (e.pointerType === "touch") {
+      // Start gesture direction detection
+      startX = e.clientX;
+      startY = e.clientY;
+      gestureMode = "pending";   // "pending" → "pan-x" or "pan-y"
+      // IMPORTANT: do NOT capture yet
+    }
+
+    // --- DESKTOP / MOUSE LOGIC ---
+    else {
+      // Mouse can safely capture immediately
+      canvas.setPointerCapture(e.pointerId);
+    }
 
     if (pointers.size === 1) {
       panStartX = e.clientX;
@@ -509,7 +528,7 @@
       handleHover(e);
     }
 
-    if (pointers.size === 2) {
+  if (pointers.size === 2) {
       const pts = [...pointers.values()];
       zoomStartY = (pts[0].y + pts[1].y) / 2;
       zoomStartHours = zoomHours;
@@ -522,11 +541,12 @@
       const pxPerSecond = usableWidth / (zoomHours * HOUR);
 
       zoomCenterSeconds =
-        offsetSeconds + (centerX - computedLeftMargin) / pxPerSecond;
+          offsetSeconds + (centerX - computedLeftMargin) / pxPerSecond;
     }
   }
 
   function onPointerMove(e) {
+    // --- MOUSE HOVER PATH ---
     if (e.pointerType === "mouse" && e.buttons === 0) {
       handleHover(e);
       return;
@@ -534,8 +554,35 @@
 
     if (!pointers.has(e.pointerId)) return;
 
+    // Update pointer position
     pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
+    // --- TOUCH / MOBILE LOGIC (direction detection) ---
+    if (e.pointerType === "touch" && pointers.size === 1) {
+      const dx = e.clientX - startX;
+      const dy = e.clientY - startY;
+
+      // Determine gesture direction
+      if (gestureMode === "pending") {
+        if (Math.abs(dx) > 10 && Math.abs(dx) > Math.abs(dy)) {
+          gestureMode = "pan-x";
+          canvas.setPointerCapture(e.pointerId);   // capture ONLY now
+        } else if (Math.abs(dy) > 10) {
+          gestureMode = "pan-y";   // allow browser scroll
+          return;
+        } else {
+          return; // not enough movement yet
+        }
+      }
+
+      // Vertical scroll → let browser handle it
+      if (gestureMode === "pan-y") {
+        return;
+      }
+      // Horizontal pan → fall through to pan logic
+    }
+
+    // --- ONE-FINGER PAN (mouse or touch pan-x) ---
     if (pointers.size === 1) {
       const dx = e.clientX - panStartX;
 
@@ -553,14 +600,13 @@
 
       offsetSeconds = panStartOffset + dx / pxPerSecond;
 
-      const minOffset = 0;
-      const maxOffset = DAY - zoomHours * HOUR;
       offsetSeconds = Math.max(0, offsetSeconds);
-      
+
       requestAnimationFrame(drawTimeline);
       return;
     }
 
+    // --- TWO-FINGER ZOOM ---
     if (pointers.size === 2) {
       const pts = [...pointers.values()];
       const centerY = (pts[0].y + pts[1].y) / 2;
@@ -585,21 +631,28 @@
       offsetSeconds =
         midSeconds + (zoomCenterX - computedLeftMargin) / pxPerSecondAfter;
 
-      const minOffset = 0;
-      const maxOffset = DAY - zoomHours * HOUR;
-      
       offsetSeconds = Math.max(0, offsetSeconds);
-      
+
       requestAnimationFrame(drawTimeline);
     }
   }
 
+
   function onPointerUp(e) {
+    // Release capture if we had it
     if (canvas.hasPointerCapture(e.pointerId)) {
       canvas.releasePointerCapture(e.pointerId);
     }
+
+    // Remove pointer from active set
     pointers.delete(e.pointerId);
 
+    // --- reset gesture mode for touch ---
+    if (e.pointerType === "touch") {
+        gestureMode = "none";
+    }
+
+    // Tap detection
     if (!isDragging && tapStart && pointers.size === 0) {
       const dx = Math.abs(e.clientX - tapStart.x);
       const dy = Math.abs(e.clientY - tapStart.y);
@@ -610,6 +663,7 @@
       }
     }
 
+    // Reset drag state
     if (pointers.size === 0) {
       isDragging = false;
       tapStart = null;
@@ -789,7 +843,7 @@
     border: 1px solid #666;
     background: #111;
     cursor: default;
-    touch-action: none !important;
+    touch-action: pan-y !important;
   }
 
   .timeline-wrapper {
