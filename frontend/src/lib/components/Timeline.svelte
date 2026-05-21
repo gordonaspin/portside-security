@@ -451,6 +451,8 @@
   let hoverEvent = null;
   let mouseX = 0;
   let mouseY = 0;
+  let tooltipLeft = 0;
+  let tooltipTop = 0;
 
   function handleHover(e) {
     const rect = canvas.getBoundingClientRect();
@@ -458,6 +460,38 @@
     mouseY = e.clientY - rect.top;
 
     hoverEvent = findEventAt(mouseX, mouseY);
+  }
+
+  $: if (hoverEvent) {
+      const margin = 12;
+      const viewportWidth = window.innerWidth;
+      const viewportHeight = window.innerHeight;
+
+      // Default position (to the right of cursor)
+      let left = mouseX + margin;
+      let top = mouseY + margin;
+
+      // Measure tooltip
+      const tooltipEl = document.querySelector(".tooltip");
+      if (tooltipEl) {
+          const rect = tooltipEl.getBoundingClientRect();
+
+          // Flip horizontally if overflowing right edge
+          if (left + rect.width > viewportWidth) {
+              left = mouseX - rect.width - margin;
+          }
+
+          // Clamp vertically
+          if (top + rect.height > viewportHeight) {
+              top = viewportHeight - rect.height - margin;
+          }
+          if (top < margin) {
+              top = margin;
+          }
+      }
+
+      tooltipLeft = left;
+      tooltipTop = top;
   }
 
   function findEventAt(x, y) {
