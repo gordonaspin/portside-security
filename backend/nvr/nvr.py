@@ -15,13 +15,13 @@ from math import sqrt
 import cv2
 import numpy as np
 from numpy.typing import NDArray
+from ultralytics import YOLO
 from ultralytics.engine.results import Results
 
 from camera.camera import Camera
 import constants as constants
 from context import Context
 from logger.logger import log_event
-from model.model import Model
 from nvr.motion_profiles import DayMotionProfile, NightMotionProfile, MotionDecision
 from utils.thread_safe import ThreadSafeSet, ThreadSafePathDict, ThreadSafeList
 from nvr.lpr import LicensePlateRecognition, VideoProcessor
@@ -38,19 +38,15 @@ class NVR:
         self.height: int = ctx.resolution[1]
         self.max_pixels = self.width * self.height
         
-        self.model = Model(ctx.model)
-        self.yolo_confidence_threshold = ctx.confidence_threshold
-        self.motion_threshold = ctx.motion_threshold
+        yolo = YOLO(ctx.yolo_config["model"])
+        classname_to_classindex: dict = {v: k for k, v in yolo.names.items()}
+        self.selected_classes: list[int] = [classname_to_classindex[n] for n in ctx.yolo_config["classes"]]
         self.stop_event: Event = Event()
         self.debug: bool = self.ctx.debug
         self.debug_files: bool = self.ctx.debug_files
-        self.selected_classes: list[int] = self.model.class_to_index(ctx.classes)
 
         self._recordings_dir: str = ctx.directory
-        self._segments_dir: str = os.path.join(self._recordings_dir, "segments")
-        self._images_dir: str = os.path.join(self._recordings_dir, "images")
-        self._metadata_dir: str = os.path.join(self._recordings_dir, "metadata")
-        self._plates_dir: str = os.path.join(self._recordings_dir, "plates")
+
         self._do_not_delete_set: ThreadSafeSet = ThreadSafeSet()
         self.recordings: ThreadSafeList = ThreadSafeList()
         self.cameras: dict[str, Camera] = {}
@@ -59,29 +55,9 @@ class NVR:
                                         cfg=cfg,
                                         max_pixels=self.max_pixels,
                                         logs_dir=self.ctx.log_directory,
-                                        recordings_dir=os.path.join(self._recordings_dir, name),
-                                        segments_dir=os.path.join(self._segments_dir, name),
-                                        images_dir=os.path.join(self._images_dir, name),
-                                        metadata_dir=os.path.join(self._metadata_dir, name),
-                                        plates_dir=os.path.join(self._plates_dir, name),
-                                        model=Model(ctx.model)
+                                        recordings_dir=self._recordings_dir,
+                                        model=YOLO(ctx.yolo_config["model"]),
                                         )
-
-    def update_yolo_confidence_threshold(self, val):
-        self.yolo_confidence_threshold = val
-        for camera in self.cameras.values():
-            self.set_camera_motion_profile(camera)
-
-    def update_motion_threshold(self, val):
-        self.motion_threshold = val
-        for camera in self.cameras.values():
-            self.set_camera_motion_profile(camera)
-
-    def set_camera_motion_profile(self, camera: Camera):
-        if camera.is_night:
-            camera.profile = NightMotionProfile(self.max_pixels, self.motion_threshold, self.yolo_confidence_threshold)
-        else:
-            camera.profile = DayMotionProfile(self.max_pixels, self.motion_threshold, self.yolo_confidence_threshold)
 
     def start(self):
         """
@@ -93,11 +69,6 @@ class NVR:
         if not self.stop_event.is_set():
             for camera in self.cameras.values():
                 if camera.enabled:
-                    os.makedirs(camera.recordings_dir, exist_ok=True)
-                    os.makedirs(camera.segments_dir, exist_ok=True)
-                    os.makedirs(camera.images_dir, exist_ok=True)
-                    os.makedirs(camera.metadata_dir, exist_ok=True)
-                    os.makedirs(camera.plates_dir, exist_ok=True)
                     _, lpr = self._start_camera(camera=camera)
                     Thread(target=self._frame_reader, args=(camera,), daemon=True).start()
                     Thread(target=self._process_frames,args=(camera,), daemon=True).start()
@@ -241,8 +212,8 @@ class NVR:
                     if camera.enabled:
                         path = os.path.join(camera.segments_dir, "*.ts")
                         files = sorted(glob.glob(path))
-                        if len(files) > constants.BUFFER_SECONDS:
-                            for f in files[:-constants.BUFFER_SECONDS]:
+                        if len(files) > constants.TS_FILE_RING_SECONDS:
+                            for f in files[:-constants.TS_FILE_RING_SECONDS]:
                                 if f not in self._do_not_delete_set:
                                     try: os.remove(f)
                                     except: pass
@@ -320,7 +291,7 @@ class NVR:
                         "tuner_stats": stats,
                         "recommendations": recs,
                     }
-                    f.write(json.dumps(json_data, indent=4))
+                    json.dump(json_data, f, default=lambda o: o.__dict__, indent=4)
 
                 log_file = open(merge_log_filename, "w")
                 ffmpeg_cmd = [
@@ -393,7 +364,7 @@ class NVR:
             log_event(message=f"recording available {formatted_duration}", level="record", camera=camera, file_path=metadata_path)
 
     def _load_events(self):
-        flat = []
+        files = []
 
         for camera in self.cameras.values():
             if camera.enabled:
@@ -405,14 +376,14 @@ class NVR:
                             event.pop("profile", None)
                             event.pop("tuner_stats", None)
                             event.pop("recommendations", None)
-                            flat.append(event)
+                            files.append(event)
                     except FileNotFoundError:
                         pass # it's possible a clean-up job whacked the file
 
         # Sort globally by start_time
-        flat.sort(key=lambda x: x["start_time"])
+        files.sort(key=lambda x: x["start_time"])
 
-        return flat
+        return files
 
     def _frame_reader(self, camera: Camera):
         """
@@ -525,8 +496,8 @@ class NVR:
         if now - camera.last_night_time_check <= constants.PERIODIC_CHECK_INTERVAL:
             return
 
-        camera.is_night = self._is_night_time(frame_bgr, constants.NIGHT_TIME_THRESHOLD)
-        self.set_camera_motion_profile(camera)
+        camera.is_night = self._is_night_time(frame_bgr)
+        camera.profile = camera.night_profile if camera.is_night else camera.day_profile
         camera.last_night_time_check = now
 
     def _compute_gray_and_blur(self, camera: Camera, frame_bgr: NDArray[np.uint8]) -> None:
@@ -626,12 +597,12 @@ class NVR:
         """
         Extract motion contours and bounding boxes.
         This preserves your original behavior:
-        - only run if score > motion_threshold
+        - only run if score > motion_threshold_pixels
         - apply contour filtering inside _find_motion_boxes()
         """
         camera.motion_boxes_list.clear()
 
-        if camera.score <= camera.profile.motion_threshold:
+        if camera.score <= camera.profile.motion_threshold_pixels:
             return []
 
         # krs = kept rectangles
@@ -669,9 +640,9 @@ class NVR:
         if not (camera.debug or (motion_boxes and camera.motion_confidence > 0.05)):
             return None
 
-        result: Results = camera.model.model.predict(
+        result: Results = camera.model.predict(
             frame_bgr,
-            conf=camera.profile.yolo_confidence_threshold,
+            conf=camera.profile.yolo_confidence_threshold.value,
             classes=self.selected_classes if self.selected_classes else None,
             verbose=False,
             imgsz=512,
@@ -739,10 +710,10 @@ class NVR:
 
         # Extract class + color for each kept detection
         for box in result.boxes:
-            class_name = self.model.model.names[int(box.cls)]
+            class_name = camera.model.names[int(box.cls)]
             roi = self.yolo_box_to_roi(camera.latest_frame, box)
             if roi.size > 0:
-                color = self._detect_object_color(roi)
+                color = self._detect_object_color(roi, camera)
                 camera.classes_in_frame_dict[class_name].add(color)
 
     def _apply_fast_stop_logic(
@@ -771,7 +742,7 @@ class NVR:
         if camera.recording and not camera.has_moving_object:
             camera.motion_confidence *= 0.5
             # apply decay twice if still above STOP_CONF
-            stop_conf = camera.profile.min_motion_confidence * 0.5
+            stop_conf = camera.profile.min_motion_confidence.value * 0.5
             if camera.motion_confidence > stop_conf:
                 camera.motion_confidence *= 0.5
 
@@ -786,14 +757,14 @@ class NVR:
         Preserves original logic:
         - motion_persistence >= min_motion_frames
         - YOLO sees moving objects
-        - object area >= min_sum_box_area
+        - object area >= min_sum_box_area_pixels
         - motion_confidence >= START_CONF
         """
 
         object_area = sum((x2 - x1) * (y2 - y1) for (x1, y1, x2, y2) in motion_boxes)
 
         motion_is_persistent = (
-            camera.motion_persistence >= camera.profile.min_motion_frames
+            camera.motion_persistence >= camera.profile.min_motion_frames.value
         )
 
         object_motion = (
@@ -802,10 +773,10 @@ class NVR:
         )
 
         object_area_ok = (
-            object_area >= camera.profile.min_sum_box_area
+            object_area >= camera.profile.min_sum_box_area_pixels
         )
 
-        START_CONF = camera.profile.min_motion_confidence
+        START_CONF = camera.profile.min_motion_confidence.value
 
         return (
             object_motion and
@@ -822,7 +793,7 @@ class NVR:
         Post-record timing is handled in _update_recording_state.
         """
 
-        START_CONF = camera.profile.min_motion_confidence
+        START_CONF = camera.profile.min_motion_confidence.value
         STOP_CONF  = max(0.10, START_CONF * 0.30)
 
         if not camera.recording:
@@ -833,7 +804,7 @@ class NVR:
             return True
 
         # 2. Persistence window
-        if camera.motion_persistence >= camera.profile.min_motion_frames:
+        if camera.motion_persistence >= camera.profile.min_motion_frames.value:
             return True
 
         return False
@@ -864,12 +835,12 @@ class NVR:
         if (
             motion_boxes and
             camera.has_moving_object and
-            camera.motion_confidence >= camera.profile.min_motion_confidence
+            camera.motion_confidence >= camera.profile.min_motion_confidence.value
         ):
             camera.last_motion_time = now
 
         # --- TUNER: insufficient persistence ---
-        if motion_boxes and camera.motion_persistence < camera.profile.min_motion_frames:
+        if motion_boxes and camera.motion_persistence < camera.profile.min_motion_frames.value:
             camera.auto_tuner.record(MotionDecision(
                 passed=False,
                 reason="short_motion",
@@ -877,7 +848,7 @@ class NVR:
             ))
 
         # --- TUNER: insufficient confidence ---
-        START_CONF = camera.profile.min_motion_confidence
+        START_CONF = camera.profile.min_motion_confidence.value
         if motion_boxes and camera.motion_confidence < START_CONF:
             pass
             #camera.auto_tuner.record(MotionDecision(
@@ -1374,21 +1345,38 @@ class NVR:
             angular_rects, angular_contours
         )
 
+    def _is_night_time(self, frame,
+                    luma_threshold=40,
+                    noise_threshold=22,
+                    ir_chroma_threshold=8.0):
+        """
+        Robust night detector for NVR use.
+        Uses 3 signals:
+        - avg luma (Y channel)
+        - noise level (stddev)
+        - IR mode detection (RGB channel collapse)
+        """
 
-    def _is_night_time(self, frame, brightness_threshold=50):
-        """
-        determines if we are looking at a night time image.
-        Converts the frame to HSV and computes the mean value of intensity channel
-        it's night time if below the threshold, else it's day time
-        """
-        # Convert to HSV (Hue, Saturation, Intensity)
-        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-        
-        # Calculate average brightness (V channel - Intensity)
-        mean_brightness = np.mean(hsv[:,:,2])
-        
-        # If brightness is low, it's likely night time
-        return mean_brightness < brightness_threshold
+        if frame is None or frame.size == 0:
+            return True
+
+        # --- 1) Compute luma ---
+        yuv = cv2.cvtColor(frame, cv2.COLOR_BGR2YUV)
+        Y = yuv[:, :, 0].astype(np.float32)
+        avg_luma = float(np.mean(Y))
+
+        # --- 2) Compute noise ---
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        noise = float(np.std(gray))
+
+        # --- 3) Detect IR mode (RGB channels collapse) ---
+        b, g, r = cv2.split(frame.astype(np.float32))
+        chroma = np.mean(np.abs(r - g)) + np.mean(np.abs(g - b))
+        ir_mode_on = chroma < ir_chroma_threshold
+
+        # --- Final decision ---
+        return (avg_luma < luma_threshold) or ir_mode_on or (noise > noise_threshold)
+
 
     def _inflate_box(self, box, inflate_px: int) -> tuple[int, int, int, int]:
         """Inflate a box by inflate_px in all directions, clamped to frame."""
@@ -1418,69 +1406,131 @@ class NVR:
         roi = frame_bgr[y1:y2, x1:x2].copy()
         return roi
 
-    def _detect_object_color(self, roi_bgr, k=2):
+    def _detect_object_color(self, roi_bgr, camera: Camera):
+        """
+        Adaptive color classifier.
+        Uses day classifier (LAB + kmeans) or night classifier (brightness-based)
+        depending on lighting conditions.
+        """
+
         if roi_bgr is None or roi_bgr.size == 0:
             return "unknown"
 
-        # Smooth noise
+        if camera.is_night:
+            return self._detect_object_color_night(roi_bgr)
+        else:
+            return self._detect_object_color_day(roi_bgr)
+
+
+    def _detect_object_color_day(self, roi_bgr, k=2):
+        if roi_bgr is None or roi_bgr.size == 0:
+            return "unknown"
+
         roi = cv2.GaussianBlur(roi_bgr, (5, 5), 0)
 
-        # Convert to LAB (OpenCV LAB)
         lab = cv2.cvtColor(roi, cv2.COLOR_BGR2LAB).astype(np.float32)
+        lab[:, :, 1] -= 128.0
+        lab[:, :, 2] -= 128.0
 
-        # Convert OpenCV LAB → true LAB
-        lab[:, :, 1] -= 128.0   # a channel shift
-        lab[:, :, 2] -= 128.0   # b channel shift
-
-        # Flatten for k-means
         pixels = lab.reshape((-1, 3))
 
-        # K-means clustering
         _, labels, centers = cv2.kmeans(
-            pixels, k, None,
+            pixels.astype(np.float32), k, None,
             (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 20, 1.0),
             3,
             cv2.KMEANS_PP_CENTERS
         )
 
         counts = np.bincount(labels.flatten())
-        sorted_idx = np.argsort(-counts)
+        total = counts.sum()
 
-        total = len(pixels)
+        # Sort clusters by size
+        idxs = np.argsort(-counts)
 
-        for idx in sorted_idx:
-            # Ignore tiny clusters (noise, highlights)
+        for idx in idxs:
             if counts[idx] < 0.05 * total:
                 continue
 
             lab_color = centers[idx]
-            color_name = self._classify_color_lab(lab_color)
-
-            if color_name != "unknown":
-                return color_name
+            name = self._classify_color_lab(lab_color)
+            if name != "unknown":
+                return name
 
         return "unknown"
 
 
+    def _detect_object_color_night(self, roi_bgr):
+        gray = cv2.cvtColor(roi_bgr, cv2.COLOR_BGR2GRAY)
+        mean = float(np.mean(gray))
+
+        # IR reflection → white
+        b, g, r = cv2.split(roi_bgr.astype(np.float32))
+        chroma = np.mean(np.abs(r - g)) + np.mean(np.abs(g - b))
+        if mean > 170 and chroma < 10:
+            return "white"
+
+        if mean < 40:
+            return "black"
+
+        if mean < 120:
+            return "gray"
+
+        return "white"
+
+
     def _classify_color_lab(self, lab_color):
-    # LAB-based color classifier
+        # -----------------------------------------
+        # Reference LAB colors (approximate swatches)
+        # -----------------------------------------
+        REF_COLORS = {
+            # --- Primary automotive colors ---
+            "red":      np.array([53,   80,   67]),
+            "blue":     np.array([32,   79, -108]),
+            "green":    np.array([87,  -86,   83]),
+            "yellow":   np.array([97,  -21,   94]),
+            "orange":   np.array([65,   45,   70]),
+            "purple":   np.array([60,   98,  -60]),
+            "pink":     np.array([75,   25,   -5]),
+            "cyan":     np.array([91,  -48,  -14]),
+
+            # --- Earth tones (common in cars & clothing) ---
+            "brown":    np.array([40,   15,   20]),
+            "beige":    np.array([78,    0,   18]),
+            "tan":      np.array([70,    5,   30]),
+
+            # --- Metallics (approximate LAB reflectance centers) ---
+            "silver":   np.array([82,    0,    0]),
+            "gold":     np.array([75,    5,   55]),
+
+            # --- Additional useful colors ---
+            "lime":     np.array([90,  -70,   80]),
+            "teal":     np.array([60,  -40,  -10]),
+            "navy":     np.array([20,   10,  -40]),
+        }
+
         L, a, b = lab_color
         chroma = sqrt(a*a + b*b)
 
-        # Neutral detection
-        if L < 30:
+        # --- Neutral colors ---
+        if L < 35:
             return "black"
-        if chroma < 10:
-            return "white" if L > 200 else "gray"
 
-        # Metallic detection
-        if 60 < L < 95 and chroma < 25:
+        if chroma < 12:
+            if L > 180:
+                return "white"
+            return "gray"
+
+        # --- Metallics ---
+        # Silver: mid‑L, low chroma
+        if 55 < L < 110 and chroma < 22:
             return "silver"
-        if 60 < L < 95 and 25 <= chroma < 45 and b > 20:
+
+        # Gold: warm b channel + moderate chroma
+        if 55 < L < 110 and 22 <= chroma < 45 and b > 15:
             return "gold"
 
-        # Earth tone detection
-        if 30 < L < 70 and 10 < chroma < 40:
+        # --- Earth tones ---
+        if 35 < L < 80 and 12 < chroma < 40:
             if b > 25:
                 return "tan"
             if 10 < b <= 25:
@@ -1488,17 +1538,18 @@ class NVR:
             if b <= 10:
                 return "brown"
 
-        # Standard color classification
+        # --- Standard colors (LAB distance) ---
         best = None
         best_dist = 1e9
 
-        for name, ref in constants.REF_COLORS.items():
+        for name, ref in REF_COLORS.items():
             dist = np.linalg.norm(lab_color - ref)
             if dist < best_dist:
                 best_dist = dist
                 best = name
 
         return best
+
 
     def draw_debug_panels(self,
                       camera: Camera,
@@ -1585,7 +1636,7 @@ class NVR:
                 x1, y1, x2, y2 = map(int, box.xyxy[0])
                 cls_id = int(box.cls[0].item())
                 conf = float(box.conf[0].item())
-                label = f"{self.model.model.names[cls_id]} {conf:.2f}"
+                label = f"{camera.model.names[cls_id]} {conf:.2f}"
 
                 cv2.rectangle(thresh_panel, (x1, y1), (x2, y2), (255, 255, 255), 2)
                 cv2.putText(thresh_panel, label, (x1, y1 - 6),
@@ -1699,11 +1750,11 @@ class NVR:
         dbg(f"has_moving_object={camera.has_moving_object}")
         dbg(f"motion_boxes={len(camera.motion_boxes_list)}")
 
-        dbg(f"score={camera.score} / {camera.profile.motion_threshold}")
-        dbg(f"motion_confidence={camera.motion_confidence:.2f} / {camera.profile.min_motion_confidence}")
-        dbg(f"STOP_CONF={max(0.10, camera.profile.min_motion_confidence * 0.30):.2f}")
+        dbg(f"score={camera.score} / {camera.profile.motion_threshold_pixels}")
+        dbg(f"motion_confidence={camera.motion_confidence:.2f} / {camera.profile.min_motion_confidence.value}")
+        dbg(f"STOP_CONF={max(0.10, camera.profile.min_motion_confidence.value * 0.30):.2f}")
 
-        dbg(f"motion_persistence={camera.motion_persistence} / {camera.profile.min_motion_frames}")
+        dbg(f"motion_persistence={camera.motion_persistence} / {camera.profile.min_motion_frames.value}")
         dbg(f"persist_score={camera.persist_score:.2f}")
 
         dbg(f"since_last_motion={time.time() - camera.last_motion_time:.2f}s")

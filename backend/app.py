@@ -55,41 +55,47 @@ def replace_url_credentials(url, new_username, new_password):
 @click.option("--gui-password")
 @click.option("--bind-address", default="0.0.0.0")
 @click.option("--logging-config", default="logging-config.json")
-@click.option("--motion-threshold", default=constants.MOTION_THRESHOLD)
-@click.option("--confidence-threshold", default=constants.CONFIDENCE_THRESHOLD)
 @click.option("--debug", is_flag=True)
 @version_option()
 def main(directory, username, password, gui_username, gui_password,
          nvr_config, bind_address, logging_config,
-         motion_threshold, confidence_threshold,
          debug):
 
     global _NVR
+    with open(logging_config, encoding="utf-8") as f_in:
+        logging_config_json = json.load(f_in)
 
     log_path = setup_logging(logging_config)
-    if password:
-        KeywordFilter.add_keyword(password)
 
     with open(nvr_config, "r") as f:
         config = json.load(f)
 
-    yolo_config = config["yolo"]
     resolution = config["resolution"]
     camera_config = config["cameras"]
     
     if password.startswith("password://"):
         password = keyring.get_password(password, username)
-        logger.debug(f"got password {password} from keyring")
-        if password is None:
+        logger.debug(f"got password for {username} from keyring")
+    if password is None:
             return
+
+    if password:
+        KeywordFilter.add_keyword(password)
+        logger.debug(f"got password {password}")
 
     if gui_username is None:
         logger.debug(f"using username as gui_username")
         gui_username = username
 
     if gui_password is None:
-        logger.debug(f"using password as gui_password")
+        logger.debug(f"using {username}'s password as gui_password")
         gui_password = password
+    else:
+        if gui_password.startswith("password://"):
+            gui_password = keyring.get_password(gui_password, gui_username)
+            logger.debug(f"got GUI password for {gui_username} from keyring")
+        KeywordFilter.add_keyword(gui_password)
+        logger.debug(f"got GUI password {gui_password}")
 
     pwd = CryptContext(schemes=["bcrypt"], deprecated="auto")
     try:
@@ -113,12 +119,8 @@ def main(directory, username, password, gui_username, gui_password,
         gui_password=hashed_gui_password,
         camera_config=camera_config,
         bind_address=bind_address,
-        motion_threshold=motion_threshold,
-        confidence_threshold=confidence_threshold,
         resolution=resolution,
-        model=yolo_config["model"],
-        lpr_model=yolo_config["lpr_model"],
-        classes=yolo_config["classes"],
+        yolo_config=config["yolo"],
         debug=debug,
     )
 
@@ -127,7 +129,7 @@ def main(directory, username, password, gui_username, gui_password,
     atexit.register(nvr.stop)
 
     app = create_app(ctx, nvr)
-    uvicorn.run(app, host=ctx.bind_address, port=7860, access_log=False)
+    uvicorn.run(app, host=ctx.bind_address, port=7860, log_config=logging_config_json, access_log=False)
     logger.info("Exiting")
 
 if __name__ == "__main__":

@@ -5,15 +5,14 @@ from datetime import datetime
 import os
 import json
 import time
-from copy import deepcopy
 from pathlib import Path
 
 import numpy as np
 from numpy.typing import NDArray
+from ultralytics import YOLO
 
 from logger.logger import log_event
-from model.model import Model
-from nvr.motion_profiles import MotionProfile, DayMotionProfile, MotionProfileAutoTuner
+from nvr.motion_profiles import MotionProfile, DayMotionProfile, NightMotionProfile, MotionProfileAutoTuner
 
 class RollingAverage:
     def __init__(self, window_size=100):
@@ -43,11 +42,7 @@ class Camera:
         name: str,
         logs_dir: str,
         recordings_dir: str,
-        segments_dir: str,
-        images_dir: str,
-        metadata_dir: str,
-        plates_dir: str,
-        model: Model,
+        model: YOLO,
         debug: bool = False
     ):
 
@@ -56,12 +51,12 @@ class Camera:
         self.max_pixels = max_pixels
         self.name: str = name
         self.logs_dir: str = logs_dir
-        self.recordings_dir: str = recordings_dir
-        self.segments_dir: str = segments_dir
-        self.images_dir: str = images_dir
-        self.metadata_dir: str = metadata_dir
-        self.plates_dir: str = plates_dir
-        self.model: Model = model
+        self.recordings_dir: str = os.path.join(recordings_dir, self.name)
+        self.segments_dir: str = os.path.join(recordings_dir, "segments", self.name)
+        self.images_dir: str = os.path.join(recordings_dir, "images", self.name)
+        self.metadata_dir: str = os.path.join(recordings_dir, "metadata", self.name)
+        self.plates_dir: str = os.path.join(recordings_dir, "plates", self.name)
+        self.model: YOLO = model
         self.debug: bool = debug
 
         # --- Stream state ---
@@ -118,11 +113,24 @@ class Camera:
         self.white_ratio: float = 0.0
 
         # --- Default Motion Profile (DAY) ---
-        self.profile: MotionProfile = DayMotionProfile(
+        self.day_profile: MotionProfile = DayMotionProfile(
             max_pixels=self.max_pixels,
-            motion_threshold=cfg.get("motion_threshold", 1.0),
-            yolo_confidence_threshold=cfg.get("yolo_confidence", 0.25)
+            yolo_confidence_threshold=cfg["yolo_confidence"],
+            motion_threshold=cfg["motion_threshold"],
+            min_motion_confidence=cfg["minimum_motion_confidence"],
+            min_motion_frames=cfg["minimum_motion_frames"],
+            min_sum_box_area=cfg["minimum_sum_box_area"]
         )
+        self.night_profile = NightMotionProfile(
+            max_pixels=self.max_pixels,
+            yolo_confidence_threshold=cfg["yolo_confidence"] + 0.15,
+            motion_threshold=cfg["motion_threshold"] * 1.5,
+            min_motion_confidence=cfg["minimum_motion_confidence"] + 0.15,
+            min_motion_frames=cfg["minimum_motion_frames"] + 2,
+            min_sum_box_area=cfg["minimum_sum_box_area"]
+            )
+        self.profile = self.day_profile
+
 
         # --- Auto tuner ---
         self.auto_tuner: MotionProfileAutoTuner = MotionProfileAutoTuner()
@@ -156,6 +164,11 @@ class Camera:
             "min_motion_frames": self.profile.min_motion_frames,
             "inflate_motion_boxes": self.profile.inflate_motion_boxes,
         }
+        os.makedirs(self.segments_dir, exist_ok=True)
+        os.makedirs(self.images_dir, exist_ok=True)
+        os.makedirs(self.metadata_dir, exist_ok=True)
+        os.makedirs(self.plates_dir, exist_ok=True)
+
 
     def profile_to_dict(self) -> dict:
         """
@@ -273,8 +286,8 @@ class Camera:
             ap["min_edge_density"] = clamp(ap["min_edge_density"], 0.015, 0.04)
 
         if "min_motion_frames" in recs:
-            ap["min_motion_frames"] += max(1, int(2 * 0.2))
-            ap["min_motion_frames"] = clamp(ap["min_motion_frames"], 4, 16)
+            ap["min_motion_frames"].value += max(1, int(2 * 0.2))
+            ap["min_motion_frames"].value = clamp(ap["min_motion_frames"].value, 4, 16)
 
         if "min_total_motion_area" in recs:
             ap["min_total_motion_area"] += 0.001 * 0.2 * max_pixels
@@ -286,7 +299,7 @@ class Camera:
 
         # push adaptive values back into profile
         prof.min_total_motion_area = ap["min_total_motion_area"]
-        prof.min_motion_frames = ap["min_motion_frames"]
+        prof.min_motion_frames.value = ap["min_motion_frames"].value
         prof.inflate_motion_boxes = ap["inflate_motion_boxes"]
 
         base = ap["min_edge_density"]
@@ -311,7 +324,7 @@ class Camera:
         log_filename = os.path.join(self.logs_dir, f"{timestamp_str}_{self.name}_tuner.json")
 
         with open(log_filename, "w") as f:
-            json.dump(log, f, indent=4)
+            json.dump(log, f, default=lambda o: o.__dict__, indent=4)
 
     def update_confidence(
         self,
@@ -328,7 +341,7 @@ class Camera:
 
         # --- PIXEL SCORE ---
         self.pixel_score = min(
-            self.score / (self.profile.motion_threshold * 3.0),
+            self.score / (self.profile.motion_threshold_pixels * 3.0),
             1.0
         )
 
@@ -338,7 +351,7 @@ class Camera:
             for (x1, y1, x2, y2) in motion_boxes
         )
         self.box_score = min(
-            object_area / (self.profile.min_sum_box_area * 2.0),
+            object_area / (self.profile.min_sum_box_area_pixels * 2.0),
             1.0
         )
 
@@ -376,7 +389,7 @@ class Camera:
 
         is_object_like_motion = (
             motion_boxes and
-            object_area >= self.profile.min_sum_box_area and
+            object_area >= self.profile.min_sum_box_area_pixels and
             self.edge_density >= 0.02 and
             self.has_moving_object and
             self.motion_confidence >= 0.15
@@ -387,6 +400,11 @@ class Camera:
         else:
             self.motion_persistence = max(0, self.motion_persistence - 1)
 
+    def update_yolo_confidence_threshold(self, val):
+        self.profile.yolo_confidence_threshold.value = val
+
+    def update_motion_threshold(self, val):
+        self.profile.motion_threshold.value = val
 
 class LPR:
     def __init__(self, cfg: dict):

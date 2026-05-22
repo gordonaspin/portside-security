@@ -12,11 +12,7 @@ class Context:
     gui_password: str
     camera_config: dict
     bind_address: str
-    motion_threshold: float
-    confidence_threshold: float
     resolution: list[int, int]
-    model: str
-    lpr_model: str
-    classes: list[str]
+    yolo_config: dict
     debug: bool
     debug_files: bool = False

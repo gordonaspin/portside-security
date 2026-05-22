@@ -178,7 +178,7 @@ def create_app(ctx: Context, nvr: NVR):
 
     @app.get("/api/classes")
     def get_classes(user=Depends(require_user)):
-        return {"classes": nvr.ctx.classes}
+        return {"classes": nvr.ctx.yolo_config["classes"]}
 
     @app.get("/api/events")
     def api_events(mobile: bool=False, user=Depends(require_user)):
@@ -195,28 +195,63 @@ def create_app(ctx: Context, nvr: NVR):
         html = "\n".join(event_log)
         return {"html": html}
 
-    # yolo confidence
-    @app.get("/api/settings/yolo_confidence")
-    async def get_yolo_confidence(user=Depends(require_user)):
-        return {"value": nvr.yolo_confidence_threshold}
+    @app.get("/api/cameras/{camera}/settings")
+    def get_camera_settings(camera: str):
+        cam = nvr.cameras[camera]
 
-    @app.post("/api/settings/yolo_confidence")
-    async def set_yolo_confidence(payload: SettingValue, user=Depends(require_user)):
-        log_event(f"yolo confidence threshold update from {nvr.yolo_confidence_threshold} to {payload.value}")
-        nvr.update_yolo_confidence_threshold(payload.value)
-        return {"status": "ok", "value": payload.value}
+        settings = {}
 
-    # motion threshold
-    @app.get("/api/settings/motion_threshold")
-    async def get_motion_threshold(user=Depends(require_user)):
-        return {"value": nvr.motion_threshold}
+        settings = {
+            "yolo_confidence_threshold": { 
+                "value": cam.profile.yolo_confidence_threshold.value,
+                "min": cam.profile.yolo_confidence_threshold.min,
+                "max": cam.profile.yolo_confidence_threshold.max,
+                "step": cam.profile.yolo_confidence_threshold.step
+            },
+            "motion_threshold": {
+                "value": cam.profile.motion_threshold.value,
+                "min": cam.profile.motion_threshold.min,
+                "max": cam.profile.motion_threshold.max,
+                "step": cam.profile.motion_threshold.step
+            },
+            "min_motion_confidence": {
+                "value": cam.profile.min_motion_confidence.value,
+                "min": cam.profile.min_motion_confidence.min,
+                "max": cam.profile.min_motion_confidence.max,
+                "step": cam.profile.min_motion_confidence.step
+            },
+            "min_motion_frames": {
+                "value": cam.profile.min_motion_frames.value,
+                "min": cam.profile.min_motion_frames.min,
+                "max": cam.profile.min_motion_frames.max,
+                "step": cam.profile.min_motion_frames.step
+            },
+            "min_sum_box_area": {
+                "value": cam.profile.min_sum_box_area.value,
+                "min": cam.profile.min_sum_box_area.min,
+                "max": cam.profile.min_sum_box_area.max,
+                "step": cam.profile.min_sum_box_area.step
+            }
+        }
 
-    @app.post("/api/settings/motion_threshold")
-    async def set_motion_threshold(payload: SettingValue, user=Depends(require_user)):
-        log_event(f"motion confidence threshold updated from {nvr.motion_threshold} to {payload.value}")
-        nvr.update_motion_threshold(payload.value)
-        return {"status": "ok", "value": payload.value}
-    
+        return settings
+
+    @app.post("/api/cameras/{camera}/settings/{setting}")
+    def update_camera_setting(camera: str, setting: str, payload: SettingValue):
+
+        profile = nvr.cameras[camera].profile
+
+        # Update the camera object directly
+        attr = getattr(profile, setting)
+        attr.value = payload.value
+
+        return {
+            "status": "ok",
+            "camera": camera,
+            "setting": setting,
+            "value": payload.value
+        }
+
     # camera debug
     @app.get("/api/settings/debug/{camera_name}")
     def get_camera_debug(camera_name: str):
@@ -235,48 +270,7 @@ def create_app(ctx: Context, nvr: NVR):
             cam.debug = payload.value
         return {"status": "ok", "camera": camera_name, "value": payload.value}
     
-    # minimum sum box area
-    @app.get("/api/settings/min_sum_box_area")
-    async def get_min_sum_box_area(user=Depends(require_user)):
-        camera = next(iter(nvr.cameras.values()))
-        return {"status": "ok", "value": camera.profile.min_sum_box_area}
-
-    @app.post("/api/settings/min_sum_box_area")
-    async def set_min_sum_box_area(payload: SettingValue, user=Depends(require_user)):
-        current = next(iter(nvr.cameras.values())).profile.min_sum_box_area
-        log_event(f"minimum sum box area updated from {current} to {payload.value}")
-        for camera in nvr.cameras.values():
-            camera.profile.min_sum_box_area = payload.value
-            return {"status": "ok", "value": payload.value}
-
-    # minimum motion confidence
-    @app.get("/api/settings/min_motion_confidence")
-    async def get_min_motion_confidence(user=Depends(require_user)):
-        camera = next(iter(nvr.cameras.values()))
-        return {"status": "ok", "value": camera.profile.min_motion_confidence}
-
-    @app.post("/api/settings/min_motion_confidence")
-    async def set_min_motion_confidence(payload: SettingValue, user=Depends(require_user)):
-        current = next(iter(nvr.cameras.values())).profile.min_motion_confidence
-        log_event(f"minimum motion confidence updated from {current} to {payload.value}")
-        for camera in nvr.cameras.values():
-            camera.profile.min_motion_confidence = payload.value
-            return {"status": "ok", "value": camera.profile.min_motion_confidence}
-
-    # minimum motion frames
-    @app.get("/api/settings/min_motion_frames")
-    async def get_min_motion_frames(user=Depends(require_user)):
-        camera = next(iter(nvr.cameras.values()))
-        return {"status": "ok", "value": camera.profile.min_motion_frames}
-
-    @app.post("/api/settings/min_motion_frames")
-    async def set_min_motion_frames(payload: SettingValue, user=Depends(require_user)):
-        current = next(iter(nvr.cameras.values())).profile.min_motion_frames
-        log_event(f"minimum motion frames updated from {current} to {payload.value}")
-        for camera in nvr.cameras.values():
-            camera.profile.min_motion_frames = payload.value
-            return {"status": "ok", "value": camera.profile.min_motion_frames}
-
+    # Verbose debug
     @app.get("/api/settings/debug")
     async def get_debug(user=Depends(require_user)):
         return {"value": nvr.debug}

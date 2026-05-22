@@ -1,29 +1,123 @@
 {
     "resolution": [704, 480],
     "yolo": {
-        "classes": ["person", "car", "truck", "bus", "bicycle", "motorcycle", "cat", "dog"],
-        "model": "yolov8n.pt"
+        "classes": ["person", "car", "truck", "bus", "cat", "dog", "bicycle", "motorcycle"],
+        "model": "backend/model/yolov8n.pt",
+        "lpr_model": "backend/model/license-plate-finetune-v1l.pt"
     },
     "cameras": {
-        "Cam1": {
-            "url": "rtsp://username:password@hostname:554/cam/realmonitor?channel=3&subtype=1",
-            "enabled": true
+        "B1": {
+            "url": "rtsp://username:password@hostname.com:554/cam/realmonitor?channel=3&subtype=1",
+            "enabled": true,
+            "_yolo_confidence_comment": "0.1-0.9 confidence",
+            "yolo_confidence": 0.5,
+            "_motion_threshold_comment": "0.1%-0.9% pixels",
+            "motion_threshold": 0.4,
+            "_minimum_motion_confidence_comment": "0.1-0.9 confidence",
+            "minimum_motion_confidence": 0.3,
+            "_day_motion_frames_comment": "5-20 frames",
+            "minimum_motion_frames": 8.0,
+            "_minimum_sum_box_area_comment": "0.1%-1.2% pixels",
+            "minimum_sum_box_area": 0.7,
+            "debug": false
         },
-        "Cam2": {
-            "url": "rtsp://username:password@hostname:554/cam/realmonitor?channel=4&subtype=1",
-            "enabled": true
+        "B2": {
+            "url": "rtsp://username:password@hostname.com:554/cam/realmonitor?channel=4&subtype=1",
+            "enabled": true,
+            "yolo_confidence": 0.5,
+            "motion_threshold": 0.4,
+            "minimum_motion_confidence": 0.3,
+            "minimum_motion_frames": 8.0,
+            "minimum_sum_box_area": 0.7,
+            "debug": false
         },
-        "Cam3": {
-            "url": "rtsp://username:password@hostname:554/cam/realmonitor?channel=5&subtype=1",
-            "enabled": true
+        "B3": {
+            "url": "rtsp://username:password@hostname.com:554/cam/realmonitor?channel=5&subtype=1",
+            "enabled": true,
+            "yolo_confidence": 0.5,
+            "motion_threshold": 0.4,
+            "minimum_motion_confidence": 0.3,
+            "minimum_motion_frames": 8.0,
+            "minimum_sum_box_area": 0.7,
+            "debug": false
         },
-        "Cam4": {
-            "url": "rtsp://username:password@hostname:554/cam/realmonitor?channel=2&subtype=1",
-            "enabled": true
+        "Entry": {
+            "url": "rtsp://username:password@hostname.com:554/cam/realmonitor?channel=2&subtype=1",
+            "enabled": true,
+            "yolo_confidence": 0.5,
+            "motion_threshold": 0.4,
+            "minimum_motion_confidence": 0.3,
+            "minimum_motion_frames": 8.0,
+            "minimum_sum_box_area": 0.7,
+            "debug": false
         },
-        "Cam5": {
-            "url": "rtsp://username:password@hostname:554/cam/realmonitor?channel=1&subtype=1",
-            "enabled": true
+        "Exit": {
+            "url": "rtsp://username:password@hostname.com:554/cam/realmonitor?channel=1&subtype=1",
+            "enabled": true,
+            "yolo_confidence": 0.5,
+            "motion_threshold": 0.4,
+            "minimum_motion_confidence": 0.3,
+            "minimum_motion_frames": 8.0,
+            "minimum_sum_box_area": 0.7,
+            "lpr": {
+                "enabled": false,
+                "url": "rtsp://username:password@hostname.com:554/cam/realmonitor?channel=1&subtype=0",
+                "top": 720,
+                "left": 384,
+                "width": 2304,
+                "height": 760
+            },
+            "debug": false
+        },
+        "B45": {
+            "url": "rtsp://username:password@hostname.com:554/cam/realmonitor?channel=3&subtype=1",
+            "enabled": true,
+            "yolo_confidence": 0.5,
+            "motion_threshold": 0.4,
+            "minimum_motion_confidence": 0.3,
+            "minimum_motion_frames": 8.0,
+            "minimum_sum_box_area": 0.7,
+            "debug": false
+        },
+        "B56": {
+            "url": "rtsp://username:password@hostname.com:554/cam/realmonitor?channel=2&subtype=1",
+            "enabled": true,
+            "yolo_confidence": 0.5,
+            "motion_threshold": 0.4,
+            "minimum_motion_confidence": 0.3,
+            "minimum_motion_frames": 8.0,
+            "minimum_sum_box_area": 0.7,
+            "debug": false
+        },
+        "B67": {
+            "url": "rtsp://username:password@hostname.com:554/cam/realmonitor?channel=1&subtype=1",
+            "enabled": true,
+            "yolo_confidence": 0.5,
+            "motion_threshold": 0.4,
+            "minimum_motion_confidence": 0.3,
+            "minimum_motion_frames": 8.0,
+            "minimum_sum_box_area": 0.7,
+            "debug": false
+        },
+        "Pool": {
+            "url": "rtsp://username:password@hostname.com:554/cam/realmonitor?channel=1&subtype=1",
+            "enabled": true,
+            "yolo_confidence": 0.5,
+            "motion_threshold": 0.4,
+            "minimum_motion_confidence": 0.3,
+            "minimum_motion_frames": 8.0,
+            "minimum_sum_box_area": 0.7,
+            "debug": false
+        },
+        "PGate": {
+            "url": "rtsp://username:password@hostname.com:554/cam/realmonitor?channel=2&subtype=1",
+            "enabled": true,
+            "yolo_confidence": 0.5,
+            "motion_threshold": 0.4,
+            "minimum_motion_confidence": 0.3,
+            "minimum_motion_frames": 8.0,
+            "minimum_sum_box_area": 0.7,
+            "debug": false
         }
     }
 }
