@@ -313,7 +313,8 @@ class Camera:
         # --- WRITE JSON LOG ---
         log = {
             "timestamp": time.time(),
-            "camera": getattr(self, "name", "unknown_camera"),
+            "camera": self.name,
+            "is_night": self.is_night,
             "before_profile": before,
             "after_profile": after,
             "tuner_stats": stats,

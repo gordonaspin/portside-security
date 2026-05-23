@@ -81,8 +81,8 @@ class NightMotionProfile(MotionProfile):
         self.inflate_motion_boxes = 10
         self.motion_persistence_time = 3.0   # seconds
         self.yolo_confidence_threshold = ProfileValue(yolo_confidence_threshold, 0.1, 1.0, 0.01)
-        self.motion_threshold = ProfileValue(1.5 * motion_threshold, 0.1, 1.0, 0.1)
-        self.min_motion_confidence = ProfileValue(min_motion_confidence + 0.15, 0.1, 1.0, 0.01)
+        self.motion_threshold = ProfileValue(motion_threshold, 0.1, 1.0, 0.1)
+        self.min_motion_confidence = ProfileValue(min_motion_confidence, 0.1, 1.0, 0.01)
         self.min_motion_frames = ProfileValue(min_motion_frames, 7, 20, 1)
         self.min_sum_box_area = ProfileValue(min_sum_box_area, 0.1, 1.5, 0.01)
 
