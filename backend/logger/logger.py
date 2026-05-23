@@ -47,7 +47,7 @@ def log_event(message, level="info", camera=None, file_path=None):
     #print(f"[{timestamp}] {camera:<8} {message}")
     fstr = camera.name + " " if camera else ""
     fstr += message
-    fstr += file_path if file_path else ""
+    fstr += " " + file_path if file_path else ""
     
     match level:
         case "info": logger.info(fstr)

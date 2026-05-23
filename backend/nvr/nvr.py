@@ -22,8 +22,8 @@ from camera.camera import Camera
 import constants as constants
 from context import Context
 from logger.logger import log_event
-from nvr.motion_profiles import DayMotionProfile, NightMotionProfile, MotionDecision
-from utils.thread_safe import ThreadSafeSet, ThreadSafePathDict, ThreadSafeList
+from nvr.motion_tuner import MotionDecision
+from utils.thread_safe import ThreadSafeSet, ThreadSafeList
 from nvr.lpr import LicensePlateRecognition, VideoProcessor
 
 logger = getLogger("nvr")
@@ -240,8 +240,8 @@ class NVR:
     
     def _merge_segments_async(self, camera: Camera, tags: defaultdict[set], end_time: float):
         """
-        Runs ffmpeg merge in a separate thread. When the process finishes,
-        the log the event and delete the listing file.
+        Runs ffmpeg merge in a separate thread.
+        When the process finishes, log the event.
         """
         adjusted_start_time = camera.recording_start_time - constants.PRE_RECORD_DURATION
         segments = self._get_segments(camera=camera, start_time=adjusted_start_time, end_time=end_time)
@@ -321,7 +321,7 @@ class NVR:
                     stdout, stderr = process.communicate()
 
                     if process.returncode != 0:
-                        # You can log or handle errors here if needed
+                        # log or handle errors here if needed
                         pass
 
                 finally:
@@ -354,7 +354,10 @@ class NVR:
         cap = cv2.VideoCapture(media_path)
         fps = cap.get(cv2.CAP_PROP_FPS)
         frame_count = cap.get(cv2.CAP_PROP_FRAME_COUNT)
-        duration_seconds = frame_count / fps
+        cap.release()
+        duration_seconds = 0
+        if frame_count and fps:
+            duration_seconds = frame_count / fps
         formatted_duration = str(timedelta(seconds=int(duration_seconds)))
         if frame_count < constants.RECORDING_FRAME_COUNT_MINIMUM and os.path.isfile(media_path):
             os.remove(media_path)
@@ -653,6 +656,7 @@ class NVR:
     def _filter_yolo_overlaps(
         self,
         camera: Camera,
+        frame_bgr,
         result: Results | None,
         motion_boxes: list[tuple[int, int, int, int]]
     ) -> None:
@@ -711,7 +715,7 @@ class NVR:
         # Extract class + color for each kept detection
         for box in result.boxes:
             class_name = camera.model.names[int(box.cls)]
-            roi = self.yolo_box_to_roi(camera.latest_frame, box)
+            roi = self.yolo_box_to_roi(frame_bgr, box)
             if roi.size > 0:
                 color = self._detect_object_color(roi, camera)
                 camera.classes_in_frame_dict[class_name].add(color)
@@ -862,7 +866,6 @@ class NVR:
             camera.recording = True
             camera.recording_start_time = now
             camera.active_objects_dict = deepcopy(camera.classes_in_frame_dict)
-            camera.last_recording_time = now
 
             #camera.auto_tuner.record(MotionDecision(
             #    passed=True,
@@ -1100,6 +1103,7 @@ class NVR:
                 continue
 
             now = time.time()
+            camera.frame_count += 1
 
             # --- ENVIRONMENT UPDATES ---
             self._update_night_day(camera, frame_bgr, now)
@@ -1116,15 +1120,16 @@ class NVR:
 
             # --- YOLO PIPELINE ---
             yolo_result = self._run_yolo_if_needed(camera, frame_bgr, motion_boxes)
-            self._filter_yolo_overlaps(camera, yolo_result, motion_boxes)
+            self._filter_yolo_overlaps(camera, frame_bgr, yolo_result, motion_boxes)
 
             # --- CONFIDENCE + PERSISTENCE ---
             camera.update_confidence(motion_boxes, now)
             camera.update_persistence(motion_boxes)
             self._apply_fast_stop_logic(camera, motion_boxes, now)
 
-            # --- RECORDING LOGIC ---
-            self._update_recording_state(camera, motion_boxes, now)
+            if camera.frame_count > 15 * 20:
+                # --- RECORDING LOGIC ---
+                self._update_recording_state(camera, motion_boxes, now)
 
             # --- DEBUG UI ---
             self._render_debug_ui(camera, frame_bgr, yolo_result)
@@ -1361,19 +1366,22 @@ class NVR:
             return True
 
         # --- 1) Compute luma ---
-        yuv = cv2.cvtColor(frame, cv2.COLOR_BGR2YUV)
-        Y = yuv[:, :, 0].astype(np.float32)
-        avg_luma = float(np.mean(Y))
+        avg_luma = camera.gray_buf.mean()
+        #yuv = cv2.cvtColor(frame, cv2.COLOR_BGR2YUV)
+        #Y = yuv[:, :, 0].astype(np.float32)
+        #avg_luma = float(np.mean(Y))
 
         # --- 2) Compute noise ---
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        noise = float(np.std(gray))
+        #gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        #noise = float(np.std(gray))
+        noise = float(np.std(camera.diff_blur_buf))
 
         # --- 3) Detect IR mode (RGB channels collapse) ---
         b, g, r = cv2.split(frame.astype(np.float32))
         chroma = np.mean(np.abs(r - g)) + np.mean(np.abs(g - b))
         ir_mode_on = chroma < ir_chroma_threshold
 
+        logger.info(f"{camera.name} avg_luma {avg_luma}, noise {noise}, ir_mode_on {ir_mode_on}")
         # --- Final decision ---
         if avg_luma < luma_threshold:
             log_event(f"is_night: luma {avg_luma} < {luma_threshold}", level="info", camera=camera)
@@ -1749,6 +1757,7 @@ class NVR:
             yL += spacing
 
         # --- Your existing dbg() content ---
+        dbg(f"frames={camera.frame_count}")
         dbg(f"recording={camera.recording}")
         dbg(f"should_record={camera.should_record}")
         dbg(f"should_start={camera.should_start}")

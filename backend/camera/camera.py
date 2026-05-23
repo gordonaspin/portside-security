@@ -5,14 +5,14 @@ from datetime import datetime
 import os
 import json
 import time
-from pathlib import Path
 
 import numpy as np
 from numpy.typing import NDArray
 from ultralytics import YOLO
 
 from logger.logger import log_event
-from nvr.motion_profiles import MotionProfile, DayMotionProfile, NightMotionProfile, MotionProfileAutoTuner
+from nvr.motion_profiles import MotionProfile, DayMotionProfile, NightMotionProfile
+from nvr.motion_tuner import MotionProfileAutoTuner
 
 class RollingAverage:
     def __init__(self, window_size=100):
@@ -43,7 +43,6 @@ class Camera:
         logs_dir: str,
         recordings_dir: str,
         model: YOLO,
-        debug: bool = False
     ):
 
         # --- Basic config ---
@@ -57,11 +56,11 @@ class Camera:
         self.metadata_dir: str = os.path.join(recordings_dir, "metadata", self.name)
         self.plates_dir: str = os.path.join(recordings_dir, "plates", self.name)
         self.model: YOLO = model
-        self.debug: bool = debug
+        self.debug: bool = cfg["debug"]
 
         # --- Stream state ---
         self.process: Popen | None = None
-        self.first_frame: bool = True
+        self.frame_count: int = 0
         self.fail_count: int = 0
 
         # --- Latest-frame-wins buffer ---
@@ -99,7 +98,6 @@ class Camera:
         self.should_record: bool = False
         self.should_start: bool = False
         self.should_continue: bool = False
-        self.last_recording_time: float = 0.0
         self.last_night_time_check: float = time.time()
         self.last_motion_time: float = time.time()
         self.recording: bool = False
@@ -222,10 +220,10 @@ class Camera:
         - reuse them forever
         - initialize background model from first gray frame
         """
-        if not self.first_frame:
+        if self.frame_count:
             return
 
-        self.first_frame = False
+        self.frame_count = 1
         log_event(message="reading from stream", level="info", camera=self)
 
         h, w = frame_bgr.shape[:2]
