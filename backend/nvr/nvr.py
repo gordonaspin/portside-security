@@ -496,7 +496,7 @@ class NVR:
         if now - camera.last_night_time_check <= constants.PERIODIC_CHECK_INTERVAL:
             return
 
-        camera.is_night = self._is_night_time(frame_bgr)
+        camera.is_night = self._is_night_time(camera, frame_bgr)
         camera.profile = camera.night_profile if camera.is_night else camera.day_profile
         camera.last_night_time_check = now
 
@@ -1345,10 +1345,10 @@ class NVR:
             angular_rects, angular_contours
         )
 
-    def _is_night_time(self, frame,
-                    luma_threshold=40,
-                    noise_threshold=22,
-                    ir_chroma_threshold=8.0):
+    def _is_night_time(self, camera: Camera, frame,
+                    luma_threshold=60,
+                    noise_threshold=75,
+                    ir_chroma_threshold=4.0):
         """
         Robust night detector for NVR use.
         Uses 3 signals:
@@ -1375,6 +1375,13 @@ class NVR:
         ir_mode_on = chroma < ir_chroma_threshold
 
         # --- Final decision ---
+        if avg_luma < luma_threshold:
+            log_event(f"is_night: luma {avg_luma} < {luma_threshold}", level="info", camera=camera)
+        if ir_mode_on:
+            log_event(f"is_night: ir_mode_on {ir_mode_on} < {luma_threshold}", level="info", camera=camera)
+        if noise > noise_threshold:
+            log_event(f"is_night: noise {noise} > noise_threshold {noise_threshold}", level="info", camera=camera)
+
         return (avg_luma < luma_threshold) or ir_mode_on or (noise > noise_threshold)
 
 

@@ -27,6 +27,7 @@
   let computedLeftMargin = 140;
   let serverNow = 0;
   let legendItems = [];
+  let selectedEventId = null;
 
   async function loadServerTime() {
     const res = await fetch("/api/server_time", { credentials: "include" });
@@ -390,6 +391,7 @@
     const timelineHeight = canvas.height - LEGEND_HEIGHT;
     const minWidth = 5;
     const eventBorderStyle = "#DDDDDD";
+    const selectedEventBorderStyle = "#FFFFFF";
 
     ctx.save();
     ctx.beginPath();
@@ -438,8 +440,8 @@
       });
 
       if (width > minWidth) {
-        ctx.lineWidth = 1;
-        ctx.strokeStyle = eventBorderStyle;
+        ctx.lineWidth = ev.start_time === selectedEventId ? 3 : 1;
+        ctx.strokeStyle = ev.start_time === selectedEventId ? selectedEventBorderStyle : eventBorderStyle;
         ctx.strokeRect(x1 + 0.5, y + 5 + 0.5, width - 1, (ROW_HEIGHT - 10) - 1);
       }
     });
@@ -729,7 +731,11 @@
     }
 
     const ev = findEventAt(x, y);
-    if (ev) onSelectEvent(ev);
+    if (ev) {
+      selectedEventId = ev.start_time;
+      onSelectEvent(ev);
+      drawTimeline()
+    }
   }
 
   function handleWheel(e) {

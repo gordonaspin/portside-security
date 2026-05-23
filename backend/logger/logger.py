@@ -43,7 +43,6 @@ event_log = []
 def log_event(message, level="info", camera=None, file_path=None):
     timestamp = datetime.now().strftime("%H:%M:%S")
     colors = {"info":"#00c853","debug": "#AA0088", "warn":"#ffd600","error":"#ff5252","record":"#17e8ff"}
-    color = colors.get(level,"#fff")
 
     #print(f"[{timestamp}] {camera:<8} {message}")
     fstr = camera.name + " " if camera else ""
@@ -59,7 +58,7 @@ def log_event(message, level="info", camera=None, file_path=None):
 
     if file_path:
         path = Path(file_path)
-        if path.is_file:
+        if path.is_file():
             message += f' <a href="/{file_path}" target="_blank">{path.parent.name}/{path.name}</a>'
 
     entry = f'<div class="log-{level}">[{timestamp}] ' + (f"{camera.name:<8} " if camera else "") + f"{message}</div>"
