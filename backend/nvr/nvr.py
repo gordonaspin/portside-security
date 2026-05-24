@@ -36,6 +36,7 @@ class NVR:
         self.ctx = ctx
         self.width: int = ctx.resolution[0]
         self.height: int = ctx.resolution[1]
+        self.system_name: str = ctx.system_name
         self.max_pixels = self.width * self.height
         
         yolo = YOLO(ctx.yolo_config["model"])
@@ -1351,46 +1352,37 @@ class NVR:
         )
 
     def _is_night_time(self, camera: Camera, frame,
-                    luma_threshold=60,
-                    noise_threshold=75,
+                    luma_threshold=90,
                     ir_chroma_threshold=4.0):
         """
-        Robust night detector for NVR use.
-        Uses 3 signals:
+        night detector for NVR use.
+        Uses 2 signals:
         - avg luma (Y channel)
-        - noise level (stddev)
         - IR mode detection (RGB channel collapse)
         """
 
         if frame is None or frame.size == 0:
             return True
 
-        # --- 1) Compute luma ---
+        # --- Compute luma ---
         avg_luma = camera.gray_buf.mean()
-        #yuv = cv2.cvtColor(frame, cv2.COLOR_BGR2YUV)
-        #Y = yuv[:, :, 0].astype(np.float32)
-        #avg_luma = float(np.mean(Y))
 
-        # --- 2) Compute noise ---
-        #gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        #noise = float(np.std(gray))
-        noise = float(np.std(camera.diff_blur_buf))
-
-        # --- 3) Detect IR mode (RGB channels collapse) ---
+        # --- Detect IR mode (RGB channels collapse) ---
         b, g, r = cv2.split(frame.astype(np.float32))
         chroma = np.mean(np.abs(r - g)) + np.mean(np.abs(g - b))
         ir_mode_on = chroma < ir_chroma_threshold
 
-        logger.info(f"{camera.name} avg_luma {avg_luma}, noise {noise}, ir_mode_on {ir_mode_on}")
+        logger.info(f"{camera.name} avg_luma {avg_luma}, ir_mode_on {ir_mode_on}")
         # --- Final decision ---
         if avg_luma < luma_threshold:
             log_event(f"is_night: luma {avg_luma} < {luma_threshold}", level="info", camera=camera)
         if ir_mode_on:
             log_event(f"is_night: ir_mode_on {ir_mode_on} < {luma_threshold}", level="info", camera=camera)
-        if noise > noise_threshold:
-            log_event(f"is_night: noise {noise} > noise_threshold {noise_threshold}", level="info", camera=camera)
 
-        return (avg_luma < luma_threshold) or ir_mode_on or (noise > noise_threshold)
+        if (avg_luma < luma_threshold) or ir_mode_on:
+            return True
+
+        return False
 
 
     def _inflate_box(self, box, inflate_px: int) -> tuple[int, int, int, int]:

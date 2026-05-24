@@ -1,7 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  const log = window.mosaic.log;
-  const error = window.mosaic.error;
+  import { debug, log, error } from "$lib/stores/logging";
 
   let yoloConfidence = { value: 0.5, min: 0.1, max: 0.9, step: 0.01};
   let motionThreshold = { value: 0.4, min: 0.1, max: 0.9, step: 0.01};
@@ -9,7 +8,7 @@
   let minMotionFrames = { value: 8, min: 5, max: 20, step: 1};
   let minSumBoxArea = { value: 0.7, min: 0.1, max: 1.5, step: 0.05};
 
-  let debug = false;
+  let verboseDebug = false;
   let cameras = [];
   let selectedCamera = null;
   let cameraDebug = {};
@@ -76,7 +75,7 @@
       credentials: "include",
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ value: Boolean(debug) })
+      body: JSON.stringify({ value: Boolean(verboseDebug) })
     });
   }
 
@@ -203,7 +202,7 @@
         <label class="verbose-label">
           <input
             type="checkbox"
-            bind:checked={debug}
+            bind:checked={verboseDebug}
             on:change={() => updateDebug()}
           />
           Verbose Logging

@@ -1,5 +1,6 @@
 <script>
   import { onMount, onDestroy, tick } from "svelte";
+  import { debug, log, error } from "$lib/stores/logging";
 
   export let onSelectEvent = () => {};
   const TICK_HEIGHT = 20;

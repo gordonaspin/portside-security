@@ -5,9 +5,19 @@
   import MediaPlayer from '$lib/components/MediaPlayer.svelte';
   import EventInfo from '$lib/components/EventInfo.svelte';
   import EventLog from "$lib/components/EventLog.svelte";
+  import { onMount } from 'svelte';
 
   let logHtml = '';
   let loadingEvent = false;
+  let system_name = ""
+  let selectedEvent = null;
+
+  onMount(async () => {
+      const res = await fetch('/api/system_name', { credentials: "include" });
+      const data = await res.json();
+      system_name = data.system_name;
+    }
+  )
 
   async function fetchLogs() {
     if (loadingEvent) return;
@@ -19,8 +29,6 @@
     }
   }
   setInterval(fetchLogs, 1000);
-
-  let selectedEvent = null;
 
   function handleSelectEvent(e) {
     selectedEvent = e;
@@ -46,7 +54,7 @@
 
 </script>
 <div class="page">
-  <h3>Portside Security Cameras</h3>
+  <h3>{system_name}</h3>
   <div class="panel">
     <Controls />
   </div>

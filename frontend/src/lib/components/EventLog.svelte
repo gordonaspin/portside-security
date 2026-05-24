@@ -1,5 +1,6 @@
 <script>
   import { createEventDispatcher } from "svelte";
+  import { debug, log, error } from "$lib/stores/logging";
 
   export let html = "";
   export let title = "Event Log";
@@ -8,7 +9,7 @@
 
   function handleClick(e) {
     const link = e.target.closest("a");
-    console.log("EventLog click:", e.target);
+    log("EventLog click:", e.target);
     if (!link) return;
 
     e.preventDefault();

@@ -1,9 +1,8 @@
 <script>
   import { page } from '$app/stores';
-
+  import { debug, log, error } from "$lib/stores/logging";
+  
   export let event = null;
-  const log = window.mosaic.log;
-  const error = window.mosaic.error;
 
   // Build absolute metadata URL
   $: metadataHref = (() => {

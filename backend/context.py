@@ -6,6 +6,7 @@ class Context:
     """Context manager for the application."""
     directory: str
     log_directory: str
+    system_name: str
     username: str
     password: str
     gui_username: str

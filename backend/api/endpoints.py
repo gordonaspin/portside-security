@@ -180,6 +180,10 @@ def create_app(ctx: Context, nvr: NVR):
     def get_classes(user=Depends(require_user)):
         return {"classes": nvr.ctx.yolo_config["classes"]}
 
+    @app.get("/api/system_name")
+    def get_system_name(user=Depends(require_user)):
+        return {"system_name": nvr.system_name}
+
     @app.get("/api/events")
     def api_events(mobile: bool=False, user=Depends(require_user)):
         events = list(nvr.recordings)

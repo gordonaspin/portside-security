@@ -1,7 +1,7 @@
 <script>
+  import { debug, log, error } from "$lib/stores/logging";
+
   export let event = null;
-  const log = window.mosaic.log;
-  const error = window.mosaic.error;
 </script>
 
 <h3 class="media-player-title">Media Player</h3>

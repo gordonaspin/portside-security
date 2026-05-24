@@ -113,6 +113,7 @@ def main(directory, username, password, gui_username, gui_password,
     ctx = Context(
         directory=directory,
         log_directory=log_path,
+        system_name=config["system_name"],
         username=username,
         password=password,
         gui_username=gui_username,

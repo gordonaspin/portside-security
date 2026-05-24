@@ -1,10 +1,12 @@
 <script>
+  import { debug, log, error } from "$lib/stores/logging";
+
   let username = "";
   let password = "";
-  let error = "";
+  let error_text = "";
 
   async function login() {
-    error = "";
+    error_text = "";
 
     const res = await fetch("/login", {
       method: "POST",
@@ -14,7 +16,7 @@
     });
 
     if (!res.ok) {
-      error = "Invalid username or password";
+      error_text = "Invalid username or password";
       return;
     }
 
@@ -38,8 +40,8 @@
 
     <button class="login-btn" on:click={login}>Login</button>
 
-    {#if error}
-      <p class="login-error">{error}</p>
+    {#if error_text}
+      <p class="login-error">{error_text}</p>
     {/if}
   </div>
 </div>
