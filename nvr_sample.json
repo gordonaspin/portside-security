@@ -1,5 +1,18 @@
 {
-    "resolution": [704, 480],
+    "system_name": "My Cameras",
+    "recordings_directory": "recordings",
+    "resolution": {
+        "width": 704,
+        "height": 480
+    },
+    "bind_address": "0.0.0.0",
+    "port": 7860,
+    "logging_config": "logging-config.json",
+    "debug": false,
+    "mosaic": {
+        "rows": 2,
+        "columns": 5
+    },
     "yolo": {
         "classes": ["person", "car", "truck", "bus", "cat", "dog", "bicycle", "motorcycle"],
         "model": "backend/model/yolov8n.pt",
