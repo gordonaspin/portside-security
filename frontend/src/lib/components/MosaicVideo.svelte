@@ -10,6 +10,7 @@
   let focusPC = null;
 
   let mosaicVideo; // bind:this
+  let mosaicTitle = "";
 
   async function loadCameras() {
     try {
@@ -32,7 +33,7 @@
   // ------------------------------------------------------
   async function startMosaic() {
     log("Starting mosaic…");
-    window.setMosaicTitle?.("All Cameras");
+    mosaicTitle = "All Cameras";
 
     if (focusPC) {
       focusPC.close();
@@ -76,8 +77,8 @@
   // FOCUSED CAMERA STREAM
   // ------------------------------------------------------
   async function startFocusedCamera(name) {
-    log("Starting focused camera:", name);
-    window.setMosaicTitle?.(name);
+    log(`Starting focused camera ${name}`);
+    mosaicTitle = name;
 
     if (mosaicPC) {
       mosaicPC.close();
@@ -115,7 +116,7 @@
     const answer = await res.json();
     await pc.setRemoteDescription(answer);
 
-    log("Focused camera WebRTC connected");
+    log(`Focused camera ${name} WebRTC connected`);
   }
 
   // ------------------------------------------------------
@@ -176,7 +177,7 @@
     focusPC?.close();
   });
 </script>
-
+<h3 class="mosaic-title">{mosaicTitle}</h3>
 <video
   id="mosaic"
   bind:this={mosaicVideo}
@@ -189,6 +190,14 @@
 <style>
   video {
     cursor: pointer;
+  }
+  .mosaic-title {
+    margin: 0;
+    padding: 0 0 0.25rem 0;
+    font-size: 1rem;
+    font-weight: bold;
+    color: #eee;
+    font-family: inherit;
   }
 </style>
 <!--

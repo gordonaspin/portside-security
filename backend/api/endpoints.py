@@ -14,7 +14,6 @@ from passlib.context import CryptContext
 from webrtc.webrtc import CameraTrack, MosaicTrack
 from logger.logger import log_event, event_log
 from nvr.nvr import NVR
-from context import Context
 from camera.camera import Camera
 from nvr.motion_profiles import DayMotionProfile
 
@@ -98,7 +97,7 @@ class SettingValue(BaseModel):
 # APP FACTORY
 # -------------------------
 
-def create_app(ctx: Context, nvr: NVR):
+def create_app(config: dict, nvr: NVR):
     app = FastAPI()
 
     app.add_middleware(
@@ -118,7 +117,7 @@ def create_app(ctx: Context, nvr: NVR):
     
     @app.post("/login")
     async def login(payload: LoginForm, response: Response):
-        if payload.username != ctx.gui_username or not pwd.verify(payload.password, ctx.gui_password):
+        if payload.username != config["gui_username"] or not pwd.verify(payload.password, config["gui_password"]):
             raise HTTPException(status_code=401, detail="Invalid credentials")
 
         session_id = secrets.token_hex(32)
@@ -178,11 +177,11 @@ def create_app(ctx: Context, nvr: NVR):
 
     @app.get("/api/classes")
     def get_classes(user=Depends(require_user)):
-        return {"classes": nvr.ctx.yolo_config["classes"]}
+        return {"classes": config["yolo"]["classes"]}
 
     @app.get("/api/system_name")
     def get_system_name(user=Depends(require_user)):
-        return {"system_name": nvr.system_name}
+        return {"system_name": config["system_name"]}
 
     @app.get("/api/events")
     def api_events(mobile: bool=False, user=Depends(require_user)):
@@ -289,7 +288,7 @@ def create_app(ctx: Context, nvr: NVR):
     async def server_time(user=Depends(require_user)):
         return {"epoch": time.time()}
 
-    app.mount("/recordings", AuthStaticFiles(directory=ctx.directory, check_dir=True), name="recordings")
+    app.mount("/recordings", AuthStaticFiles(directory=config["recordings_directory"], check_dir=True), name="recordings")
     app.mount("/", AuthStaticFiles(directory="backend/frontend_dist", html=True), name="frontend")
 
     @app.get("/{path:path}")

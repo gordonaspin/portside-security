@@ -20,7 +20,6 @@ from ultralytics.engine.results import Results
 
 from camera.camera import Camera
 import constants as constants
-from context import Context
 from logger.logger import log_event
 from nvr.motion_tuner import MotionDecision
 from utils.thread_safe import ThreadSafeSet, ThreadSafeList
@@ -32,32 +31,31 @@ logger = getLogger("nvr")
 # NVR ENGINE
 # =========================
 class NVR:
-    def __init__(self, ctx: Context):
-        self.ctx = ctx
-        self.width: int = ctx.resolution[0]
-        self.height: int = ctx.resolution[1]
-        self.system_name: str = ctx.system_name
+    def __init__(self, config: dict):
+        self.width: int = config["resolution"]["width"]
+        self.height: int = config["resolution"]["height"]
         self.max_pixels = self.width * self.height
+        self.recordings_dir: str = config["recordings_directory"]
+        self.logs_dir: str = config["logs_directory"]
+        self.lpr_model: str = config["yolo"]["lpr_model"]
+        self.debug: bool = config["debug"]
         
-        yolo = YOLO(ctx.yolo_config["model"])
+        yolo = YOLO(config["yolo"]["model"])
         classname_to_classindex: dict = {v: k for k, v in yolo.names.items()}
-        self.selected_classes: list[int] = [classname_to_classindex[n] for n in ctx.yolo_config["classes"]]
+        self.selected_classes: list[int] = [classname_to_classindex[n] for n in config["yolo"]["classes"]]
         self.stop_event: Event = Event()
-        self.debug: bool = self.ctx.debug
-        self.debug_files: bool = self.ctx.debug_files
-
-        self._recordings_dir: str = ctx.directory
 
         self._do_not_delete_set: ThreadSafeSet = ThreadSafeSet()
         self.recordings: ThreadSafeList = ThreadSafeList()
+
         self.cameras: dict[str, Camera] = {}
-        for name, cfg in ctx.camera_config.items():
+        for name, cfg in config["cameras"].items():
             self.cameras[name] = Camera(name=name,
                                         cfg=cfg,
                                         max_pixels=self.max_pixels,
-                                        logs_dir=self.ctx.log_directory,
-                                        recordings_dir=self._recordings_dir,
-                                        model=YOLO(ctx.yolo_config["model"]),
+                                        logs_dir=self.logs_dir,
+                                        recordings_dir=self.recordings_dir,
+                                        model=YOLO(config["yolo"]["model"]),
                                         )
 
     def start(self):
@@ -249,10 +247,10 @@ class NVR:
         tags_str = self._tags_to_str(tags)
         timestamp_str = datetime.fromtimestamp(adjusted_start_time).strftime("%Y%m%d_%H%M%S")
         timestamp_name_tags = timestamp_str + "_" + tags_str
-        list_filename = os.path.join(self.ctx.log_directory, f"{camera.name}_{timestamp_name_tags}.txt")
+        list_filename = os.path.join(self.logs_dir, f"{camera.name}_{timestamp_name_tags}.txt")
         metadata_filename = os.path.join(camera.metadata_dir, timestamp_name_tags + ".json")
         mp4_filename = os.path.join(camera.recordings_dir, timestamp_name_tags + ".mp4")
-        merge_log_filename = os.path.join(self.ctx.log_directory, timestamp_name_tags + "_merge.log")
+        merge_log_filename = os.path.join(self.logs_dir, timestamp_name_tags + "_merge.log")
         self._do_not_delete_set.update(segments)
 
         def worker():
@@ -1164,7 +1162,7 @@ class NVR:
                 )
         
         current_thread().name = f"{camera.name} _process__lpr_frames"
-        lpr = LicensePlateRecognition(self.ctx.lpr_model)
+        lpr = LicensePlateRecognition(self.lpr_model)
         vp = VideoProcessor(lpr)
 
         while not self.stop_event.is_set():
