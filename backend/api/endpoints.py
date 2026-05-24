@@ -158,7 +158,7 @@ def create_app(config: dict, nvr: NVR):
 
         if mode == "mosaic":
             cams = [c for c in nvr.cameras.values() if c.enabled]
-            track = MosaicTrack(cams)
+            track = MosaicTrack(cams, config["mosaic"]["rows"], config["mosaic"]["columns"])
         else:
             cam = nvr.cameras[name]
             track = CameraTrack(cam)
@@ -182,6 +182,10 @@ def create_app(config: dict, nvr: NVR):
     @app.get("/api/system_name")
     def get_system_name(user=Depends(require_user)):
         return {"system_name": config["system_name"]}
+
+    @app.get("/api/mosaic_dimensions")
+    def get_mosaic_dimensions(user=Depends(require_user)):
+        return config["mosaic"]
 
     @app.get("/api/events")
     def api_events(mobile: bool=False, user=Depends(require_user)):

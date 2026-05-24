@@ -11,11 +11,25 @@
 
   let mosaicVideo; // bind:this
   let mosaicTitle = "";
+  let mosaicRows = 0
+  let mosaicCols = 0
 
   async function loadCameras() {
     try {
       const res = await fetch("/api/cameras", { credentials: "include" });
       cameras = await res.json();
+    } catch (err) {
+      error("Failed to load cameras:", err);
+    }
+  }
+
+  async function loadMosaicDimensions() {
+    try {
+      const res = await fetch("/api/mosaic_dimensions", { credentials: "include" });
+      const dimensions = await res.json();
+      mosaicRows = dimensions.rows;
+      mosaicCols = dimensions.columns;
+
     } catch (err) {
       error("Failed to load cameras:", err);
     }
@@ -139,8 +153,8 @@
     const x = event.clientX - rect.left;
     const y = event.clientY - rect.top;
 
-    const cols = 5;
-    const rows = 2;
+    const cols = mosaicCols;
+    const rows = mosaicRows;
 
     const cellWidth = rect.width / cols;
     const cellHeight = rect.height / rows;
@@ -168,6 +182,7 @@
   // ------------------------------------------------------
   onMount(async () => {
     log("Mosaic.svelte mounted");
+    await loadMosaicDimensions()
     await loadCameras();
     startMosaic();
   });

@@ -42,10 +42,12 @@ class MosaicTrack(VideoStreamTrack):
     """
     kind = "video"
 
-    def __init__(self, cameras: List[Camera], max_cols: int = 5):
+    def __init__(self, cameras: List[Camera], rows: int, cols: int):
         super().__init__()
         self._cameras = [camera for camera in cameras if camera.enabled]
-        self._max_cols = max_cols
+        self.rows = rows
+        self.cols = cols
+        #self._max_cols = max_cols
 
         # 4K width, height computed dynamically to preserve 4:3 tiles
         self.MOSAIC_W = 3840
@@ -68,25 +70,25 @@ class MosaicTrack(VideoStreamTrack):
             return vf
         
         total = len(frames)
-        cols = min(total, self._max_cols)
-        rows = int(np.ceil(total / cols))
+        #cols = min(total, self._max_cols)
+        #rows = int(np.ceil(total / cols))
 
         # Camera aspect ratio (704x480)
         CAM_ASPECT = 704 / 480
 
         # Tile width fixed by mosaic width
-        TILE_W = self.MOSAIC_W // cols
+        TILE_W = self.MOSAIC_W // self.cols
 
         # Tile height computed to preserve 4:3
         TILE_H = int(TILE_W / CAM_ASPECT)
 
         # Pad with black tiles if needed
-        needed = rows * cols
+        needed = self.rows * self.cols
         while len(frames) < needed:
             frames.append(np.zeros((TILE_H, TILE_W, 3), dtype=np.uint8))
 
         # Mosaic height computed from tile height
-        self.MOSAIC_H = TILE_H * rows
+        self.MOSAIC_H = TILE_H * self.rows
 
         # Prepare mosaic canvas
         mosaic = np.zeros((self.MOSAIC_H, self.MOSAIC_W, 3), dtype=np.uint8)
@@ -95,8 +97,8 @@ class MosaicTrack(VideoStreamTrack):
             src_h, src_w, _ = frame.shape
 
             # Compute tile grid position
-            row = idx // cols
-            col = idx % cols
+            row = idx // self.cols
+            col = idx % self.cols
 
             # Resize while preserving aspect ratio (no cropping)
             resized_frame = cv2.resize(
