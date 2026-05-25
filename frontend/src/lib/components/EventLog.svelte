@@ -23,17 +23,6 @@
 </div>
 
 <style>
-  .event-log-panel {
-    background: #111;
-    border: 1px solid #444;
-    border-radius: 4px;
-    padding: 0.75rem;
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-    font-family: "Fira Code", "JetBrains Mono", Consolas, monospace;
-  }
-
   .event-log-title {
     margin: 0;
     padding: 0 0 0.25rem 0;

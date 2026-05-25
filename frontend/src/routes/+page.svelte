@@ -5,6 +5,7 @@
   import MediaPlayer from '$lib/components/MediaPlayer.svelte';
   import EventInfo from '$lib/components/EventInfo.svelte';
   import EventLog from "$lib/components/EventLog.svelte";
+  import { debug, log, error } from "$lib/stores/logging";
   import { onMount } from 'svelte';
 
   let logHtml = '';
@@ -103,41 +104,6 @@
     border-radius: 6px;
     padding: 1rem;
     color: #ddd;
-  }
-
-  .panel h2,
-  .panel h3 {
-    margin: 0 0 0.5rem 0;
-    font-size: 1rem;
-    font-weight: 600;
-    color: #fff;
-  }
-
-  /* Buttons (same style as Controls) */
-  button {
-    background: #222;
-    border: 1px solid #444;
-    color: #eee;
-    padding: 0.4rem 0.8rem;
-    border-radius: 4px;
-    font-family: inherit;
-    cursor: pointer;
-    transition: background 0.15s;
-  }
-
-  button:hover {
-    background: #333;
-  }
-
-  /* Inputs */
-  input,
-  select {
-    background: #222;
-    border: 1px solid #444;
-    color: #eee;
-    padding: 0.4rem;
-    border-radius: 4px;
-    font-family: inherit;
   }
 
   /* Responsive layout */

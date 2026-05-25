@@ -12,7 +12,9 @@
     autoplay
     controls
     playsinline
-  ></video>
+  >
+  <track label="English" kind="captions" srclang="en" src="silent.vtt" default>
+  </video>
 {:else if event && event.media_url.endsWith('.jpg')}
   <img src={event.media_url}>
 {:else}

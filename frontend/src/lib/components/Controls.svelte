@@ -37,10 +37,19 @@
     const s = await res.json();
 
     applyProfileValue(yoloConfidence, s.yolo_confidence_threshold);
+    yoloConfidence = { ...yoloConfidence };
+
     applyProfileValue(motionThreshold, s.motion_threshold);
+    motionThreshold = { ...motionThreshold };
+
     applyProfileValue(minMotionConfidence, s.min_motion_confidence);
+    minMotionConfidence = { ...minMotionConfidence };
+
     applyProfileValue(minMotionFrames, s.min_motion_frames);
+    minMotionFrames = { ...minMotionFrames };
+
     applyProfileValue(minSumBoxArea, s.min_sum_box_area);
+    minSumBoxArea = { ...minSumBoxArea };
 
     // small delay to let shimmer animate
     setTimeout(() => loading = false, 150);
@@ -51,6 +60,9 @@
     target.min   = src.min;
     target.max   = src.max;
     target.step  = src.step;
+
+    // force reactivity
+    target = { ...target };
   }
 
   // Update a setting for the selected camera
@@ -97,7 +109,8 @@
 <div class="controls-wrapper">
   <div class="controls-header" on:click={toggle}>
     <span>Controls</span>
-    <button class="toggle-btn">{collapsed ? "▼" : "▲"}</button>
+    <label for="toggle_button"/>
+    <button id="toggle_button" class="toggle-btn">{collapsed ? "▼" : "▲"}</button>
   </div>
 
   {#if !collapsed}
@@ -127,8 +140,9 @@
 
           <!-- YOLO confidence -->
           <div class="slider-block shimmer-item">
-            <label>YOLO Confidence: {yoloConfidence.value.toFixed(2)}</label>
+            <label for="yolo_confidence">YOLO Confidence: {yoloConfidence.value.toFixed(2)}</label>
             <input type="range"
+              id="yolo_confidence"
               min={yoloConfidence.min}
               max={yoloConfidence.max}
               step={yoloConfidence.step}
@@ -138,8 +152,9 @@
 
           <!-- motion_threshold -->
           <div class="slider-block shimmer-item">
-            <label>Motion Threshold: {motionThreshold.value.toFixed(2)}</label>
+            <label for="motion_threshold">Motion Threshold: {motionThreshold.value.toFixed(2)}</label>
             <input type="range"
+              id="motion_threshold"
               min={motionThreshold.min}
               max={motionThreshold.max}
               step={motionThreshold.step}
@@ -149,8 +164,9 @@
 
           <!-- min_motion_confidence -->
           <div class="slider-block shimmer-item">
-            <label>Min Motion Confidence: {minMotionConfidence.value.toFixed(2)}</label>
+            <label for="min_motion_confidence">Min Motion Confidence: {minMotionConfidence.value.toFixed(2)}</label>
             <input type="range"
+              id="min_motion_confidence"
               min={minMotionConfidence.min}
               max={minMotionConfidence.max}
               step={minMotionConfidence.step}
@@ -160,8 +176,9 @@
 
           <!-- min_motion_frames -->
           <div class="slider-block shimmer-item">
-            <label>Min Motion Frames: {minMotionFrames.value}</label>
+            <label for="min_motion_frames">Min Motion Frames: {minMotionFrames.value}</label>
             <input type="range"
+              id="min_motion_frames"
               min={minMotionFrames.min}
               max={minMotionFrames.max}
               step={minMotionFrames.step}
@@ -171,8 +188,9 @@
 
           <!-- min_sum_box_area -->
           <div class="slider-block shimmer-item">
-            <label>Min Sum Box Area: {minSumBoxArea.value.toFixed(2)}</label>
+            <label for="min_sum_box_area">Min Sum Box Area: {minSumBoxArea.value.toFixed(2)}</label>
             <input type="range"
+              id="min_sum_box_area"
               min={minSumBoxArea.min}
               max={minSumBoxArea.max}
               step={minSumBoxArea.step}
@@ -190,8 +208,9 @@
 
       <div class="camera-debug-row">
         {#each cameras as cam}
-          <label class="camera-debug-item">
+          <label for="camera_debug_{cam.name}" class="camera-debug-item">
             <input
+              id="camera_debug_{cam.name}"
               type="checkbox"
               bind:checked={cameraDebug[cam.name]}
               on:change={() => updateCameraDebug(cam.name)}

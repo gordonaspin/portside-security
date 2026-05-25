@@ -36,7 +36,7 @@
       {/each}
       </span>
     </div>
-    <div class="row"><b>Metadata:</b><a href="{metadataHref}" target="_blank">{metadataHref}</a></div>
+    <div class="row"><b>Metadata:</b><a href="{metadataHref}" target="_blank">click to open</a></div>
   {:else}
     <p>No event selected.</p>
   {/if}

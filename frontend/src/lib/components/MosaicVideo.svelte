@@ -200,7 +200,9 @@
   autoplay
   playsinline
   style="width: 100%; height: auto;"
-></video>
+>
+<track label="English" kind="captions" srclang="en" src="silent.vtt" default>
+</video>
 
 <style>
   video {
@@ -243,7 +245,9 @@
       border: 2px solid #888;
       background: black;
     "
-  ></video>
+  >
+  <track label="English" kind="captions" srclang="en" src="silent.vtt" default>
+  </video>
 </div>
 <style>
   .mosaic-title {

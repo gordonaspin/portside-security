@@ -1370,13 +1370,7 @@ class NVR:
         chroma = np.mean(np.abs(r - g)) + np.mean(np.abs(g - b))
         ir_mode_on = chroma < ir_chroma_threshold
 
-        logger.info(f"{camera.name} avg_luma {avg_luma}, ir_mode_on {ir_mode_on}")
         # --- Final decision ---
-        if avg_luma < luma_threshold:
-            log_event(f"is_night: luma {avg_luma} < {luma_threshold}", level="info", camera=camera)
-        if ir_mode_on:
-            log_event(f"is_night: ir_mode_on {ir_mode_on} < {luma_threshold}", level="info", camera=camera)
-
         if (avg_luma < luma_threshold) or ir_mode_on:
             return True
 
