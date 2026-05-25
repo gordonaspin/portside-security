@@ -251,7 +251,7 @@ def create_app(config: dict, nvr: NVR):
 
         # Update the camera object directly
         attr = getattr(profile, setting)
-        log_event(f"{setting} {attr.value} -> {payload.value}", camera=camera)
+        log_event(f"{setting} {attr.value:.2f} -> {payload.value}:.2f", camera=camera)
 
         attr.value = payload.value
 
