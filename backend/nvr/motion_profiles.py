@@ -92,7 +92,7 @@ class NightMotionProfile(MotionProfile):
     
     @property
     def motion_threshold_pixels(self):
-        return self.motion_threshold.value * 1.5 * self.max_pixels / 100
+        return self.motion_threshold.value * self.max_pixels / 100
 
     def set_yolo_confidence_threshold(self, val):
         self.yolo_confidence_threshold.value = val
