@@ -44,9 +44,9 @@ class MotionProfileAutoTuner:
         if s["shadow_low_edge"] > 100:
             rec["min_edge_density"] = f"increase by +{0.002 * scale:.4f}"
 
-        # Too many short motions → min_motion_frames slightly too low
+        # Too many short motions → min_motion_frames slightly too high
         if s["short_motion"] > 100:
-            rec["min_motion_frames"] = f"increase by +{int(2 * scale) or 1}"
+            rec["min_motion_frames"] = "decrease by -1"
 
         # Too many low_total_area → min_total_motion_area slightly too low
         if s["low_total_area"] > 200:

@@ -121,10 +121,10 @@ class Camera:
         )
         self.night_profile = NightMotionProfile(
             max_pixels=self.max_pixels,
-            yolo_confidence_threshold=cfg["yolo_confidence"] + 0.15,
-            motion_threshold=cfg["motion_threshold"] * 1.5,
-            min_motion_confidence=cfg["minimum_motion_confidence"] + 0.15,
-            min_motion_frames=cfg["minimum_motion_frames"] + 2,
+            yolo_confidence_threshold=cfg["yolo_confidence"],
+            motion_threshold=cfg["motion_threshold"],
+            min_motion_confidence=cfg["minimum_motion_confidence"],
+            min_motion_frames=cfg["minimum_motion_frames"],
             min_sum_box_area=cfg["minimum_sum_box_area"]
             )
         self.profile = self.day_profile
@@ -284,7 +284,8 @@ class Camera:
             ap["min_edge_density"] = clamp(ap["min_edge_density"], 0.015, 0.04)
 
         if "min_motion_frames" in recs:
-            ap["min_motion_frames"].value += max(1, int(2 * 0.2))
+            # short_motion means persistence requirement is too high
+            ap["min_motion_frames"].value -= 1
             ap["min_motion_frames"].value = clamp(ap["min_motion_frames"].value, 4, 16)
 
         if "min_total_motion_area" in recs:
