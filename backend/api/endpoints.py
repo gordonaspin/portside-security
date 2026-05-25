@@ -202,9 +202,9 @@ def create_app(config: dict, nvr: NVR):
         html = "\n".join(event_log)
         return {"html": html}
 
-    @app.get("/api/cameras/{camera}/settings")
-    def get_camera_settings(camera: str):
-        cam = nvr.cameras[camera]
+    @app.get("/api/cameras/{camera_name}/settings")
+    def get_camera_settings(camera_name: str):
+        cam = nvr.cameras[camera_name]
 
         settings = {}
 
@@ -243,20 +243,21 @@ def create_app(config: dict, nvr: NVR):
 
         return settings
 
-    @app.post("/api/cameras/{camera}/settings/{setting}")
-    def update_camera_setting(camera: str, setting: str, payload: SettingValue):
+    @app.post("/api/cameras/{camera_name}/settings/{setting}")
+    def update_camera_setting(camera_name: str, setting: str, payload: SettingValue):
 
-        profile = nvr.cameras[camera].profile
+        camera = nvr.cameras[camera_name]
+        profile = camera.profile
 
         # Update the camera object directly
         attr = getattr(profile, setting)
-        log_event(f"{setting} {attr.value} -> {payload.value}", camera=nvr.cameras[camera_name])
+        log_event(f"{setting} {attr.value} -> {payload.value}", camera=camera)
 
         attr.value = payload.value
 
         return {
             "status": "ok",
-            "camera": camera,
+            "camera": camera_name,
             "setting": setting,
             "value": payload.value
         }
@@ -273,10 +274,9 @@ def create_app(config: dict, nvr: NVR):
 
     @app.post("/api/settings/debug/{camera_name}")
     async def set_camera_debug(camera_name: str, payload: SettingValue, user=Depends(require_user)):
-        log_event(f"debug {payload.value}", camera=nvr.cameras[camera_name])
-        cam = nvr.cameras.get(camera_name)
-        if cam:
-            cam.debug = payload.value
+        camera = nvr.cameras.get(camera_name)
+        log_event(f"debug {payload.value}", camera=camera)
+        cam.debug = payload.value
         return {"status": "ok", "camera": camera_name, "value": payload.value}
     
     # Verbose debug
