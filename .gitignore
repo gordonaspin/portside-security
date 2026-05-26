@@ -220,3 +220,4 @@ nohup.out
 frontend/.svelte-kit/
 frontend/node_modules/
 restart.sh
+stop.sh

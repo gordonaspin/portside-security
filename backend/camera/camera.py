@@ -38,7 +38,8 @@ class Camera:
     def __init__(
         self,
         cfg: dict,
-        max_pixels: int,
+        width: int,
+        height: int,
         name: str,
         logs_dir: str,
         recordings_dir: str,
@@ -47,7 +48,9 @@ class Camera:
 
         # --- Basic config ---
         self.cfg: dict = cfg
-        self.max_pixels = max_pixels
+        self.width = width
+        self.height = height
+        self.max_pixels = self.width * self.height
         self.name: str = name
         self.logs_dir: str = logs_dir
         self.recordings_dir: str = os.path.join(recordings_dir, self.name)

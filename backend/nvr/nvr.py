@@ -24,6 +24,7 @@ from logger.logger import log_event
 from nvr.motion_tuner import MotionDecision
 from utils.thread_safe import ThreadSafeSet, ThreadSafeList
 from nvr.lpr import LicensePlateRecognition, VideoProcessor
+from recorders.frame_recorder import AsyncFrameRecorder
 
 logger = getLogger("nvr")
 
@@ -49,14 +50,17 @@ class NVR:
         self.recordings: ThreadSafeList = ThreadSafeList()
 
         self.cameras: dict[str, Camera] = {}
+        self.frame_recorders: dict[str, AsyncFrameRecorder] = {}
         for name, cfg in config["cameras"].items():
             self.cameras[name] = Camera(name=name,
                                         cfg=cfg,
-                                        max_pixels=self.max_pixels,
+                                        width=self.width,
+                                        height=self.height,
                                         logs_dir=self.logs_dir,
                                         recordings_dir=self.recordings_dir,
                                         model=YOLO(config["yolo"]["model"]),
                                         )
+            self.frame_recorders[name] = AsyncFrameRecorder(self.cameras[name])
 
     def start(self):
         """
@@ -118,7 +122,7 @@ class NVR:
         segment files. The frames written to stdout are resized for image processing by cv2. 
         """
         if not self.stop_event.is_set():
-            log_event(message=f"starting recorder", level="info", camera=camera)
+            log_event(message=f"starting camera", level="info", camera=camera)
             filespec = os.path.join(camera.segments_dir, "%Y%m%d_%H%M%S.ts")
             ffmpeg_cmd = [
                 "ffmpeg",
@@ -237,11 +241,13 @@ class NVR:
         selected.sort(key=lambda x: x[1])
         return [f[0] for f in selected]
     
-    def _merge_segments_async(self, camera: Camera, tags: defaultdict[set], end_time: float):
+    def _merge_segments_async(self, camera: Camera, tags: defaultdict[set]):
         """
         Runs ffmpeg merge in a separate thread.
         When the process finishes, log the event.
         """
+        end_time = time.time()
+
         adjusted_start_time = camera.recording_start_time - constants.PRE_RECORD_DURATION
         segments = self._get_segments(camera=camera, start_time=adjusted_start_time, end_time=end_time)
         tags_str = self._tags_to_str(tags)
@@ -396,7 +402,7 @@ class NVR:
         """
         current_thread().name = f"{camera.name} _frame_reader"
 
-        frame_size = self.width * self.height * 3
+        frame_size = camera.width * camera.height * 3
 
         while not self.stop_event.is_set():
             raw = self._read_exact(camera.process.stdout, frame_size)
@@ -816,6 +822,7 @@ class NVR:
     def _update_recording_state(
         self,
         camera: Camera,
+        frame_recorder: AsyncFrameRecorder,
         motion_boxes: list[tuple[int, int, int, int]],
         now: float
     ) -> None:
@@ -865,6 +872,7 @@ class NVR:
             camera.recording = True
             camera.recording_start_time = now
             camera.active_objects_dict = deepcopy(camera.classes_in_frame_dict)
+            frame_recorder.start_recording()
 
             #camera.auto_tuner.record(MotionDecision(
             #    passed=True,
@@ -897,7 +905,8 @@ class NVR:
                 tags = deepcopy(camera.active_objects_dict)
 
                 # Merge segments asynchronously
-                self._merge_segments_async(camera, tags, now)
+                self._merge_segments_async(camera, tags)
+                frame_recorder.stop_recording(tags)
 
                 #camera.auto_tuner.record(MotionDecision(
                 #    passed=True,
@@ -965,20 +974,6 @@ class NVR:
             (255, 255, 255), 2, (32, 32, 32)
         )
 
-    def _apply_yolo_overlay(
-        self,
-        frame_bgr: NDArray[np.uint8],
-        yolo_result: Results | None
-    ) -> NDArray[np.uint8]:
-        """
-        Apply YOLO overlay if results exist.
-        Preserves original behavior:
-        - result.plot(pil=False) returns BGR
-        """
-        if yolo_result is None:
-            return frame_bgr
-
-        return yolo_result.plot(pil=False)
 
     def _select_debug_frame(
         self,
@@ -995,10 +990,8 @@ class NVR:
         if camera.debug and camera.debug_motion_image is not None:
             return camera.debug_motion_image
 
-        if yolo_result is not None:
-            return yolo_result.plot(pil=False)
+        return self._apply_yolo_overlay(frame_bgr, yolo_result)
 
-        return frame_bgr
 
     def _finalize_output(
         self,
@@ -1094,6 +1087,8 @@ class NVR:
 
         current_thread().name = f"{camera.name} _process_frames"
 
+        frame_recorder = self.frame_recorders[camera.name]
+
         while not self.stop_event.is_set():
 
             # --- FRAME ACQUISITION ---
@@ -1128,13 +1123,14 @@ class NVR:
 
             if camera.frame_count > 15 * 20:
                 # --- RECORDING LOGIC ---
-                self._update_recording_state(camera, motion_boxes, now)
+                self._update_recording_state(camera, frame_recorder, motion_boxes, now)
 
             # --- DEBUG UI ---
             self._render_debug_ui(camera, frame_bgr, yolo_result)
 
             # --- FINAL OUTPUT ---
             self._finalize_output(camera, frame_bgr, yolo_result)
+            frame_recorder.add_frame(camera.latest_frame)
 
 
     def _process_lpr_frames(self, camera: Camera):
