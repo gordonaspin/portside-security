@@ -24,7 +24,7 @@ from logger.logger import log_event
 from nvr.motion_tuner import MotionDecision
 from utils.thread_safe import ThreadSafeSet, ThreadSafeList
 from nvr.lpr import LicensePlateRecognition, VideoProcessor
-from recorders.frame_recorder import AsyncFrameRecorder
+from recorders.frame_recorder import OpenCVFrameRecorder, FfmpegFrameRecorder, Recorder
 
 logger = getLogger("nvr")
 
@@ -50,7 +50,7 @@ class NVR:
         self.recordings: ThreadSafeList = ThreadSafeList()
 
         self.cameras: dict[str, Camera] = {}
-        self.frame_recorders: dict[str, AsyncFrameRecorder] = {}
+        self.frame_recorders: dict[str, Recorder] = {}
         for name, cfg in config["cameras"].items():
             self.cameras[name] = Camera(name=name,
                                         cfg=cfg,
@@ -60,7 +60,7 @@ class NVR:
                                         recordings_dir=self.recordings_dir,
                                         model=YOLO(config["yolo"]["model"]),
                                         )
-            self.frame_recorders[name] = AsyncFrameRecorder(self.cameras[name])
+            self.frame_recorders[name] = FfmpegFrameRecorder(self.cameras[name])
 
     def start(self):
         """
@@ -822,7 +822,7 @@ class NVR:
     def _update_recording_state(
         self,
         camera: Camera,
-        frame_recorder: AsyncFrameRecorder,
+        frame_recorder: Recorder,
         motion_boxes: list[tuple[int, int, int, int]],
         now: float
     ) -> None:

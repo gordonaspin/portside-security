@@ -276,7 +276,7 @@ def create_app(config: dict, nvr: NVR):
     async def set_camera_debug(camera_name: str, payload: SettingValue, user=Depends(require_user)):
         camera = nvr.cameras.get(camera_name)
         log_event(f"debug {payload.value}", camera=camera)
-        cam.debug = payload.value
+        camera.debug = payload.value
         return {"status": "ok", "camera": camera_name, "value": payload.value}
     
     # Verbose debug
