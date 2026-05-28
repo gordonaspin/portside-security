@@ -31,6 +31,7 @@ from logging import (
 from typing import Any, Type, override
 from types import TracebackType
 
+from nvr.utils import make_readable_hms
 import constants as constants
 
 logger = getLogger("nvr")
@@ -41,7 +42,8 @@ event_log = []
 # LOGGING
 # =========================
 def log_event(message, level="info", camera=None, file_path=None):
-    timestamp = datetime.now().strftime("%H:%M:%S")
+    timestamp = make_readable_hms()
+
     colors = {"info":"#00c853","debug": "#AA0088", "warn":"#ffd600","error":"#ff5252","record":"#17e8ff"}
 
     #print(f"[{timestamp}] {camera:<8} {message}")

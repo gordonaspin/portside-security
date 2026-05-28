@@ -13,6 +13,7 @@ from ultralytics import YOLO
 from logger.logger import log_event
 from nvr.motion_profiles import MotionProfile, DayMotionProfile, NightMotionProfile
 from nvr.motion_tuner import MotionProfileAutoTuner
+from nvr.utils import make_ts_string
 
 class RollingAverage:
     def __init__(self, window_size=100):
@@ -323,7 +324,7 @@ class Camera:
             "recommendations": recs,
         }
 
-        timestamp_str = datetime.fromtimestamp(time.time()).strftime("%Y%m%d_%H%M%S")
+        timestamp_str = make_ts_string()
         log_filename = os.path.join(self.logs_dir, f"{timestamp_str}_{self.name}_tuner.json")
 
         with open(log_filename, "w") as f:

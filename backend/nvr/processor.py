@@ -1,0 +1,765 @@
+from threading import Thread, Event, current_thread
+import time
+import os
+from datetime import datetime
+from copy import deepcopy
+
+import cv2
+import numpy as np
+from numpy.typing import NDArray
+from ultralytics import YOLO
+from ultralytics.engine.results import Results
+
+from camera.camera import Camera
+from readers.rtsp_reader import Reader
+from recorders.frame_recorder import FrameRecorderFactory, Recorder
+from nvr.utils import (
+    make_readable_ts,
+    tags_to_str,
+    boxes_overlap,
+    yolo_box_to_roi,
+    detect_object_color)
+from nvr.debug_panel import draw_status_text, draw_debug_panels
+from nvr.motion_tuner import MotionDecision
+from logger.logger import log_event
+import constants
+
+class FrameProcessor():
+    def __init__(
+        self,
+        camera: Camera,
+        reader: Reader,
+        recorder_factory: FrameRecorderFactory,
+        model: YOLO,
+        selected_classes: list[int],
+        stop_event: Event,
+    ):
+        self.camera: Camera = camera
+        self.reader: Reader = reader
+        self.recorder_factory: FrameRecorderFactory = recorder_factory
+        self.model: YOLO = model
+        self.selected_classes = selected_classes
+        self.stop_event: Event = stop_event
+        self.processor_thread: Thread = None
+        self.recorder: Recorder = self.recorder_factory.create(self.camera)
+
+
+    def start(self):
+        self.processor_thread = Thread(target=self._process_frames, daemon=True).start()
+
+
+    def _process_frames(self):
+        """
+        Thread to process frames from the camera queue. Processing is as follows:
+        - get the frame from the queue (latest frame processing, some frames are dropped)
+        - convert to grayscale for image processing (faster than color)
+        - blur the gray (better for motion detection)
+        - calculate the difference between this gray frame and the previous one (for motion detection)
+        - calculate a threshold image based on the difference and score (count) the white pixels
+        - if the score is above threshold, compute the motion contours and rectangles from the threshold image
+        - draw status, contours and rectangles on a debug copy of the image. Red for movement that is too small, green for movement that we care about
+        - if we have movement we care about, run YOLO and check if movement and detected objects intersect
+        - if movement and objects intersect, start recording if we have seen motion for a number of frames, get a list of pre-record segments
+        - keep recording while there is motion, add to the segment list
+        - stop recording after motion is not detected for a number of frames
+        - get the list of segment files that correlate to the recording period
+        - merge the segment files in to a video file, asynchronously
+        - if there were YOLO results and movement, write the objects on to the image
+        - if there was motion, merge the image and overlay
+        - store the image and status in the camera object, the GUI will read this image
+        """
+
+        current_thread().name = f"{self.camera.name} _process_frames"
+
+        while not self.stop_event.is_set():
+
+            # --- FRAME ACQUISITION ---
+            frame_bgr = self.reader.get_frame()
+            if frame_bgr is None:
+                continue
+
+            now = time.time()
+            self.camera.frame_count += 1
+
+            # --- ENVIRONMENT UPDATES ---
+            self._update_night_day(frame_bgr, now)
+            self.camera.auto_adjust_if_needed(now)
+
+            # --- MOTION PIPELINE ---
+            self._compute_gray_and_blur(frame_bgr)
+            self._update_background()
+            self._compute_motion_diff()
+            if self._apply_shadow_filters():
+                continue
+
+            motion_boxes = self._find_motion()
+
+            # --- YOLO PIPELINE ---
+            yolo_result = self._run_yolo_if_needed(frame_bgr, motion_boxes)
+            self._filter_yolo_overlaps(frame_bgr, yolo_result, motion_boxes)
+
+            # --- CONFIDENCE + PERSISTENCE ---
+            self.camera.update_confidence(motion_boxes, now)
+            self.camera.update_persistence(motion_boxes)
+            self._apply_fast_stop_logic(motion_boxes, now)
+
+            if self.camera.frame_count > 15 * 20:
+                # --- RECORDING LOGIC ---
+                self._update_recording_state(motion_boxes, now)
+
+            # --- DEBUG UI ---
+            self._render_debug_ui(frame_bgr, yolo_result)
+
+            # --- FINAL OUTPUT ---
+            self._finalize_output(frame_bgr, yolo_result)
+            self.recorder.add_frame(self.camera.latest_frame)
+
+    def _update_night_day(self, frame_bgr: NDArray[np.uint8], now: float) -> None:
+        """
+        Periodically check whether the camera is in night mode.
+        This preserves the original behavior:
+        - check every PERIODIC_CHECK_INTERVAL seconds
+        - update camera.is_night
+        - apply the correct motion profile (day/night)
+        """
+        if now - self.camera.last_night_time_check <= constants.PERIODIC_CHECK_INTERVAL:
+            return
+
+        self.camera.is_night = self._is_night_time(frame_bgr)
+        self.camera.profile = self.camera.night_profile if self.camera.is_night else self.camera.day_profile
+        self.camera.last_night_time_check = now
+
+    def _is_night_time(self, frame,
+                    luma_threshold=90,
+                    ir_chroma_threshold=4.0):
+        """
+        night detector for NVR use.
+        Uses 2 signals:
+        - avg luma (Y channel)
+        - IR mode detection (RGB channel collapse)
+        """
+
+        if frame is None or frame.size == 0:
+            return True
+
+        # --- Compute luma ---
+        avg_luma = self.camera.gray_buf.mean()
+
+        # --- Detect IR mode (RGB channels collapse) ---
+        b, g, r = cv2.split(frame.astype(np.float32))
+        chroma = np.mean(np.abs(r - g)) + np.mean(np.abs(g - b))
+        ir_mode_on = chroma < ir_chroma_threshold
+
+        # --- Final decision ---
+        if (avg_luma < luma_threshold) or ir_mode_on:
+            return True
+
+        return False
+
+    def _compute_gray_and_blur(self, frame_bgr: NDArray[np.uint8]) -> None:
+        """
+        Convert frame to grayscale and apply Gaussian blur.
+        This preserves the original behavior:
+        - grayscale is faster for motion detection
+        - blur reduces high-frequency noise
+        """
+        cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY, dst=self.camera.gray_buf)
+        cv2.GaussianBlur(self.camera.gray_buf, (21, 21), 0, dst=self.camera.gray_buf)
+
+    def _update_background(self) -> None:
+        """
+        Maintain a running background model using accumulateWeighted.
+        - Night mode uses a faster alpha (0.12)
+        - Day mode uses a slower alpha (0.02)
+        """
+        if self.camera.background_buf is None:
+            self.camera.background_buf = self.camera.gray_buf.astype("float32")
+            return
+
+        cv2.accumulateWeighted(
+            self.camera.gray_buf,
+            dst=self.camera.background_buf,
+            alpha=0.12 if self.camera.is_night else 0.02
+        )
+
+        cv2.convertScaleAbs(self.camera.background_buf, dst=self.camera.bg_frame_buf)
+
+    def _compute_motion_diff(self) -> None:
+        """
+        Compute absolute difference between background and current frame.
+        Apply noise-adaptive thresholding and filtering.
+        """
+        # --- MOTION DIFF ---
+        cv2.absdiff(self.camera.bg_frame_buf, self.camera.gray_buf, dst=self.camera.diff_buf)
+
+        # --- NOISE-ADAPTIVE LOW-INTENSITY FILTERING ---
+        self.camera.noise = np.std(self.camera.diff_buf)
+        cutoff = max(8, min(20, self.camera.noise * 1.5))
+
+        cv2.threshold(self.camera.diff_buf, cutoff, 255, cv2.THRESH_BINARY, dst=self.camera.diff_mask_buf)
+        cv2.bitwise_and(self.camera.diff_buf, self.camera.diff_mask_buf, dst=self.camera.diff_filtered_buf)
+
+        # --- BLUR TO REDUCE HIGH-FREQUENCY NOISE ---
+        cv2.GaussianBlur(self.camera.diff_filtered_buf, (7, 7), 0, dst=self.camera.diff_blur_buf)
+
+        # --- OTSU THRESHOLD ON CLEANED DIFF ---
+        cv2.threshold(
+            self.camera.diff_blur_buf, 0, 255,
+            cv2.THRESH_BINARY + cv2.THRESH_OTSU,
+            dst=self.camera.thresh_buf
+        )
+
+        self.camera.score = cv2.countNonZero(self.camera.thresh_buf)
+        self.camera.white_ratio = self.camera.score / self.camera.max_pixels
+
+    def _apply_shadow_filters(self) -> bool:
+        """
+        Apply shadow suppression filters.
+        Returns True if motion should be discarded and processing should continue.
+        """
+
+        # --- GLOBAL SHADOW SWEEP ---
+        if self.camera.white_ratio > 0.10 and self.camera.edge_density < self.camera.profile.min_edge_density(self.camera.noise):
+            self.camera.motion_boxes_list.clear()
+            return True
+
+        # --- SOBEL EDGES ---
+        cv2.Sobel(self.camera.gray_buf, cv2.CV_16S, 1, 0, dst=self.camera.sobel_x_buf)
+        cv2.Sobel(self.camera.gray_buf, cv2.CV_16S, 0, 1, dst=self.camera.sobel_y_buf)
+        cv2.convertScaleAbs(self.camera.sobel_x_buf, dst=self.camera.sobel_x_abs_buf)
+        cv2.convertScaleAbs(self.camera.sobel_y_buf, dst=self.camera.sobel_y_abs_buf)
+        cv2.addWeighted(self.camera.sobel_x_abs_buf, 0.5, self.camera.sobel_y_abs_buf, 0.5, 0, dst=self.camera.edges_buf)
+
+        self.camera.edge_density = cv2.countNonZero(self.camera.edges_buf) / self.camera.max_pixels
+
+        # --- LOW-EDGE SHADOW ---
+        if self.camera.white_ratio > 0.10 and self.camera.edge_density < 0.02:
+            self.camera.motion_boxes_list.clear()
+            return True
+
+        return False
+
+    def _find_motion(self) -> list[tuple[int, int, int, int]]:
+        """
+        Extract motion contours and bounding boxes.
+        This preserves your original behavior:
+        - only run if score > motion_threshold_pixels
+        - apply contour filtering inside _find_motion_boxes()
+        """
+        self.camera.motion_boxes_list.clear()
+
+        if self.camera.score <= self.camera.profile.motion_threshold_pixels:
+            return []
+
+        # krs = kept rectangles
+        krs, kcs, dsrs, dscs, dars, dacs = self._find_motion_boxes()
+        self.camera.motion_boxes_list.extend(krs)
+
+        # --- TOTAL MOTION AREA CHECK ---
+        total_motion_area = sum(
+            (x2 - x1) * (y2 - y1) for (x1, y1, x2, y2) in self.camera.motion_boxes_list
+        )
+
+        if total_motion_area < self.camera.profile.min_total_motion_area:
+            self.camera.motion_boxes_list.clear()
+
+        return self.camera.motion_boxes_list
+
+    def _find_motion_boxes(self):
+        """
+        Find motion boxes using contour analysis with solidity filtering.
+        Returns:
+            kept_rects, kept_contours,
+            small_rects, small_contours,
+            angular_rects, angular_contours
+        """
+
+        tuner = self.camera.auto_tuner  # shorthand
+
+        # Profile thresholds
+        min_solidity = self.camera.profile.min_contour_solidity
+        min_w = self.camera.profile.min_box_width
+        min_h = self.camera.profile.min_box_height
+        min_edge_density = self.camera.profile.min_edge_density(self.camera.noise)
+        max_aspect = self.camera.profile.max_allowed_aspect_ratio
+        min_contour_area_ratio = self.camera.profile.min_contour_area_ratio
+
+        thresh = self.camera.thresh_buf
+        edges = self.camera.edges_buf
+
+        h, w = thresh.shape[:2]
+        frame_area = w * h
+        min_area = frame_area * min_contour_area_ratio
+
+        # Find contours
+        contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+        kept_rects = []
+        kept_contours = []
+
+        small_rects = []
+        small_contours = []
+
+        angular_rects = []
+        angular_contours = []
+
+        for cnt in contours:
+            area = cv2.contourArea(cnt)
+            if area < 1:
+                continue
+
+            # --- MINIMUM AREA FILTER ---
+            if area < min_area:
+                x, y, w0, h0 = cv2.boundingRect(cnt)
+                small_rects.append((x, y, x + w0, y + h0))
+                small_contours.append(cnt)
+                continue
+
+            # --- SOLIDITY FILTER ---
+            hull = cv2.convexHull(cnt)
+            hull_area = cv2.contourArea(hull)
+            if hull_area == 0:
+                continue
+
+            solidity = float(area) / hull_area
+            if solidity < min_solidity:
+                x, y, w0, h0 = cv2.boundingRect(cnt)
+                angular_rects.append((x, y, x + w0, y + h0))
+                angular_contours.append(cnt)
+
+                tuner.record(MotionDecision(
+                    passed=False,
+                    reason="low_solidity",
+                    details={"solidity": solidity, "min_solidity": min_solidity}
+                ), camera=self.camera)
+                continue
+
+            # --- MINIMUM WIDTH/HEIGHT FILTER ---
+            x, y, w0, h0 = cv2.boundingRect(cnt)
+            if w0 < min_w or h0 < min_h:
+                small_rects.append((x, y, x + w0, y + h0))
+                small_contours.append(cnt)
+                continue
+
+            # --- SOBEL EDGE DENSITY FILTER ---
+            roi_edges = edges[y:y+h0, x:x+w0]
+            edge_count = cv2.countNonZero(roi_edges)
+            edge_density = edge_count / max(1, (w0 * h0))
+
+            if edge_density < min_edge_density:
+                angular_rects.append((x, y, x + w0, y + h0))
+                angular_contours.append(cnt)
+                continue
+
+            # --- ASPECT RATIO FILTER ---
+            aspect = max(w0, h0) / max(1, min(w0, h0))
+            if aspect > max_aspect:
+                angular_rects.append((x, y, x + w0, y + h0))
+                angular_contours.append(cnt)
+
+                tuner.record(MotionDecision(
+                    passed=False,
+                    reason="high_aspect_ratio",
+                    details={"aspect": aspect, "max_aspect": max_aspect}
+                ), camera=self.camera)
+                continue
+
+            # --- ACCEPTED MOTION BOX ---
+            kept_rects.append((x, y, x + w0, y + h0))
+            kept_contours.append(cnt)
+
+            tuner.record(MotionDecision(
+                passed=True,
+                reason="accepted_contour",
+                details={
+                    "area": area,
+                    "solidity": solidity,
+                    "edge_density": edge_density,
+                    "aspect": aspect
+                }
+            ), camera=self.camera)
+
+        return (
+            kept_rects, kept_contours,
+            small_rects, small_contours,
+            angular_rects, angular_contours
+        )
+
+
+    def _run_yolo_if_needed(
+        self,
+        frame_bgr: NDArray[np.uint8],
+        motion_boxes: list[tuple[int, int, int, int]]
+    ) -> Results | None:
+        """
+        Run YOLO only when:
+        - debug mode is enabled, OR
+        - there is motion AND motion_confidence > 0.05
+
+        This preserves your original behavior exactly.
+        """
+        if not (self.camera.debug or (motion_boxes and self.camera.motion_confidence > 0.05)):
+            return None
+
+        result: Results = self.model.predict(
+            frame_bgr,
+            conf=self.camera.profile.yolo_confidence_threshold.value,
+            classes=self.selected_classes if self.selected_classes else None,
+            verbose=False,
+            imgsz=512,
+        )[0]
+
+        return result
+
+    def _filter_yolo_overlaps(
+        self,
+        frame_bgr,
+        result: Results | None,
+        motion_boxes: list[tuple[int, int, int, int]]
+    ) -> None:
+        """
+        Filter YOLO detections to only those overlapping motion boxes.
+        This preserves your original behavior:
+        - inflate motion boxes
+        - compute overlaps
+        - build keep_mask
+        - update camera.has_moving_object
+        - record tuner events for YOLO overlap noise
+        """
+        self.camera.classes_in_frame_dict.clear()
+        self.camera.has_moving_object = False
+        self.camera.keep_mask = []
+
+        if result is None:
+            return
+
+        # Extract YOLO boxes
+        yolo_boxes = []
+        for box in result.boxes:
+            x1, y1, x2, y2 = box.xyxy[0].tolist()
+            yolo_boxes.append((int(x1), int(y1), int(x2), int(y2)))
+
+        # Inflate motion boxes
+        inflated_motion_boxes = [
+            self._inflate_box(b, self.camera.profile.inflate_motion_boxes)
+            for b in motion_boxes
+        ]
+
+        # Determine which YOLO boxes overlap motion
+        moving_yolo_indices: set[int] = set()
+
+        for i, yb in enumerate(yolo_boxes):
+            for mb in inflated_motion_boxes:
+                if boxes_overlap(mb, yb):
+                    moving_yolo_indices.add(i)
+                    break
+
+        # Build keep mask
+        keep_mask = [i in moving_yolo_indices for i in range(len(yolo_boxes))]
+        self.camera.keep_mask = keep_mask
+        self.camera.has_moving_object = any(keep_mask)
+
+        # Tuner: YOLO overlap noise
+        # YOLO misses are common and NOT motion noise → ignore completely
+        if motion_boxes and not self.camera.has_moving_object:
+            # Do NOT record tuner event
+            # Do NOT collapse confidence
+            pass
+
+        # Filter YOLO results
+        result.boxes = result.boxes[keep_mask]
+
+        # Extract class + color for each kept detection
+        for box in result.boxes:
+            class_name = self.model.names[int(box.cls)]
+            roi = yolo_box_to_roi(frame_bgr, box)
+            if roi.size > 0:
+                color = detect_object_color(roi, self.camera.is_night)
+                self.camera.classes_in_frame_dict[class_name].add(color)
+
+    def _inflate_box(self, box, inflate_px: int) -> tuple[int, int, int, int]:
+        """Inflate a box by inflate_px in all directions, clamped to frame."""
+        x1, y1, x2, y2 = box
+        x1 = max(0, x1 - inflate_px)
+        y1 = max(0, y1 - inflate_px)
+        x2 = min(self.camera.width - 1, x2 + inflate_px)
+        y2 = min(self.camera.height - 1, y2 + inflate_px)
+        return (x1, y1, x2, y2)
+
+
+    def _apply_fast_stop_logic(
+        self,
+        motion_boxes: list[tuple[int, int, int, int]],
+        now: float
+    ) -> None:
+        """
+        Apply fast-stop logic to reduce recording stop latency.
+        This preserves your improved behavior:
+        - hard reset when motion disappears
+        - collapse confidence quickly
+        - decay confidence when YOLO sees nothing
+        """
+
+        # --- HARD RESET WHEN MOTION DISAPPEARS ---
+        if not motion_boxes:
+            self.camera.motion_persistence = 0
+            self.camera.persist_score = 0.0
+            self.camera.motion_confidence = min(self.camera.motion_confidence, 0.05)
+            #camera.last_motion_time = now
+            return
+
+        # --- ADDITIONAL CONFIDENCE DECAY WHEN YOLO SEES NOTHING ---
+        if self.camera.recording and not self.camera.has_moving_object:
+            self.camera.motion_confidence *= 0.5
+            # apply decay twice if still above STOP_CONF
+            stop_conf = self.camera.profile.min_motion_confidence.value * 0.5
+            if self.camera.motion_confidence > stop_conf:
+                self.camera.motion_confidence *= 0.5
+
+
+    def _update_recording_state(
+        self,
+        motion_boxes: list[tuple[int, int, int, int]],
+        now: float
+    ) -> None:
+        """
+        Full recording state machine:
+        - start recording
+        - continue recording
+        - stop recording
+        - update last_motion_time only when real motion exists
+        - update active object tags
+        - record tuner events
+        """
+
+        self.camera.should_start = self._should_start_recording(motion_boxes, now)
+        self.camera.should_continue = self._should_continue_recording()
+
+        self.camera.should_record = self.camera.should_start or self.camera.should_continue
+
+        # Only update last_motion_time when real motion + YOLO objects exist
+        if (
+            motion_boxes and
+            self.camera.has_moving_object and
+            self.camera.motion_confidence >= self.camera.profile.min_motion_confidence.value
+        ):
+            self.camera.last_motion_time = now
+
+        # --- TUNER: insufficient persistence ---
+        if motion_boxes and self.camera.motion_persistence < self.camera.profile.min_motion_frames.value:
+            self.camera.auto_tuner.record(MotionDecision(
+                passed=False,
+                reason="short_motion",
+                details={"persistence": self.camera.motion_persistence}
+            ))
+
+        # --- TUNER: insufficient confidence ---
+        START_CONF = self.camera.profile.min_motion_confidence.value
+        if motion_boxes and self.camera.motion_confidence < START_CONF:
+            pass
+
+        # --- START RECORDING ---
+        if self.camera.should_start and not self.camera.recording:
+            self.camera.recording = True
+            self.camera.recording_start_time = now
+            self.camera.active_objects_dict = deepcopy(self.camera.classes_in_frame_dict)
+            self.recorder.start_recording()
+            log_event(
+                message=f"recording start {tags_to_str(self.camera.active_objects_dict)}",
+                level="info",
+                camera=self.camera
+            )
+
+        # --- CONTINUE RECORDING ---
+        if self.camera.recording:
+            # Merge new object colors into active set
+            for item, colors in self.camera.classes_in_frame_dict.items():
+                self.camera.active_objects_dict[item].update(colors)
+
+        # --- STOP RECORDING ---
+        if self.camera.recording and not self.camera.should_continue:
+            if now - self.camera.last_motion_time > constants.POST_RECORD_DURATION:
+                tags = deepcopy(self.camera.active_objects_dict)
+
+                # Merge segments asynchronously
+                #self._merge_segments_async(self.camera, tags)
+                self.recorder.stop_recording(tags)
+
+                # Reset state
+                self.recorder = self.recorder_factory.create(self.camera)
+                self.camera.recording = False
+                self.camera.classes_in_frame_dict.clear()
+                self.camera.active_objects_dict.clear()
+                self.camera.motion_frames = 0
+                self.camera.no_motion_frames = 0
+                self.camera.motion_persistence = 0
+
+    def _should_start_recording(
+        self,
+        motion_boxes: list[tuple[int, int, int, int]],
+        now: float
+    ) -> bool:
+        """
+        Determine whether recording should start.
+        Preserves original logic:
+        - motion_persistence >= min_motion_frames
+        - YOLO sees moving objects
+        - object area >= min_sum_box_area_pixels
+        - motion_confidence >= START_CONF
+        """
+
+        object_area = sum((x2 - x1) * (y2 - y1) for (x1, y1, x2, y2) in motion_boxes)
+
+        motion_is_persistent = (
+            self.camera.motion_persistence >= self.camera.profile.min_motion_frames.value
+        )
+
+        object_motion = (
+            motion_is_persistent and
+            self.camera.has_moving_object
+        )
+
+        object_area_ok = (
+            object_area >= self.camera.profile.min_sum_box_area_pixels
+        )
+
+        START_CONF = self.camera.profile.min_motion_confidence.value
+
+        return (
+            object_motion and
+            object_area_ok and
+            self.camera.motion_confidence >= START_CONF
+        )
+
+    def _should_continue_recording(self) -> bool:
+        """
+        Continue recording if:
+        - confidence >= STOP_CONF (hysteresis), OR
+        - motion persistence window is active.
+
+        Post-record timing is handled in _update_recording_state.
+        """
+
+        START_CONF = self.camera.profile.min_motion_confidence.value
+        STOP_CONF  = max(0.10, START_CONF * 0.30)
+
+        if not self.camera.recording:
+            return False
+
+        # 1. Hysteresis
+        if self.camera.motion_confidence >= STOP_CONF:
+            return True
+
+        # 2. Persistence window
+        if self.camera.motion_persistence >= self.camera.profile.min_motion_frames.value:
+            return True
+
+        return False
+
+
+    def _render_debug_ui(
+        self,
+        frame_bgr: NDArray[np.uint8],
+        yolo_result: Results | None
+    ) -> None:
+        """
+        Render debug UI panels if debug mode is enabled.
+        This preserves your original behavior:
+        - draw motion boxes
+        - draw YOLO overlays
+        - draw tuner dashboard
+        - combine into a single debug mosaic
+        """
+        if not self.camera.debug:
+            return
+
+        self.camera.debug_motion_image = draw_debug_panels(
+            self.camera,
+            frame_bgr,
+            yolo_result,
+            self.camera.motion_boxes_list,
+            [], [], [], [], []  # placeholders for krs/kcs/dsrs/dscs/dars/dacs
+        )
+
+        if self.camera.recording:
+            timestamp_str = datetime.fromtimestamp(time.time()).strftime("%Y%m%d_%H%M%S_%f")
+            filename_str = os.path.join(self.camera.images_dir, f"{timestamp_str}.jpg")
+            cv2.imwrite(filename_str, self.camera.debug_motion_image)
+
+
+    def _select_frame(
+        self,
+        frame_bgr: NDArray[np.uint8],
+        yolo_result: Results | None
+    ) -> NDArray[np.uint8]:
+        """
+        Choose the final debug frame:
+        - if debug panels exist → use them
+        - else if YOLO results exist → use YOLO overlay
+        - else → use raw frame
+        """
+        if self.camera.debug and self.camera.debug_motion_image is not None:
+            return self.camera.debug_motion_image
+
+        return self._apply_yolo_overlay(frame_bgr, yolo_result)
+
+
+    def _finalize_output(
+        self,
+        frame_bgr: NDArray[np.uint8],
+        yolo_result: Results | None
+    ) -> None:
+        """
+        Finalize the output frame for the GUI.
+        This preserves your original behavior:
+        - choose debug mosaic if available
+        - else choose YOLO overlay
+        - else use raw frame
+        - update status text and objects text
+        - store final frame in camera.latest_frame
+        """
+        # Draw status text on the raw frame BEFORE selecting debug/YOLO overlays
+        draw_status_text(frame_bgr, self.camera.status_text, self.camera.objects_text, self.camera.recording)
+
+        # Select final frame (debug mosaic > YOLO overlay > raw)
+        final_frame = self._select_frame(frame_bgr, yolo_result)
+
+        # Update GUI-visible frame
+        self.camera.latest_frame = final_frame
+
+        # Build status text
+        parts = [self._make_status()]
+        if self.camera.is_night:
+            parts.append("Night")
+
+        parts.append(f"FPS {int(self.camera.fps.value())}:{self.camera.drop_rate:.2f}")
+        parts.append(make_readable_ts(time.time()))
+
+        self.camera.objects_text = tags_to_str(self.camera.active_objects_dict)
+        self.camera.status_text = " | ".join(parts)
+
+    def _make_status(self):
+        """
+        creates a string that represents the status (red/green for recording/live)
+        """
+        idx = int(time.time() * 4) % 4
+        record_cycle = ["*", "*", " ", " "]
+        pulse = record_cycle[idx] if self.camera.recording else ""
+
+        return f"{pulse}{'REC' if self.camera.recording else 'LIVE'}"
+
+    def _apply_yolo_overlay(
+        self,
+        frame_bgr: NDArray[np.uint8],
+        yolo_result: Results | None
+    ) -> NDArray[np.uint8]:
+        """
+        Apply YOLO overlay if results exist.
+        Preserves original behavior:
+        - result.plot(pil=False) returns BGR
+        """
+        if yolo_result is None:
+            return frame_bgr
+
+        return yolo_result.plot(pil=False)
+
