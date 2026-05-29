@@ -24,8 +24,8 @@
       await loadCameraSettings(selectedCamera);
     }
 
-    cameras.forEach(cam => {
-      cameraDebug[cam.name] = cam.debug;
+    cameras.forEach(camera => {
+      cameraDebug[camera.name] = camera.debug;
     });
   });
 

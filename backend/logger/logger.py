@@ -47,7 +47,7 @@ def log_event(message, level="info", camera=None, file_path=None):
     colors = {"info":"#00c853","debug": "#AA0088", "warn":"#ffd600","error":"#ff5252","record":"#17e8ff"}
 
     #print(f"[{timestamp}] {camera:<8} {message}")
-    fstr = camera.name + " " if camera else ""
+    fstr = camera.config.name + " " if camera else ""
     fstr += message
     fstr += " " + file_path if file_path else ""
     
@@ -63,7 +63,7 @@ def log_event(message, level="info", camera=None, file_path=None):
         if path.is_file():
             message += f' <a href="/{file_path}" target="_blank">{path.parent.name}/{path.name}</a>'
 
-    entry = f'<div class="log-{level}">[{timestamp}] ' + (f"{camera.name:<8} " if camera else "") + f"{message}</div>"
+    entry = f'<div class="log-{level}">[{timestamp}] ' + (f"{camera.config.name:<8} " if camera else "") + f"{message}</div>"
     event_log.insert(0, entry)
 
     if len(event_log) > constants.MAX_LOG_LINES:

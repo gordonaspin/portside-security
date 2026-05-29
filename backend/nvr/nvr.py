@@ -82,9 +82,9 @@ class NVR:
         """
         if not self.stop_event.is_set():
             for camera in self.cameras.values():
-                if camera.enabled:
-                    self.frame_readers[camera.name].start()
-                    self.frame_processors[camera.name].start()
+                if camera.config.enabled:
+                    self.frame_readers[camera.config.name].start()
+                    self.frame_processors[camera.config.name].start()
 
             Thread(target=self._watch_cameras_and_load_events,daemon=True).start()
 
@@ -92,35 +92,19 @@ class NVR:
         """
         Stop the NVR
         """
+        log_event(message="stopping NVR readers", level="info")
+        for reader in self.frame_readers.values():
+            reader.stop()
+        log_event(message="stopping NVR processors", level="info")
+        for processor in self.frame_processors.values():
+            processor.stop()
+
+    def threads(self):
+        threads = []
         for camera in self.cameras.values():
-            if camera.enabled and camera.process is not None:
-                self._stop_camera(camera)
-
-    def _restart_camera(self, camera):
-        """
-        Stop and start the camera unless we are shutting down
-        """
-        if not self.stop_event.is_set():
-            log_event(message="restarting camera", level="warn", camera=camera)
-            self._stop_camera(camera)
-            self._start_camera(camera)
-
-    def _stop_camera(self, camera):
-        """
-        Stops the background ffmpeg process for the camera, closes pipes and resets the camera
-        """
-        if camera.enabled and camera.process is not None:
-            ret = camera.process.poll()
-            log_event(message=f"stopping camera with ret {ret}", level="info", camera=camera)
-            camera.process.terminate()
-
-            try:
-                camera.process.wait(timeout=2)
-            except subprocess.TimeoutExpired:
-                camera.process.kill()
-            camera.process.stdout.close()
-            camera.first_frame = True
-
+            threads.append(self.frame_readers[camera.config.name].reader_thread)
+            threads.append(self.frame_processors[camera.config.name].processor_thread)
+        return threads
 
     def _watch_cameras_and_load_events(self):
         """
@@ -130,18 +114,18 @@ class NVR:
         while not self.stop_event.is_set():
             self.recordings = ThreadSafeList(self._load_events())
             time.sleep(5)
-            for camera in self.cameras.values():
-                if camera.process and camera.process.poll() is not None:
-                    log_event("ffmpeg died, restarting", "error", camera=camera)
-                    self._restart_camera(camera)
+            for reader in self.frame_readers.values():
+                if reader.process and reader.process.poll() is not None:
+                    log_event("ffmpeg died, restarting", "error", camera=reader.camera)
+                    reader.restart()
             pass
 
     def _load_events(self):
         files = []
 
         for camera in self.cameras.values():
-            if camera.enabled:
-                for f in glob.glob(f"{camera.metadata_dir}/*.json"):
+            if camera.config.enabled:
+                for f in glob.glob(f"{camera.config.metadata_dir}/*.json"):
                     try:
                         with open(f) as fp:
                             event = json.load(fp)
@@ -166,7 +150,7 @@ class NVR:
         replaced with the new frame. This means we drop frames to keep up. This is only for
         image processing, frames written to segments are not dropped
         """
-        current_thread().name = f"{camera.name} _lpr_frame_reader"
+        current_thread().name = f"{camera.config.name} _lpr_frame_reader"
 
         frame_size = camera.lpr.width * camera.lpr.height * 3
 
@@ -196,7 +180,7 @@ class NVR:
                 f.write(
                     json.dumps(
                         {
-                            "camera": camera.name,
+                            "camera": camera.config.name,
                             "tags":  {
                                 "license": [plate]
                             },
@@ -210,7 +194,7 @@ class NVR:
                     )
                 )
         
-        current_thread().name = f"{camera.name} _process__lpr_frames"
+        current_thread().name = f"{camera.config.name} _process__lpr_frames"
         lpr = LicensePlateRecognition(self.lpr_model)
         vp = VideoProcessor(lpr)
 
@@ -229,20 +213,20 @@ class NVR:
                 log_event(message=f"reading from lpr stream", level="info", camera=camera)
                 camera.lpr.first_frame = False
 
-            if camera.recording:
+            if camera.recording_state.recording:
                 frame, detected_texts = vp.process_frame(camera, frame)
                 now: float = time.time()
                 ts = datetime.now().isoformat()
                 timestamp_str = make_ts_string_precise(now)
-                license_image_path = os.path.join(camera.plates_dir, f"{timestamp_str}_plate") + ".jpg"
-                license_metadata_path = os.path.join(camera.metadata_dir, f"{timestamp_str}_plate") + ".json"
+                license_image_path = os.path.join(camera.config.plates_dir, f"{timestamp_str}_plate") + ".jpg"
+                license_metadata_path = os.path.join(camera.config.metadata_dir, f"{timestamp_str}_plate") + ".json"
                 cv2.imwrite(license_image_path, frame)
                 write_json(camera, "", ts, now, license_image_path, license_metadata_path)
                 log_event(message=f"License plate logged", level="info", camera=camera, file_path=license_metadata_path)
                 if detected_texts:
                     tags = '_'.join(detected_texts)
-                    license_image_path = os.path.join(camera.plates_dir, f"{timestamp_str}_{tags}") + ".jpg"
-                    license_metadata_path = os.path.join(camera.metadata_dir, f"{timestamp_str}_{tags}") + ".json"
+                    license_image_path = os.path.join(camera.config.plates_dir, f"{timestamp_str}_{tags}") + ".jpg"
+                    license_metadata_path = os.path.join(camera.config.metadata_dir, f"{timestamp_str}_{tags}") + ".json"
                     cv2.imwrite(license_image_path, frame)
                     log_event(message=f"License plate identified {tags}", level="info", camera=camera, file_path=license_metadata_path)
                     write_json(camera, tags, ts, now, license_image_path, license_metadata_path)

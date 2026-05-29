@@ -15,12 +15,12 @@ class MotionProfileAutoTuner:
 
     def record(self, decision: MotionDecision, camera=None):
         # Ignore during recording – scene is too dynamic
-        if camera is not None and camera.recording:
+        if camera is not None and camera.recording_state.recording:
             return
 
         # Ignore when confidence is already good – motion was real
         if camera is not None:
-            if camera.motion_confidence >= camera.profile.min_motion_confidence.value:
+            if camera.motion.motion_confidence >= camera.motion.profile.min_motion_confidence.value:
                 return
 
         # YOLO overlap noise is not a motion error

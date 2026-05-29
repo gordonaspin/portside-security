@@ -23,7 +23,7 @@ logger = getLogger("nvr")
 
 class FrameRecorderFactory:
     @staticmethod
-    def create(camera: Camera, factory_name: str, pre_record_duration=PRE_RECORD_DURATION):
+    def create(camera: Camera, factory_name: str):
         if factory_name == "OpenCVFrameRecorderFactory":
             return OpenCVFrameRecorderFactory
         elif factory_name == "FfmpegFrameRecorderFactory":
@@ -31,7 +31,7 @@ class FrameRecorderFactory:
         elif factory_name == "FfmpegSegmentRecorderFactory":
             return FfmpegSegmentRecorderFactory
         else:
-            logger.warning(f"Unknown recorder factory '{factory_name}' for camera {camera.name}. Defaulting to FfmpegFrameRecorderFactory.")
+            logger.warning(f"Unknown recorder factory '{factory_name}' for camera {camera.config.name}. Defaulting to FfmpegFrameRecorderFactory.")
             return FfmpegFrameRecorderFactory
 
 class OpenCVFrameRecorderFactory:
@@ -66,6 +66,7 @@ class Recorder:
         self.lock = threading.Lock()
         self.writer_thread = None
         self.filename = None
+        self.fps = None
 
     def add_frame(self, frame):
         """Call this inside your main loop for every single incoming frame."""
@@ -77,7 +78,7 @@ class Recorder:
             self.rolling_buffer.append(copied_frame)
             
             # If actively recording, append subsequent frames to the stream
-            if self.camera.recording:
+            if self.camera.recording_state.recording:
                 self.record_queue.append(copied_frame)
 
     def can_start(self):
@@ -86,14 +87,15 @@ class Recorder:
                 return False
         return True
     
-    def start_recording(self):
+    def start_recording(self, fps: float):
         """Locks in the pre-buffer and begins appending live footage."""
         if not self.can_start():
             return
 
+        self.fps = fps
         self.filename  = tempfile.NamedTemporaryFile(
             "w+b",
-            dir=self.camera.recordings_dir,
+            dir=self.camera.config.recordings_dir,
             suffix=".mp4",
             delete=False).name
 
@@ -104,33 +106,33 @@ class Recorder:
         self.writer_thread = threading.Thread(
             target=self._async_writer_worker, 
             args=(self.filename,),
-            daemon=True
+            daemon=False,  # Not daemon because we want to guarantee it finishes writing
         )
         self.writer_thread.start()
-        logger.debug(f"Frame recorder STARTED. Pre-buffer locked: {len(self.record_queue)} frames.")
+        logger.debug(f"Frame recorder started. Pre-buffer locked: {len(self.record_queue)} frames.")
 
 
-    def stop_recording(self, tags: defaultdict[set]):
+    def stop_recording(self, tags: defaultdict[set], fps: float):
         """Signals the recording to stop. Main thread can keep running."""
-        
+        self.fps = fps
         self.stop_event.set()
         # We join the thread to guarantee the file is written and safe on disk
         if self.writer_thread:
             self.writer_thread.join()
 
-        adjusted_start_time = self.camera.recording_start_time - self.pre_record_duration
+        adjusted_start_time = self.camera.recording_state.recording_start_time - self.pre_record_duration
         tags_str = tags_to_str(tags)
         timestamp_str = make_ts_string(adjusted_start_time)
         timestamp_name_tags = timestamp_str + "_" + tags_str
-        metadata_filename = os.path.join(self.camera.metadata_dir, timestamp_name_tags + ".json")
-        media_filename = os.path.join(self.camera.recordings_dir, timestamp_name_tags + ".mp4")
+        metadata_filename = os.path.join(self.camera.config.metadata_dir, timestamp_name_tags + ".json")
+        media_filename = os.path.join(self.camera.config.recordings_dir, timestamp_name_tags + ".mp4")
         
         self._finalize_files(self.filename, media_filename, timestamp_name_tags)
 
         cap = cv2.VideoCapture(media_filename)
         fps = cap.get(cv2.CAP_PROP_FPS)
         if fps <= 0:
-            fps = self._stabilize_fps()
+            fps = int(self.fps)
 
         frame_count = cap.get(cv2.CAP_PROP_FRAME_COUNT)
         cap.release()
@@ -154,12 +156,12 @@ class Recorder:
     def _create_metadata(self, tags: defaultdict, media_filename, metadata_filename, start_time, end_time):
         # Convert to a standard dict and sets to lists
         serializable_tags = {k: list(v) for k, v in tags.items()}
-        profile = self.camera.profile_to_dict()
-        stats = self.camera.auto_tuner.summarize()
-        recs = self.camera.auto_tuner.recommend_adjustments()
+        profile = self.camera.motion.profile_to_dict()
+        stats = self.camera.tuner.tuner.summarize()
+        recs = self.camera.tuner.tuner.recommend_adjustments()
 
         json_data = {
-            "camera": self.camera.name,
+            "camera": self.camera.config.name,
             "tags": serializable_tags,
             "media_filename": media_filename,
             "start_time": start_time,
@@ -173,12 +175,6 @@ class Recorder:
         }
         return json_data | self._get_additional_metadata()
 
-    def _stabilize_fps(self):
-        fps = int(self.camera.fps.value())
-        if fps <= 0:
-            fps = 18
-        return fps
-
 
 class OpenCVFrameRecorder(Recorder):
     def __init__(self, camera: Camera, pre_record_duration=PRE_RECORD_DURATION):
@@ -187,8 +183,15 @@ class OpenCVFrameRecorder(Recorder):
 
     def _async_writer_worker(self, filename):
         """Background thread that continuously drains the queue and writes to disk."""
+        fps = int(self.fps) if self.fps else 20
+
         fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-        video_writer = cv2.VideoWriter(filename, fourcc, self._stabilize_fps(), (self.camera.width, self.camera.height))
+        video_writer = cv2.VideoWriter(
+            filename,
+            fourcc,
+            fps,
+            (self.camera.config.width, self.camera.config.height)
+            )
         
         try:
             while True:
@@ -253,14 +256,14 @@ class FfmpegFrameRecorder(Recorder):
 
     def _async_writer_worker(self, filename):
         """Background thread that continuously drains the queue and writes to disk."""
-        fps = self._stabilize_fps()
+        fps = int(self.fps) if self.fps else 20
 
         command = [
             "ffmpeg",
             "-y",
             "-f", "rawvideo",
             "-pix_fmt", "bgr24",       # Matches OpenCV format
-            "-s", f"{self.camera.width}x{self.camera.height}",
+            "-s", f"{self.camera.config.width}x{self.camera.config.height}",
             "-r", f"{fps}",            # Framerate
             "-i", "-",                 # Input from Python pipe
             
@@ -324,7 +327,7 @@ class FfmpegSegmentRecorder(Recorder):
         self.profile_snapshot = None
         self.tuner_stats_snapshot = None
         self.tuner_recs_snapshot = None
-        self.fps_snapshot: float | None = None
+        self.fps: float | None = None
 
     @override
     def add_frame(self, frame):
@@ -337,15 +340,16 @@ class FfmpegSegmentRecorder(Recorder):
         return True
 
     @override
-    def start_recording(self):
+    def start_recording(self, fps: float):
         """
         For segment recording, 'start' just means:
         - allocate a temp output filename
         - start the merge worker thread (it will wait on self.event)
         """
+        self.fps = fps
         self.filename = tempfile.NamedTemporaryFile(
             "w+b",
-            dir=self.camera.recordings_dir,
+            dir=self.camera.config.recordings_dir,
             suffix=".mp4",
             delete=False
         ).name
@@ -353,12 +357,13 @@ class FfmpegSegmentRecorder(Recorder):
         self.writer_thread = threading.Thread(
             target=self._async_writer_worker,
             args=(self.filename,),
-            daemon=True,
+            daemon=False,  # Not daemon because we want to guarantee it finishes writing
         )
         self.writer_thread.start()
+        logger.debug(f"Segment recorder started. Waiting for event to capture segments from {self.camera.config.name}.")
 
     @override
-    def stop_recording(self, tags: defaultdict[set]):
+    def stop_recording(self, tags: defaultdict[set], fps: float):
         """
         Capture everything needed to finalize this recording,
         without ever reading camera state again later.
@@ -367,11 +372,11 @@ class FfmpegSegmentRecorder(Recorder):
 
         # Snapshot all mutable camera state we care about
         self.tags = tags
-        self.adjusted_start_time = self.camera.recording_start_time - self.pre_record_duration
-        self.profile_snapshot = self.camera.profile_to_dict()
-        self.tuner_stats_snapshot = self.camera.auto_tuner.summarize()
-        self.tuner_recs_snapshot = self.camera.auto_tuner.recommend_adjustments()
-        self.fps_snapshot = self.camera.fps.value()
+        self.adjusted_start_time = self.camera.recording_state.recording_start_time - self.pre_record_duration
+        self.profile_snapshot = self.camera.motion.profile_to_dict()
+        self.tuner_stats_snapshot = self.camera.tuner.tuner.summarize()
+        self.tuner_recs_snapshot = self.camera.tuner.tuner.recommend_adjustments()
+        self.fps = fps
 
         # Resolve segments for this event window
         self.segments = self._get_segments(
@@ -394,6 +399,8 @@ class FfmpegSegmentRecorder(Recorder):
         if not self.segments:
             # Nothing to merge → nothing to record
             return
+        
+        fps = int(self.fps) if self.fps else 20
 
         self.list_filename = filename + ".list"
         self.log_filename = filename + ".log"
@@ -415,7 +422,7 @@ class FfmpegSegmentRecorder(Recorder):
                 except FileNotFoundError:
                     continue
 
-        if self.camera.debug:
+        if self.camera.config.debug:
             log_event(
                 message=f"merging {len(self.segments)} segments to {filename}",
                 level="debug",
@@ -437,7 +444,7 @@ class FfmpegSegmentRecorder(Recorder):
             "-preset", "veryfast",
             "-crf", "23",
             "-vsync", "cfr",
-            "-r", "20",
+            "-r", f"{fps}",
             "-video_track_timescale", "90000",
             filename,
         ]
@@ -461,11 +468,11 @@ class FfmpegSegmentRecorder(Recorder):
         timestamp_name_tags = timestamp_str + "_" + tags_str
 
         metadata_filename = os.path.join(
-            self.camera.metadata_dir,
+            self.camera.config.metadata_dir,
             timestamp_name_tags + ".json",
         )
         media_filename = os.path.join(
-            self.camera.recordings_dir,
+            self.camera.config.recordings_dir,
             timestamp_name_tags + ".mp4",
         )
 
@@ -474,15 +481,15 @@ class FfmpegSegmentRecorder(Recorder):
 
         # Compute duration using the merged file
         cap = cv2.VideoCapture(media_filename)
-        fps = cap.get(cv2.CAP_PROP_FPS)
-        if fps <= 0:
-            fps = self._stabilize_fps()
+        recording_fps = cap.get(cv2.CAP_PROP_FPS)
+        if recording_fps <= 0:
+            recording_fps = fps
         frame_count = cap.get(cv2.CAP_PROP_FRAME_COUNT)
         cap.release()
 
         duration_seconds = 0
-        if frame_count and fps:
-            duration_seconds = frame_count / fps
+        if frame_count and recording_fps:
+            duration_seconds = frame_count / recording_fps
         formatted_duration = str(timedelta(seconds=int(duration_seconds)))
 
         # Build metadata using snapshots (no camera reads here)
@@ -509,13 +516,13 @@ class FfmpegSegmentRecorder(Recorder):
         Return all .ts segments whose timestamp falls within [start_time, end_time].
         """
         selected: list[tuple[str, float]] = []
-        for f in os.scandir(self.camera.segments_dir):
+        for f in os.scandir(self.camera.config.segments_dir):
             if f.name.endswith(".ts"):
                 try:
                     stat_entry = f.stat()
                     if start_time <= stat_entry.st_mtime <= end_time:
                         selected.append(
-                            (os.path.join(self.camera.segments_dir, f.name), stat_entry.st_mtime)
+                            (os.path.join(self.camera.config.segments_dir, f.name), stat_entry.st_mtime)
                         )
                 except Exception:
                     pass
@@ -563,7 +570,7 @@ class FfmpegSegmentRecorder(Recorder):
         )
         os.rename(
             self.list_filename,
-            os.path.join(self.camera.recordings_dir, timestamp_name_tags + "_merge.list"),
+            os.path.join(self.camera.config.recordings_dir, timestamp_name_tags + "_merge.list"),
         )
 
     @override
@@ -571,8 +578,3 @@ class FfmpegSegmentRecorder(Recorder):
         # Use the segments captured for this recording
         return {"segments": self.segments}
 
-    def _stabilize_fps(self):
-        # Prefer snapshot if available, otherwise fall back to camera
-        if self.fps_snapshot and self.fps_snapshot > 0:
-            return self.fps_snapshot
-        return super()._stabilize_fps()

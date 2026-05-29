@@ -28,7 +28,7 @@ class CameraTrack(VideoStreamTrack):
 
         if frame is None:
             # Provide a fallback frame so SDP negotiation succeeds
-            #logger.info(f"CameraTrack.recv for {self._camera.name} - frame is None, providing placeholder")
+            #logger.info(f"CameraTrack.recv for {self._camera.config.name} - frame is None, providing placeholder")
             frame = np.zeros((480, 640, 3), dtype=np.uint8)
     
         video_frame = VideoFrame.from_ndarray(frame, format="bgr24")
@@ -44,7 +44,7 @@ class MosaicTrack(VideoStreamTrack):
 
     def __init__(self, cameras: List[Camera], rows: int, cols: int):
         super().__init__()
-        self._cameras = [camera for camera in cameras if camera.enabled]
+        self._cameras = [camera for camera in cameras if camera.config.enabled]
         self.rows = rows
         self.cols = cols
         #self._max_cols = max_cols
@@ -55,8 +55,8 @@ class MosaicTrack(VideoStreamTrack):
     async def recv(self) -> VideoFrame:
         # Collect frames
         frames = []
-        for cam in self._cameras:
-            frame = cam.latest_frame
+        for camera in self._cameras:
+            frame = camera.latest_frame
             if frame is None:
                 frame = np.zeros((480, 704, 3), dtype=np.uint8)
             frames.append(frame)

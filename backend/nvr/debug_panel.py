@@ -12,6 +12,9 @@ from nvr.utils import tags_to_str
 
 def draw_debug_panels(
                     camera: Camera,
+                    frame_count: int,
+                    status_text: str,
+                    objects_text: str,
                     frame_bgr: NDArray[np.uint8],
                     result: Results,
                     krs: list[Tuple[int, int, int, int]],
@@ -30,25 +33,25 @@ def draw_debug_panels(
     else:
         orig_panel = frame_bgr.copy()
 
-    draw_status_text(orig_panel, camera.status_text, camera.objects_text, camera.recording)
+    draw_status_text(orig_panel, status_text, objects_text, camera.recording_state.recording)
 
     TITLE_Y = 40
     cv2.putText(orig_panel, "Original Frame (YOLO)", (10, TITLE_Y),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
 
     # 2. Background model
-    bg_panel = cv2.convertScaleAbs(camera.background_buf)
+    bg_panel = cv2.convertScaleAbs(camera.buffers.background_buf)
     bg_panel = cv2.cvtColor(bg_panel, cv2.COLOR_GRAY2BGR)
     cv2.putText(bg_panel, "Background Model", (10, TITLE_Y),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
 
     # 3. Diff (filtered)
-    diff_panel = cv2.cvtColor(camera.diff_filtered_buf, cv2.COLOR_GRAY2BGR)
+    diff_panel = cv2.cvtColor(camera.buffers.diff_filtered_buf, cv2.COLOR_GRAY2BGR)
     cv2.putText(diff_panel, "Diff (Filtered)", (10, TITLE_Y),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
 
     # 4. Threshold panel
-    thresh_panel = cv2.cvtColor(camera.thresh_buf, cv2.COLOR_GRAY2BGR)
+    thresh_panel = cv2.cvtColor(camera.buffers.thresh_buf, cv2.COLOR_GRAY2BGR)
     cv2.putText(thresh_panel, "Threshold", (10, TITLE_Y),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
     
@@ -71,7 +74,7 @@ def draw_debug_panels(
         hull_area = cv2.contourArea(hull)
         solidity = area / hull_area if hull_area > 0 else 0
 
-        roi_edges = camera.edges_buf[y:y+h0, x:x+w0]
+        roi_edges = camera.buffers.edges_buf[y:y+h0, x:x+w0]
         edge_density = cv2.countNonZero(roi_edges) / max(1, (w0 * h0))
 
         aspect = max(w0, h0) / max(1, min(w0, h0))
@@ -103,7 +106,7 @@ def draw_debug_panels(
                         (255, 255, 255), 2)
 
     # --- DEBUG TEXT ---
-    draw_combined_debug_layout(camera, thresh_panel)
+    draw_combined_debug_layout(camera, thresh_panel, frame_count)
 
     # --- RESIZE PANELS ---
     h, w = frame_bgr.shape[:2]
@@ -124,7 +127,7 @@ def draw_debug_panels(
 
 def draw_status_text(
     frame_bgr: NDArray[np.uint8],
-    camera_text: str,
+    status_text: str,
     objects_text: str,
     is_recording: bool,
 ) -> None:
@@ -143,7 +146,7 @@ def draw_status_text(
         cv2.putText(frame, text, (x+1, y + text_h), font, font_scale, color, thickness)
 
     draw_text(
-        frame_bgr, camera_text, (0, 2),
+        frame_bgr, status_text, (0, 2),
         cv2.FONT_HERSHEY_SIMPLEX, 0.7,
         (0, 0, 255) if is_recording else (0, 255, 0),
         2, (32, 32, 32)
@@ -162,7 +165,7 @@ def draw_tuner_dashboard(camera: Camera, panel):
     Shows rule hit counts, last decisions, and recommendations.
     """
 
-    tuner = camera.auto_tuner
+    tuner = camera.tuner.tuner
     stats = tuner.summarize()
     recs  = tuner.recommend_adjustments()
 
@@ -210,7 +213,7 @@ def draw_tuner_dashboard(camera: Camera, panel):
 
     return panel
 
-def draw_combined_debug_layout(camera: Camera, thresh_panel):
+def draw_combined_debug_layout(camera: Camera, thresh_panel, frame_count: int):
     """
     Left column  = dbg() motion stats
     Right column = auto-tuner dashboard
@@ -235,33 +238,30 @@ def draw_combined_debug_layout(camera: Camera, thresh_panel):
         yL += spacing
 
     # --- Your existing dbg() content ---
-    dbg(f"frames={camera.frame_count}")
-    dbg(f"recording={camera.recording}")
-    dbg(f"should_record={camera.should_record}")
-    dbg(f"should_start={camera.should_start}")
-    dbg(f"should_continue={camera.should_continue}")
+    dbg(f"frames={frame_count}")
+    dbg(f"recording={camera.recording_state.recording}")
+    dbg(f"should_record={camera.recording_state.should_record}")
+    dbg(f"should_continue={camera.recording_state.should_continue}")
 
-    dbg(f"has_moving_object={camera.has_moving_object}")
-    dbg(f"motion_boxes={len(camera.motion_boxes_list)}")
+    dbg(f"motion_confidence={camera.motion.motion_confidence:.2f} / {camera.motion.profile.min_motion_confidence.value:.2f}")
+    dbg(f"score={camera.motion.score} / {camera.motion.profile.motion_threshold_pixels:.2f}")
+    dbg(f"  pixel_score={camera.motion.pixel_score:.2f}")
+    dbg(f"  box_score={camera.motion.box_score:.2f}")
+    dbg(f"  persist_score={camera.motion.persist_score:.2f}")
 
-    dbg(f"score={camera.score} / {camera.profile.motion_threshold_pixels}")
-    dbg(f"motion_confidence={camera.motion_confidence:.2f} / {camera.profile.min_motion_confidence.value}")
-    dbg(f"STOP_CONF={max(0.10, camera.profile.min_motion_confidence.value * 0.30):.2f}")
+    dbg(f"has_moving_object={camera.motion.has_moving_object}")
+    dbg(f"motion_boxes={len(camera.motion.motion_boxes_list)}")
+    dbg(f"motion_persistence={camera.motion.motion_persistence:.2f} / {camera.motion.profile.min_motion_frames.value}")
+    dbg(f"since_last_motion={time.time() - camera.motion.last_motion_time:.2f}s")
 
-    dbg(f"motion_persistence={camera.motion_persistence} / {camera.profile.min_motion_frames.value}")
-    dbg(f"persist_score={camera.persist_score:.2f}")
-
-    dbg(f"since_last_motion={time.time() - camera.last_motion_time:.2f}s")
-    dbg(f"pixel_score={camera.pixel_score:.2f}")
-    dbg(f"box_score={camera.box_score:.2f}")
-
-    dbg(f"objects={tags_to_str(camera.active_objects_dict)}")
+    dbg(f"stop_conf={max(0.10, camera.motion.profile.min_motion_confidence.value * 0.30):.2f}")
+    dbg(f"objects={tags_to_str(camera.motion.active_objects_dict)}")
 
 
     # -----------------------------
     # RIGHT COLUMN: tuner dashboard
     # -----------------------------
-    tuner = camera.auto_tuner
+    tuner = camera.tuner.tuner
     stats = tuner.summarize()
     recs  = tuner.recommend_adjustments()
 

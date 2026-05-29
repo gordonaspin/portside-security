@@ -157,11 +157,11 @@ def create_app(config: dict, nvr: NVR):
         pc = RTCPeerConnection()
 
         if mode == "mosaic":
-            cams = [c for c in nvr.cameras.values() if c.enabled]
-            track = MosaicTrack(cams, config["mosaic"]["rows"], config["mosaic"]["columns"])
+            cameras = [camera for camera in nvr.cameras.values() if camera.config.enabled]
+            track = MosaicTrack(cameras, config["mosaic"]["rows"], config["mosaic"]["columns"])
         else:
-            cam = nvr.cameras[name]
-            track = CameraTrack(cam)
+            camera = nvr.cameras[name]
+            track = CameraTrack(camera)
 
         pc.addTrack(track)
         await pc.setRemoteDescription(offer)
@@ -172,8 +172,8 @@ def create_app(config: dict, nvr: NVR):
 
     @app.get("/api/cameras")
     def get_cameras(user=Depends(require_user)):
-        return [{"name": cam.name, "debug": cam.debug}
-                for cam in nvr.cameras.values() if cam.enabled]
+        return [{"name": camera.config.name, "debug": camera.config.debug}
+                for camera in nvr.cameras.values() if camera.config.enabled]
 
     @app.get("/api/classes")
     def get_classes(user=Depends(require_user)):
@@ -204,40 +204,40 @@ def create_app(config: dict, nvr: NVR):
 
     @app.get("/api/cameras/{camera_name}/settings")
     def get_camera_settings(camera_name: str):
-        cam = nvr.cameras[camera_name]
+        camera = nvr.cameras[camera_name]
 
         settings = {}
 
         settings = {
             "yolo_confidence_threshold": { 
-                "value": cam.profile.yolo_confidence_threshold.value,
-                "min": cam.profile.yolo_confidence_threshold.min,
-                "max": cam.profile.yolo_confidence_threshold.max,
-                "step": cam.profile.yolo_confidence_threshold.step
+                "value": camera.motion.profile.yolo_confidence_threshold.value,
+                "min": camera.motion.profile.yolo_confidence_threshold.min,
+                "max": camera.motion.profile.yolo_confidence_threshold.max,
+                "step": camera.motion.profile.yolo_confidence_threshold.step
             },
             "motion_threshold": {
-                "value": cam.profile.motion_threshold.value,
-                "min": cam.profile.motion_threshold.min,
-                "max": cam.profile.motion_threshold.max,
-                "step": cam.profile.motion_threshold.step
+                "value": camera.motion.profile.motion_threshold.value,
+                "min": camera.motion.profile.motion_threshold.min,
+                "max": camera.motion.profile.motion_threshold.max,
+                "step": camera.motion.profile.motion_threshold.step
             },
             "min_motion_confidence": {
-                "value": cam.profile.min_motion_confidence.value,
-                "min": cam.profile.min_motion_confidence.min,
-                "max": cam.profile.min_motion_confidence.max,
-                "step": cam.profile.min_motion_confidence.step
+                "value": camera.motion.profile.min_motion_confidence.value,
+                "min": camera.motion.profile.min_motion_confidence.min,
+                "max": camera.motion.profile.min_motion_confidence.max,
+                "step": camera.motion.profile.min_motion_confidence.step
             },
             "min_motion_frames": {
-                "value": cam.profile.min_motion_frames.value,
-                "min": cam.profile.min_motion_frames.min,
-                "max": cam.profile.min_motion_frames.max,
-                "step": cam.profile.min_motion_frames.step
+                "value": camera.motion.profile.min_motion_frames.value,
+                "min": camera.motion.profile.min_motion_frames.min,
+                "max": camera.motion.profile.min_motion_frames.max,
+                "step": camera.motion.profile.min_motion_frames.step
             },
             "min_sum_box_area": {
-                "value": cam.profile.min_sum_box_area.value,
-                "min": cam.profile.min_sum_box_area.min,
-                "max": cam.profile.min_sum_box_area.max,
-                "step": cam.profile.min_sum_box_area.step
+                "value": camera.motion.profile.min_sum_box_area.value,
+                "min": camera.motion.profile.min_sum_box_area.min,
+                "max": camera.motion.profile.min_sum_box_area.max,
+                "step": camera.motion.profile.min_sum_box_area.step
             }
         }
 
@@ -247,7 +247,7 @@ def create_app(config: dict, nvr: NVR):
     def update_camera_setting(camera_name: str, setting: str, payload: SettingValue):
 
         camera = nvr.cameras[camera_name]
-        profile = camera.profile
+        profile = camera.motion.profile
 
         # Update the camera object directly
         attr = getattr(profile, setting)
@@ -269,14 +269,14 @@ def create_app(config: dict, nvr: NVR):
 
         return {
             "camera": camera_name,
-            "debug": camera.debug if camera else False
+            "debug": camera.config.debug if camera else False
         }
 
     @app.post("/api/settings/debug/{camera_name}")
     async def set_camera_debug(camera_name: str, payload: SettingValue, user=Depends(require_user)):
         camera = nvr.cameras.get(camera_name)
         log_event(f"debug {payload.value}", camera=camera)
-        camera.debug = payload.value
+        camera.config.debug = payload.value
         return {"status": "ok", "camera": camera_name, "value": payload.value}
     
     # Verbose debug

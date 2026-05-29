@@ -360,8 +360,8 @@
     ctx.font = "14px 'JetBrains Mono', monospace";
 
     let maxWidth = 0;
-    for (const cam of cameras) {
-      const w = ctx.measureText(cam.name).width;
+    for (const camera of cameras) {
+      const w = ctx.measureText(camera.name).width;
       if (w > maxWidth) maxWidth = w;
     }
 

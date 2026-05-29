@@ -98,10 +98,10 @@ def main(username, password, gui_username, gui_password,
     config["gui_username"] = gui_username
     config["gui_password"] = hashed_gui_password
 
-    for cam in config["cameras"].values():
-        cam["url"] = replace_url_credentials(cam["url"], username, password)
+    for camera in config["cameras"].values():
+        camera["url"] = replace_url_credentials(camera["url"], username, password)
         try:
-            cam["lpr"]["url"] = replace_url_credentials(cam["lpr"]["url"], username, password)
+            camera["lpr"]["url"] = replace_url_credentials(camera["lpr"]["url"], username, password)
         except KeyError:
             pass
 
@@ -112,6 +112,10 @@ def main(username, password, gui_username, gui_password,
     atexit.register(nvr.stop)
 
     uvicorn.run(app, host=config["bind_address"], port=config["port"], log_config=logging_config_json, access_log=False)
+    logger.info("Waiting on NVR threads to finish...")
+    for thread in nvr.threads():
+        thread.join(timeout=2)
+
     logger.info("Exiting")
 
 if __name__ == "__main__":
