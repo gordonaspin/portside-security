@@ -31,10 +31,10 @@ from logging import (
 from typing import Any, Type, override
 from types import TracebackType
 
-from nvr.utils import make_readable_hms
+from utils.utils import make_readable_hms
 import constants as constants
 
-logger = getLogger("nvr")
+logger = getLogger("pynvr")
 
 event_log = []
 

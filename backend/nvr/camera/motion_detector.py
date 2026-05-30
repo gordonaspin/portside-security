@@ -1,14 +1,11 @@
-from collections import defaultdict
 import time
+from collections import defaultdict
 from dataclasses import dataclass
 from typing import Any
 
-import numpy as np
-from numpy.typing import NDArray
 from ultralytics import YOLO
 
-from nvr.motion_profiles import MotionProfile, DayMotionProfile, NightMotionProfile
-
+from nvr.camera.motion_profiles import DayMotionProfile, NightMotionProfile
 
 @dataclass
 class MotionResult:

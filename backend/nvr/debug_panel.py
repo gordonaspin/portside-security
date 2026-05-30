@@ -7,8 +7,8 @@ import numpy as np
 from numpy.typing import NDArray
 from ultralytics.engine.results import Results
 
-from camera.camera import Camera
-from nvr.utils import tags_to_str
+from nvr.camera.camera import Camera
+from utils.utils import tags_to_str
 
 def draw_debug_panels(
                     camera: Camera,

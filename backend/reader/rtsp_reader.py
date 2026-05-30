@@ -1,23 +1,22 @@
 import os
-import glob
 import subprocess
+import time
+from collections import deque
+from datetime import timedelta
 from logging import getLogger
 from queue import Queue, Empty
 from threading import Event, Thread, current_thread
-import time
 from typing import override
-from collections import deque, defaultdict
 
 
 import numpy as np
 from numpy.typing import NDArray
 
-from camera.camera import Camera
 from logger.logger import log_event
-from utils.thread_safe import ThreadSafeSet
-import constants
+from nvr.camera.camera import Camera
+from nvr.file_cleaner import FileCleaner
 
-logger = getLogger("pynvr")
+logger = getLogger("pynvr.reader")
 
 class RollingAverage:
     def __init__(self, window_size=100):
@@ -40,40 +39,6 @@ class RollingAverage:
         return self.sum / len(self.window)
 
 
-class SegmentCleaner():
-    do_not_delete_set: ThreadSafeSet = ThreadSafeSet()
-
-    def __init__(
-        self,
-        ):
-        self.stop_event: Event = None
-        self.segments_dir: list[str] = []
-        self.cleaner_thread = Thread(target=self._cleanup_segments,daemon=True)
-
-    def add_folder(self, folder: str):
-        self.segments_dir.append(folder)
-
-    def _cleanup_segments(self):
-        """
-        Thread that periodically deletes old segment files for all RTSPReaders
-        """
-        current_thread().name = "cleanup_segments"
-            
-        while True and not self.stop_event.is_set():
-            try:
-                for folder in self.segments_dir:
-                    path = os.path.join(folder, "*.ts")
-                    files = sorted(glob.glob(path))
-                    if len(files) > constants.TS_FILE_RING_SECONDS:
-                        for f in files[:-constants.TS_FILE_RING_SECONDS]:
-                            if f not in SegmentCleaner.do_not_delete_set:
-                                try: os.remove(f)
-                                except: pass
-                time.sleep(2)
-            except Exception as e:
-                log_event(message=f"exception in cleanup_segments {e}", level="error")
-
-
 class Reader():
     def __init__(self):
         pass
@@ -86,8 +51,6 @@ class Reader():
 
 class RTSPReader(Reader):
 
-    segment_cleaner: SegmentCleaner = SegmentCleaner()
-
     def __init__(
         self,
         camera: Camera,
@@ -96,24 +59,21 @@ class RTSPReader(Reader):
         self.camera: Camera = camera
         self.process: subprocess.Popen = None
         self.stop_event: Event = stop_event
-        self.reader_thread: Thread = None
+        self.thread: Thread = None
         self.frame_queue: Queue[NDArray[np.uint8]] = Queue(maxsize=1)
         self.total_frames: int = 0
         self.total_drops: int = 0
         self.last_frame_time: float = 0.0
         self.fps: RollingAverage = RollingAverage(100)
         self.dt: RollingAverage = RollingAverage(100)
-
-        if RTSPReader.segment_cleaner.stop_event is None:
-            RTSPReader.segment_cleaner.stop_event = stop_event
-            RTSPReader.segment_cleaner.cleaner_thread.start()
-        RTSPReader.segment_cleaner.add_folder(self.camera.config.segments_dir)
+        FileCleaner.add(self.camera.config.segments_dir, "*.ts", timedelta(seconds=120), timedelta(seconds=5))  # Clean up segments older than 120 seconds, every 5 seconds
 
     @override
     def start(self):
+        logger.debug(f"Starting RTSPReader for camera {self.camera.config.name}")
         self._open_stream()
-        self.reader_thread = Thread(target=self._frame_reader, daemon=True)
-        self.reader_thread.start()
+        self.thread = Thread(target=self._frame_reader, daemon=True)
+        self.thread.start()
 
     @override
     def get_frame(self) -> NDArray[np.uint8] | None:
@@ -138,7 +98,7 @@ class RTSPReader(Reader):
         segment files. The frames written to stdout are resized for image processing by cv2. 
         """
         if not self.stop_event.is_set():
-            log_event(message=f"starting camera", level="info", camera=self.camera)
+            log_event(message=f"starting reader", level="info", camera=self.camera)
             filespec = os.path.join(self.camera.config.segments_dir, "%Y%m%d_%H%M%S.ts")
             ffmpeg_cmd = [
                 "ffmpeg",
@@ -249,7 +209,7 @@ class RTSPReader(Reader):
             except subprocess.TimeoutExpired:
                 self.process.kill()
             self.process.stdout.close()
-            self.reader_thread.join(timeout=2)
+            self.thread.join(timeout=2)
             self.camera.first_frame = True
 
     def _read_exact(self, pipe, size):

@@ -1,21 +1,19 @@
-from pathlib import Path
-import os, secrets, time
-from datetime import datetime, timedelta
 import bisect
+import secrets
+import time
+from datetime import datetime, timedelta
 
+from aiortc import RTCPeerConnection, RTCSessionDescription
 from fastapi import FastAPI, Request, Depends, HTTPException, Response, Cookie
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
-from aiortc import RTCPeerConnection, RTCSessionDescription
-from pydantic import BaseModel
 from passlib.context import CryptContext
+from pydantic import BaseModel
 
-from webrtc.webrtc import CameraTrack, MosaicTrack
-from logger.logger import log_event, event_log
 from nvr.nvr import NVR
-from camera.camera import Camera
-from nvr.motion_profiles import DayMotionProfile
+from logger.logger import log_event, event_log
+from webrtc.webrtc import CameraTrack, MosaicTrack
 
 # -------------------------
 # AUTH SETUP

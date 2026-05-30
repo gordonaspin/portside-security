@@ -1,23 +1,14 @@
-from queue import Queue, Empty
-from subprocess import Popen
-from datetime import datetime
+from queue import Queue
 import os
-import json
-import time
 
 import numpy as np
 from numpy.typing import NDArray
 from ultralytics import YOLO
-from wcwidth import width
 
-from logger.logger import log_event
-from nvr.motion_profiles import MotionProfile, DayMotionProfile, NightMotionProfile
-from nvr.motion_tuner import MotionProfileAutoTuner
-from nvr.utils import make_ts_string
-from nvr.frame_buffers import FrameBuffers
-from nvr.motion_detector import MotionDetector, MotionResult
-from nvr.auto_tuner_wrapper import AutoTunerWrapper
-from nvr.recording_state import RecordingState
+from nvr.camera.auto_tuner_wrapper import AutoTunerWrapper
+from nvr.camera.frame_buffers import FrameBuffers
+from nvr.camera.motion_detector import MotionDetector
+from nvr.camera.recording_state import RecordingState
 
 class CameraConfig:
     def __init__(self, cfg: dict, width: int, height: int,

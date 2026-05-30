@@ -1,34 +1,29 @@
-from collections import defaultdict
-from copy import deepcopy
-from datetime import datetime, timedelta
 import glob
 import json
-from logging import getLogger
 import os
 import queue
-import subprocess
-from threading import Thread, Event, current_thread
 import time
+from datetime import datetime, timedelta
+from logging import getLogger
 from math import sqrt
+from threading import Thread, Event, current_thread
 
 import cv2
 import numpy as np
 from numpy.typing import NDArray
 from ultralytics import YOLO
-from ultralytics.engine.results import Results
 
-from nvr.utils import make_readable_ts, make_ts_string_precise
-from camera.camera import Camera
-import constants as constants
+from nvr.camera.camera import Camera
 from logger.logger import log_event
-from nvr.motion_tuner import MotionDecision
-from utils.thread_safe import ThreadSafeSet, ThreadSafeList
+from nvr.file_cleaner import FileCleaner
 from nvr.lpr import LicensePlateRecognition, VideoProcessor
-from recorders.frame_recorder import FrameRecorderFactory
-from readers.rtsp_reader import Reader, RTSPReader
 from nvr.processor import FrameProcessor
+from reader.rtsp_reader import Reader, RTSPReader
+from recorder.factory import FrameRecorderFactory
+from utils.thread_safe import ThreadSafeList
+from utils.utils import make_readable_ts, make_ts_string_precise
 
-logger = getLogger("nvr")
+logger = getLogger("pynvr")
 
 # =========================
 # NVR ENGINE
@@ -72,6 +67,13 @@ class NVR:
                 selected_classes=self.selected_classes,
                 stop_event=self.stop_event,
                 )
+        FileCleaner.stop_event = self.stop_event
+        FileCleaner.add(self.recordings_dir, "*.mp4", timedelta(days=7), timedelta(minutes=5))
+        FileCleaner.add(self.recordings_dir, "*.jpg", timedelta(days=7), timedelta(minutes=5))
+        FileCleaner.add(self.recordings_dir, "*.json", timedelta(days=7), timedelta(minutes=5))
+        FileCleaner.add(self.recordings_dir, "*.log", timedelta(days=1), timedelta(minutes=5))
+        FileCleaner.add(self.recordings_dir, "*.list", timedelta(days=1), timedelta(minutes=5))
+        FileCleaner.add(self.logs_dir, "*.log", timedelta(days=1), timedelta(minutes=5))
 
     def start(self):
         """
@@ -102,8 +104,15 @@ class NVR:
     def threads(self):
         threads = []
         for camera in self.cameras.values():
-            threads.append(self.frame_readers[camera.config.name].reader_thread)
-            threads.append(self.frame_processors[camera.config.name].processor_thread)
+            name = camera.config.name
+            if self.frame_readers[name].thread is not None:
+                threads.append(self.frame_readers[name].thread)
+            if self.frame_processors[name].thread is not None:
+                threads.append(self.frame_processors[name].thread)
+            if self.frame_processors[name].recorder.thread is not None:
+                threads.append(self.frame_processors[name].recorder.thread)
+        if FileCleaner.thread is not None:
+            threads.append(FileCleaner.thread)
         return threads
 
     def _watch_cameras_and_load_events(self):

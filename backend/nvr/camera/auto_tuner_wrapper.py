@@ -1,9 +1,9 @@
-import time
 import json
 import os
-from nvr.utils import make_ts_string
-from nvr.motion_tuner import MotionProfileAutoTuner
+import time
 
+from nvr.camera.motion_tuner import MotionProfileAutoTuner
+from utils.utils import make_ts_string
 
 class AutoTunerWrapper:
     def __init__(self, motion_detector, config):

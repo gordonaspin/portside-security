@@ -1,53 +1,23 @@
-import time
-import subprocess
-import threading
-import collections
 import json
 import os
-import numpy as np
-from logging import getLogger
-from collections import defaultdict
-from datetime import datetime, timedelta
+import subprocess
 import tempfile
+import threading
+import time
+from collections import defaultdict, deque
+from datetime import timedelta
+from logging import getLogger
 from typing import override
 
 import cv2
 
-from logger.logger import log_event
-from camera.camera import Camera
 from constants import PRE_RECORD_DURATION
-from nvr.utils import make_readable_ts, make_ts_string, tags_to_str
-from readers.rtsp_reader import SegmentCleaner
+from logger.logger import log_event
+from nvr.camera.camera import Camera
+from nvr.file_cleaner import FileCleaner
+from utils.utils import make_readable_ts, make_ts_string, tags_to_str
 
-logger = getLogger("nvr")
-
-class FrameRecorderFactory:
-    @staticmethod
-    def create(camera: Camera, factory_name: str):
-        if factory_name == "OpenCVFrameRecorderFactory":
-            return OpenCVFrameRecorderFactory
-        elif factory_name == "FfmpegFrameRecorderFactory":
-            return FfmpegFrameRecorderFactory
-        elif factory_name == "FfmpegSegmentRecorderFactory":
-            return FfmpegSegmentRecorderFactory
-        else:
-            logger.warning(f"Unknown recorder factory '{factory_name}' for camera {camera.config.name}. Defaulting to FfmpegFrameRecorderFactory.")
-            return FfmpegFrameRecorderFactory
-
-class OpenCVFrameRecorderFactory:
-    @staticmethod
-    def create(camera: Camera, pre_record_duration=PRE_RECORD_DURATION):
-        return OpenCVFrameRecorder(camera=camera, pre_record_duration=pre_record_duration)
-
-class FfmpegFrameRecorderFactory:
-    @staticmethod
-    def create(camera: Camera, pre_record_duration=PRE_RECORD_DURATION):
-        return FfmpegFrameRecorder(camera=camera, pre_record_duration=pre_record_duration)
-    
-class FfmpegSegmentRecorderFactory:
-    @staticmethod
-    def create(camera: Camera, pre_record_duration=PRE_RECORD_DURATION):
-        return FfmpegSegmentRecorder(camera=camera, pre_record_duration=pre_record_duration)
+logger = getLogger("pynvr.recorder")
 
 class Recorder:
     def __init__(self, camera: Camera, pre_record_duration=PRE_RECORD_DURATION):
@@ -56,15 +26,15 @@ class Recorder:
         self.max_pre_frames = int(20 * pre_record_duration)
 
         # 1. Rolling buffer (automatically discards frames past the time limit)
-        self.rolling_buffer = collections.deque(maxlen=self.max_pre_frames)
+        self.rolling_buffer = deque(maxlen=self.max_pre_frames)
         
         # 2. Recording queue (unlimited size, used during active recording)
-        self.record_queue = collections.deque()
+        self.record_queue = deque()
         
         # Thread management states
         self.stop_event = threading.Event()
         self.lock = threading.Lock()
-        self.writer_thread = None
+        self.thread = None
         self.filename = None
         self.fps = None
 
@@ -100,15 +70,15 @@ class Recorder:
             delete=False).name
 
         # Seed the recording queue with a snapshot of the current pre-buffer
-        self.record_queue = collections.deque(list(self.rolling_buffer))
+        self.record_queue = deque(list(self.rolling_buffer))
             
         # Spawn the thread
-        self.writer_thread = threading.Thread(
+        self.thread = threading.Thread(
             target=self._async_writer_worker, 
             args=(self.filename,),
             daemon=False,  # Not daemon because we want to guarantee it finishes writing
         )
-        self.writer_thread.start()
+        self.thread.start()
         logger.debug(f"Frame recorder started. Pre-buffer locked: {len(self.record_queue)} frames.")
 
 
@@ -117,8 +87,8 @@ class Recorder:
         self.fps = fps
         self.stop_event.set()
         # We join the thread to guarantee the file is written and safe on disk
-        if self.writer_thread:
-            self.writer_thread.join()
+        if self.thread:
+            self.thread.join()
 
         adjusted_start_time = self.camera.recording_state.recording_start_time - self.pre_record_duration
         tags_str = tags_to_str(tags)
@@ -354,12 +324,12 @@ class FfmpegSegmentRecorder(Recorder):
             delete=False
         ).name
 
-        self.writer_thread = threading.Thread(
+        self.thread = threading.Thread(
             target=self._async_writer_worker,
             args=(self.filename,),
             daemon=False,  # Not daemon because we want to guarantee it finishes writing
         )
-        self.writer_thread.start()
+        self.thread.start()
         logger.debug(f"Segment recorder started. Waiting for event to capture segments from {self.camera.config.name}.")
 
     @override
@@ -406,7 +376,7 @@ class FfmpegSegmentRecorder(Recorder):
         self.log_filename = filename + ".log"
 
         # Protect these segments from cleanup while we merge
-        SegmentCleaner.do_not_delete_set.update(self.segments)
+        FileCleaner.do_not_delete_set.update(self.segments)
 
         # Wait until the last segment in the window is fully written
         last_segment = self.segments[-1]
@@ -458,7 +428,7 @@ class FfmpegSegmentRecorder(Recorder):
             process.communicate()
         finally:
             log_file.close()
-            SegmentCleaner.do_not_delete_set -= set(self.segments)
+            FileCleaner.do_not_delete_set -= set(self.segments)
 
         # At this point, `filename` is the merged MP4.
         # Now we finalize filenames + metadata, using ONLY our snapshots.

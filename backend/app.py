@@ -25,7 +25,7 @@ def shutdown(signum, frame):
 signal.signal(signal.SIGINT, shutdown)
 signal.signal(signal.SIGTERM, shutdown)
 
-logger = logging.getLogger("nvr")
+logger = logging.getLogger("pynvr")
 
 def replace_url_credentials(url, new_username, new_password):
     parsed = urlparse(url)

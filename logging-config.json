@@ -61,7 +61,7 @@
         "file"
       ]
     },
-    "nvr": {
+    "pynvr": {
       "level": "DEBUG",
       "handlers": [
         "stderr",

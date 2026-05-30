@@ -3,13 +3,15 @@ import numpy as np
 import re
 import yaml
 from logging import getLogger
+from typing import Tuple, Optional
+
 from paddleocr import PaddleOCR
 from ultralytics import YOLO
-from typing import Tuple, Optional
 from shapely.geometry import box as shapely_box
-from camera.camera import Camera
 
-logger = getLogger("nvr")
+from nvr.camera.camera import Camera
+
+logger = getLogger("pynvr")
 
 class LicensePlateRecognition:
     def __init__(self, model: str, license_patterns_file: str = "backend/model/license_plate_patterns.yaml"):

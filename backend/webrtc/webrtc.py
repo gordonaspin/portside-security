@@ -1,17 +1,16 @@
-import asyncio
 import fractions
 import time
-from typing import List
 from logging import getLogger
-
-logger = getLogger("nvr")
+from typing import List
 
 import cv2
 import numpy as np
 from aiortc.mediastreams import VideoStreamTrack
 from av import VideoFrame
 
-from camera.camera import Camera
+from nvr.camera.camera import Camera
+
+logger = getLogger("pynvr.webrtc")
 
 class CameraTrack(VideoStreamTrack):
     """

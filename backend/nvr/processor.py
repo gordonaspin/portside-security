@@ -3,6 +3,7 @@ import time
 import os
 from datetime import datetime
 from copy import deepcopy
+from logging import getLogger
 
 import cv2
 import numpy as np
@@ -10,19 +11,22 @@ from numpy.typing import NDArray
 from ultralytics import YOLO
 from ultralytics.engine.results import Results
 
-from camera.camera import Camera
-from readers.rtsp_reader import Reader
-from recorders.frame_recorder import FrameRecorderFactory, Recorder
-from nvr.utils import (
+import constants
+from logger.logger import log_event
+from nvr.debug_panel import draw_status_text, draw_debug_panels
+from nvr.camera.camera import Camera
+from nvr.camera.motion_tuner import MotionDecision
+from reader.rtsp_reader import Reader
+from recorder.factory import FrameRecorderFactory
+from recorder.recorders import Recorder
+from utils.utils import (
     make_readable_ts,
     tags_to_str,
     boxes_overlap,
     yolo_box_to_roi,
     detect_object_color)
-from nvr.debug_panel import draw_status_text, draw_debug_panels
-from nvr.motion_tuner import MotionDecision
-from logger.logger import log_event
-import constants
+
+logger = getLogger("pynvr.processor")
 
 class FrameProcessor():
     def __init__(
@@ -40,7 +44,7 @@ class FrameProcessor():
         self.model: YOLO = model
         self.selected_classes = selected_classes
         self.stop_event: Event = stop_event
-        self.processor_thread: Thread = None
+        self.thread: Thread = None
         self.recorder: Recorder = self.recorder_factory.create(self.camera)
         self.frame_count: int = 0
         self.status_text: str = "Not streaming"
@@ -48,12 +52,12 @@ class FrameProcessor():
         self.last_night_time_check: float = time.time()
 
     def start(self):
-        self.processor_thread = Thread(target=self._process_frames, daemon=True)
-        self.processor_thread.start()
+        self.thread = Thread(target=self._process_frames, daemon=True)
+        self.thread.start()
 
     def stop(self):
         log_event(message="stopping frame processor", level="info", camera=self.camera)
-        self.processor_thread.join(timeout=2)
+        self.thread.join(timeout=2)
 
     def _process_frames(self):
         """
