@@ -1,7 +1,7 @@
-from collections import defaultdict
-from math import sqrt
-from datetime import datetime
 import time
+from collections import defaultdict
+from datetime import datetime
+from math import sqrt
 
 import cv2
 import numpy as np

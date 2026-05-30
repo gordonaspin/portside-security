@@ -1,6 +1,3 @@
-from dataclasses import dataclass
-from collections import defaultdict
-
 class ProfileValue:
     def __init__(self, default, min, max, step):
         self.default = default

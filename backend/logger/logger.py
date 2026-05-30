@@ -12,11 +12,10 @@ Public API
 - `NonErrorFilter`, `KeywordFilter` — helpers to filter or mask logs.
 """
 import atexit
-from datetime import datetime, timezone
 import json
-from pathlib import Path
 import sys
 import threading
+from datetime import datetime, timezone
 from logging import (
     getLogger,
     Logger,
@@ -28,8 +27,9 @@ from logging import (
     getHandlerByName,
     INFO
 )
-from typing import Any, Type, override
+from pathlib import Path
 from types import TracebackType
+from typing import Any, Type, override
 
 from utils.utils import make_readable_hms
 import constants as constants

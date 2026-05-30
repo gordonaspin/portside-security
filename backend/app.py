@@ -1,20 +1,18 @@
-import atexit
-import signal
-import sys
 import json
 import logging
+import signal
 from urllib.parse import urlparse, urlunparse
 
 import click
 import keyring
+import uvicorn
 from click import version_option
 from passlib.context import CryptContext
-import uvicorn
 
 import constants as constants
+from api.endpoints import create_app
 from logger.logger import setup_logging, KeywordFilter
 from nvr.nvr import NVR
-from api.endpoints import create_app
 
 _NVR = None
 
@@ -109,12 +107,15 @@ def main(username, password, gui_username, gui_password,
     app = create_app(config, nvr)
 
     nvr.start()
-    atexit.register(nvr.stop)
-
     uvicorn.run(app, host=config["bind_address"], port=config["port"], log_config=logging_config_json, access_log=False)
+
     logger.info("Waiting on NVR threads to finish...")
     for thread in nvr.threads():
-        thread.join(timeout=2)
+        thread.join()
+    
+    for handler in logger.handlers:
+        handler.flush()
+        handler.close()
 
     logger.info("Exiting")
 

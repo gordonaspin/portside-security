@@ -42,6 +42,7 @@ class NVR:
         classname_to_classindex: dict = {v: k for k, v in yolo.names.items()}
         self.selected_classes: list[int] = [classname_to_classindex[n] for n in config["yolo"]["classes"]]
         self.stop_event: Event = Event()
+        self.thread: Thread = None
 
         self.recordings: ThreadSafeList = ThreadSafeList()
 
@@ -68,12 +69,12 @@ class NVR:
                 stop_event=self.stop_event,
                 )
         FileCleaner.stop_event = self.stop_event
-        FileCleaner.add(self.recordings_dir, "*.mp4", timedelta(days=7), timedelta(minutes=5))
-        FileCleaner.add(self.recordings_dir, "*.jpg", timedelta(days=7), timedelta(minutes=5))
-        FileCleaner.add(self.recordings_dir, "*.json", timedelta(days=7), timedelta(minutes=5))
-        FileCleaner.add(self.recordings_dir, "*.log", timedelta(days=1), timedelta(minutes=5))
-        FileCleaner.add(self.recordings_dir, "*.list", timedelta(days=1), timedelta(minutes=5))
-        FileCleaner.add(self.logs_dir, "*.log", timedelta(days=1), timedelta(minutes=5))
+        FileCleaner.add(self.recordings_dir, "*.mp4", timedelta(**config["keep_recordings_timedelta"]), timedelta(minutes=5))
+        FileCleaner.add(self.recordings_dir, "*.jpg", timedelta(**config["keep_recordings_timedelta"]), timedelta(minutes=5))
+        FileCleaner.add(self.recordings_dir, "*.json", timedelta(**config["keep_recordings_timedelta"]), timedelta(minutes=5))
+        FileCleaner.add(self.recordings_dir, "*.log", timedelta(**config["keep_logs_timedelta"]), timedelta(minutes=5))
+        FileCleaner.add(self.recordings_dir, "*.list", timedelta(**config["keep_logs_timedelta"]), timedelta(minutes=5))
+        FileCleaner.add(self.logs_dir, "*.log", timedelta(**config["keep_logs_timedelta"]), timedelta(minutes=5))
 
     def start(self):
         """
@@ -88,18 +89,20 @@ class NVR:
                     self.frame_readers[camera.config.name].start()
                     self.frame_processors[camera.config.name].start()
 
-            Thread(target=self._watch_cameras_and_load_events,daemon=True).start()
+            self.thread = Thread(target=self._watch_cameras_and_load_events,daemon=True)
+            self.thread.start()
 
     def stop(self):
         """
         Stop the NVR
         """
-        log_event(message="stopping NVR readers", level="info")
-        for reader in self.frame_readers.values():
-            reader.stop()
         log_event(message="stopping NVR processors", level="info")
         for processor in self.frame_processors.values():
             processor.stop()
+        log_event(message="stopping NVR readers", level="info")
+        for reader in self.frame_readers.values():
+            reader.stop()
+
 
     def threads(self):
         threads = []
@@ -113,6 +116,8 @@ class NVR:
                 threads.append(self.frame_processors[name].recorder.thread)
         if FileCleaner.thread is not None:
             threads.append(FileCleaner.thread)
+        if self.thread is not None:
+            threads.append(self.thread)
         return threads
 
     def _watch_cameras_and_load_events(self):
@@ -120,12 +125,14 @@ class NVR:
         load events into recordings list and check each ffmpeg process
         every 5 seconds and restart if necessary
         """
+        current_thread().name = "event_loader"
+
         while not self.stop_event.is_set():
             self.recordings = ThreadSafeList(self._load_events())
             time.sleep(5)
             for reader in self.frame_readers.values():
                 if reader.process and reader.process.poll() is not None:
-                    log_event("ffmpeg died, restarting", "error", camera=reader.camera)
+                    log_event("reader process ended", "error", camera=reader.camera)
                     reader.restart()
             pass
 
@@ -168,7 +175,6 @@ class NVR:
 
             if raw is None:
                 log_event(message="lpr reader failed", level="warn", camera=camera)
-                #self._restart_camera(camera)
                 continue
 
             frame = np.frombuffer(raw, np.uint8).reshape((camera.lpr.height, camera.lpr.width, 3))

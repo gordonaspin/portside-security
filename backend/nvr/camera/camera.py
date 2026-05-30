@@ -1,5 +1,5 @@
-from queue import Queue
 import os
+from queue import Queue
 
 import numpy as np
 from numpy.typing import NDArray

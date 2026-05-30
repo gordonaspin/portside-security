@@ -5,9 +5,9 @@ behaviors used elsewhere in the project. These wrappers use reentrant locks
 to ensure safe concurrent access and support context-manager locking for
 batch operations.
 """
-from threading import RLock
-from pathlib import Path
 from collections import UserDict, UserList
+from pathlib import Path
+from threading import RLock
 from typing import Union, Any, Iterator, Tuple, Iterable, Set
 
 class ThreadSafePathDict(UserDict):

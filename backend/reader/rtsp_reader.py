@@ -8,10 +8,10 @@ from queue import Queue, Empty
 from threading import Event, Thread, current_thread
 from typing import override
 
-
 import numpy as np
 from numpy.typing import NDArray
 
+from constants import TS_FILE_RING_SECONDS
 from logger.logger import log_event
 from nvr.camera.camera import Camera
 from nvr.file_cleaner import FileCleaner
@@ -66,8 +66,7 @@ class RTSPReader(Reader):
         self.last_frame_time: float = 0.0
         self.fps: RollingAverage = RollingAverage(100)
         self.dt: RollingAverage = RollingAverage(100)
-        FileCleaner.add(self.camera.config.segments_dir, "*.ts", timedelta(seconds=120), timedelta(seconds=5))  # Clean up segments older than 120 seconds, every 5 seconds
-
+        FileCleaner.add(self.camera.config.segments_dir, "*.ts", timedelta(seconds=TS_FILE_RING_SECONDS), timedelta(seconds=5))
     @override
     def start(self):
         logger.debug(f"Starting RTSPReader for camera {self.camera.config.name}")
@@ -159,7 +158,7 @@ class RTSPReader(Reader):
                     fail_count += 1
                     self.restart()
                 else:
-                    log_event(message="stopping camera, too many failures, giving up", level="warn", camera=self.camera)
+                    log_event(message="stopping reader, too many failures, giving up", level="warn", camera=self.camera)
                     self.stop()
                 continue
 
@@ -209,7 +208,6 @@ class RTSPReader(Reader):
             except subprocess.TimeoutExpired:
                 self.process.kill()
             self.process.stdout.close()
-            self.thread.join(timeout=2)
             self.camera.first_frame = True
 
     def _read_exact(self, pipe, size):

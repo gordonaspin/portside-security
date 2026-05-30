@@ -1,9 +1,9 @@
-from threading import Thread, Event, current_thread
-import time
 import os
+import time
 from datetime import datetime
 from copy import deepcopy
 from logging import getLogger
+from threading import Thread, Event, current_thread
 
 import cv2
 import numpy as np
@@ -57,7 +57,7 @@ class FrameProcessor():
 
     def stop(self):
         log_event(message="stopping frame processor", level="info", camera=self.camera)
-        self.thread.join(timeout=2)
+        self.thread.join()
 
     def _process_frames(self):
         """
@@ -114,7 +114,7 @@ class FrameProcessor():
             self.camera.motion.update_persistence(motion_boxes)
             self._apply_fast_stop_logic(motion_boxes, now)
 
-            if self.frame_count > 15 * 20:
+            if self.frame_count > constants.DELAY_FIRST_RECORDING_SECONDS * 20:
                 # --- RECORDING LOGIC ---
                 self._update_recording_state(motion_boxes, now)
 
