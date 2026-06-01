@@ -97,7 +97,7 @@ def setup_logging(config_path: Path) -> Path:
     try:
         config.dictConfig(json_config)
     except (PermissionError, ValueError) as e:
-        print(f"Error {e} in creating/writing to {file}, is the path writable ?")
+        print(f"error {e} in creating/writing to {file}, is the path writable ?")
         sys.exit(constants.ExitCode.EXIT_FAILED_CLICK_USAGE.value)
 
     queue_handler: Handler = getHandlerByName("queue_handler")

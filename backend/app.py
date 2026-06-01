@@ -67,7 +67,7 @@ def main(username, password, gui_username, gui_password,
         logger.debug(f"got password for {username} from keyring")
 
     if password is None:
-        logger.error("Password not set")
+        logger.error("password not set")
         return
 
     KeywordFilter.add_keyword(password)
@@ -109,7 +109,7 @@ def main(username, password, gui_username, gui_password,
     nvr.start()
     uvicorn.run(app, host=config["bind_address"], port=config["port"], log_config=logging_config_json, access_log=False)
 
-    logger.info("Waiting on NVR threads to finish...")
+    logger.info("waiting on NVR threads to finish...")
     for thread in nvr.threads():
         thread.join()
     
@@ -117,7 +117,7 @@ def main(username, password, gui_username, gui_password,
         handler.flush()
         handler.close()
 
-    logger.info("Exiting")
+    logger.info("done.")
 
 if __name__ == "__main__":
     main()

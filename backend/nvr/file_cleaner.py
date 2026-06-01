@@ -20,21 +20,22 @@ class CleanerConfig:
 class FileCleaner():
     do_not_delete_set: ThreadSafeSet = ThreadSafeSet()
     min_sleep_seconds = 60
-    cleaner_config: list[CleanerConfig] = []
+    cleaner_config: dict[CleanerConfig] = {}
     stop_event: Event = None
     thread: Thread = None
 
     @staticmethod
     def add(folder: str, filespec: str, age: timedelta, period: timedelta):
         config = CleanerConfig(folder, filespec, age.total_seconds(), period.total_seconds())
-        FileCleaner.cleaner_config.append(config)
+        logger.debug(f"adding cleaner folder={folder}, filespec={filespec}, age={age}, period={period}")
+        FileCleaner.cleaner_config[str(folder)+filespec] = config
         FileCleaner.min_sleep_seconds = min(FileCleaner.min_sleep_seconds, period.total_seconds())
         if FileCleaner.thread is None:
-            logger.debug("Starting file cleaner thread")
             FileCleaner.start()
 
     @staticmethod
     def start():
+        logger.debug("starting file cleaner thread")
         FileCleaner.thread = Thread(target=FileCleaner._cleanup, daemon=True)
         FileCleaner.thread.start()
 
@@ -50,7 +51,7 @@ class FileCleaner():
                 break
 
             now = time.time()
-            for config in FileCleaner.cleaner_config:
+            for config in FileCleaner.cleaner_config.values():
                 if now - config.last_cleanup_time >= config.period_seconds:
                     path = Path(config.folder)
                     cutoff = now - config.age_seconds
@@ -60,6 +61,6 @@ class FileCleaner():
                             stat_entry = file.stat()
                             if stat_entry.st_mtime < cutoff:
                                 file.unlink()
-                                logger.debug(f"FileCleaner deleted: {file} dated {make_readable_ts(stat_entry.st_mtime)}")
+                                logger.debug(f"file cleaner deleted: {file} dated {make_readable_ts(stat_entry.st_mtime)}")
                     config.last_cleanup_time = now
             time.sleep(FileCleaner.min_sleep_seconds)

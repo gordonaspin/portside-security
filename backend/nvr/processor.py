@@ -143,13 +143,6 @@ class FrameProcessor():
             # 3. Finalize output (select debug > YOLO > raw)
             self._finalize_output(frame_bgr, yolo_result)
             
-            # 4. Draw status text on the ORIGINAL frame
-            draw_status_text(
-                self.camera.latest_frame,
-                self.status_text,
-                self.objects_text,
-                self.camera.recording_state.recording,
-            )
             self.recorder.add_frame(self.camera.latest_frame)
 
     def _update_status_strings(self):
@@ -814,7 +807,13 @@ class FrameProcessor():
 
         # Select final frame (debug mosaic > YOLO overlay > raw)
         final_frame = self._select_frame(frame_bgr, yolo_result)
-
+        # Draw status text on the ORIGINAL frame
+        draw_status_text(
+            final_frame,
+            self.status_text,
+            self.objects_text,
+            self.camera.recording_state.recording,
+        )
         # Update GUI-visible frame
         self.camera.latest_frame = final_frame
 

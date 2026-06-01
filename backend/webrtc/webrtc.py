@@ -27,7 +27,6 @@ class CameraTrack(VideoStreamTrack):
 
         if frame is None:
             # Provide a fallback frame so SDP negotiation succeeds
-            #logger.info(f"CameraTrack.recv for {self._camera.config.name} - frame is None, providing placeholder")
             frame = np.zeros((480, 640, 3), dtype=np.uint8)
     
         video_frame = VideoFrame.from_ndarray(frame, format="bgr24")

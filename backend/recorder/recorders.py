@@ -80,7 +80,7 @@ class Recorder:
             daemon=False,  # Not daemon because we want to guarantee it finishes writing
         )
         self.thread.start()
-        logger.debug(f"Frame recorder started. Pre-buffer locked: {len(self.record_queue)} frames.")
+        logger.debug(f"frame recorder started. Pre-buffer locked: {len(self.record_queue)} frames.")
 
 
     def stop_recording(self, tags: defaultdict[set], fps: float):
@@ -211,13 +211,13 @@ class OpenCVFrameRecorder(Recorder):
                 stdout, stderr = process.communicate()
 
                 if process.returncode != 0:
-                    logger.debug(f"FFmpeg Error:\n{stderr}")
+                    logger.debug(f"ffmpeg Error:\n{stderr}")
                 else:
-                    logger.debug("Success! Video is now ready for web streaming.")
+                    logger.debug("video is ready for web streaming")
                 os.remove(self.filename)
 
         except FileNotFoundError:
-            ("Error: FFmpeg is not installed or not in your system PATH.")
+            logger.error("ffmpeg is not installed or not in your system PATH.")
 
 
 class FfmpegFrameRecorder(Recorder):
@@ -300,6 +300,7 @@ class FfmpegSegmentRecorder(Recorder):
         self.tuner_recs_snapshot = None
         self.fps: float | None = None
         FileCleaner.add(self.camera.config.segments_dir, "*.ts", timedelta(seconds=TS_FILE_RING_SECONDS), timedelta(seconds=5))
+        FileCleaner.add(self.camera.config.segments_dir, "*.list", timedelta(seconds=TS_FILE_RING_SECONDS), timedelta(seconds=5))
 
     @override
     def add_frame(self, frame):
@@ -332,7 +333,7 @@ class FfmpegSegmentRecorder(Recorder):
             daemon=False,  # Not daemon because we want to guarantee it finishes writing
         )
         self.thread.start()
-        logger.debug(f"Segment recorder started. Waiting for event to capture segments from {self.camera.config.name}.")
+        logger.debug(f"segment recorder started. Waiting for event to capture segments from {self.camera.config.name}.")
 
     @override
     def stop_recording(self, tags: defaultdict[set], fps: float):

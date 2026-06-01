@@ -79,7 +79,7 @@
       "propagate": false
     },
     "pynvr.cleaner": {
-      "level": "INFO",
+      "level": "DEBUG",
       "handlers": [
         "stderr",
         "file"

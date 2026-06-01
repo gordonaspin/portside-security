@@ -3,6 +3,7 @@ import json
 import os
 import queue
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
 from logging import getLogger
 from threading import Thread, Event, current_thread
@@ -42,16 +43,16 @@ class NVR:
         self.frame_readers: dict[str, Reader] = {}
         self.frame_processors: dict[str, FrameProcessor] = {}
 
+        camera_resolutions = self.get_all_camera_resolutions(config["cameras"])
         for name, _ in config["cameras"].items():
             if not config["cameras"][name]["enabled"]:
-                log_event(message=f"{name} camera is disabled, skipping", level="info")
+                log_event(message=f"{name} camera is disabled", level="info")
                 continue
-            actual_width, actual_height = get_camera_resolution(config["cameras"][name]["url"])
-            log_event(message=f"{name} camera resolution detected as {actual_width}x{actual_height}", level="info")
+            actual_width, actual_height = camera_resolutions[name]
             if actual_width is None or actual_height is None:
                 actual_width = config["cameras"][name]["resolution"]["width"]
                 actual_height = config["cameras"][name]["resolution"]["height"]
-                log_event(message=f"Could not get resolution, falling back to configured resolution {actual_width}x{actual_height}", level="warn", camera=name)
+                log_event(message=f"could not get resolution, falling back to configured resolution {actual_width}x{actual_height}", level="warn", camera=name)
             self.cameras[name] = Camera(name=name,
                                         width=actual_width,
                                         height=actual_height,
@@ -77,7 +78,6 @@ class NVR:
         FileCleaner.add(self.recordings_dir, "*.jpg", timedelta(**config["keep_recordings_timedelta"]), timedelta(minutes=5))
         FileCleaner.add(self.recordings_dir, "*.json", timedelta(**config["keep_recordings_timedelta"]), timedelta(minutes=5))
         FileCleaner.add(self.recordings_dir, "*.log", timedelta(**config["keep_logs_timedelta"]), timedelta(minutes=5))
-        FileCleaner.add(self.recordings_dir, "*.list", timedelta(**config["keep_logs_timedelta"]), timedelta(minutes=5))
         FileCleaner.add(self.logs_dir, "*.log", timedelta(**config["keep_logs_timedelta"]), timedelta(minutes=5))
 
     def start(self):
@@ -148,7 +148,12 @@ class NVR:
                 for f in glob.glob(f"{camera.config.metadata_dir}/*.json"):
                     try:
                         with open(f) as fp:
-                            event = json.load(fp)
+                            try:
+                                event = json.load(fp)
+                            except json.JSONDecodeError:
+                                logger.warning(f"invalid JSON in file {f}, deleting the file")
+                                os.remove(f)
+                                continue
                             event.pop("segments", None)
                             event.pop("profile", None)
                             event.pop("tuner_stats", None)
@@ -189,64 +194,22 @@ class NVR:
             camera.lpr.queue.put(frame)
 
 
-    def _process_lpr_frames(self, camera: Camera):
-        """
-        Thread to process lpr frames from the camera queue.
-        """
-        
-        def write_json(camera: Camera, plate, ts, epoch, image_path, metadata_path):
-            with open(metadata_path, "w") as f:
-                f.write(
-                    json.dumps(
-                        {
-                            "camera": camera.config.name,
-                            "tags":  {
-                                "license": [plate]
-                            },
-                            "media_filename": image_path,
-                            "start_time": epoch,
-                            "end_time": epoch + 5.0, # fudge a duration so we can feed to timeline
-                            "start_fmt": make_readable_ts(epoch),
-                            "end_fmt": make_readable_ts(epoch + 5.0),
-                            "metadata_filename": metadata_path,
-                        }
-                    )
-                )
-        
-        current_thread().name = f"{camera.config.name} _process__lpr_frames"
-        lpr = LicensePlateRecognition(self.lpr_model)
-        vp = VideoProcessor(lpr)
+    def get_all_camera_resolutions(self,camera_config):
+        results = {}
 
-        while not self.stop_event.is_set():
-            # get latest frame (non-blocking)
-            try:
-                frame: NDArray[np.uint8] = camera.lpr.queue.get(timeout=0.5)
-            except queue.Empty:
-                continue
+        def task(name, url):
+            w, h = get_camera_resolution(url)
+            return name, (w, h)
 
-            if camera.lpr.first_frame:
-                camera.lpr.gray_buf = np.zeros((camera.lpr.height, camera.lpr.width), dtype=np.uint8)
-                camera.lpr.equalized_buf = np.zeros((camera.lpr.height, camera.lpr.width), dtype=np.uint8)
-                camera.lpr.preprocessed_buf = np.zeros((camera.lpr.height, camera.lpr.width), dtype=np.uint8)
+        with ThreadPoolExecutor(max_workers=10) as executor:
+            futures = [
+                executor.submit(task, name, cfg["url"])
+                for name, cfg in camera_config.items() if cfg["enabled"]
+            ]
 
-                log_event(message=f"reading from lpr stream", level="info", camera=camera)
-                camera.lpr.first_frame = False
+            for f in as_completed(futures):
+                name, res = f.result()
+                log_event(message=f"{name} camera resolution detected as {res[0]}x{res[1]}", level="info")
+                results[name] = res
 
-            if camera.recording_state.recording:
-                frame, detected_texts = vp.process_frame(camera, frame)
-                now: float = time.time()
-                ts = datetime.now().isoformat()
-                timestamp_str = make_ts_string_precise(now)
-                license_image_path = os.path.join(camera.config.plates_dir, f"{timestamp_str}_plate") + ".jpg"
-                license_metadata_path = os.path.join(camera.config.metadata_dir, f"{timestamp_str}_plate") + ".json"
-                cv2.imwrite(license_image_path, frame)
-                write_json(camera, "", ts, now, license_image_path, license_metadata_path)
-                log_event(message=f"License plate logged", level="info", camera=camera, file_path=license_metadata_path)
-                if detected_texts:
-                    tags = '_'.join(detected_texts)
-                    license_image_path = os.path.join(camera.config.plates_dir, f"{timestamp_str}_{tags}") + ".jpg"
-                    license_metadata_path = os.path.join(camera.config.metadata_dir, f"{timestamp_str}_{tags}") + ".json"
-                    cv2.imwrite(license_image_path, frame)
-                    log_event(message=f"License plate identified {tags}", level="info", camera=camera, file_path=license_metadata_path)
-                    write_json(camera, tags, ts, now, license_image_path, license_metadata_path)
-
+        return results

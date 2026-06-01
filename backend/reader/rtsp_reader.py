@@ -86,7 +86,7 @@ class RTSPReader(Reader):
 
     @override
     def start(self):
-        logger.debug(f"Starting RTSPReader for camera {self.camera.config.name}")
+        logger.debug(f"starting RTSP reader for camera {self.camera.config.name}")
         self._open_stream()
         self.thread = Thread(target=self._frame_reader, daemon=True)
         self.thread.start()
@@ -359,7 +359,7 @@ class RTSPReader(Reader):
             self.total_frames += 1
             self.drop_rate = self.total_drops / self.total_frames
 
-        logger.info(f"{self.camera.config.name}: RTSPReader thread exiting")
+        logger.info(f"{self.camera.config.name} RTSPReader thread exiting")
 
 
     def _read_exact(self, fd, view, size, timeout=2.0):
@@ -405,25 +405,25 @@ class RTSPReader(Reader):
 
         # All-black or all-white frames are suspicious
         if mean < 1.0 or mean > 254.0:
-            logger.warning(f"{self.camera.config.name}: mean={mean:.2f} - Detected corrupted frame, dropping")
+            logger.warning(f"{self.camera.config.name} mean={mean:.2f} - Detected corrupted frame, dropping")
             return True
 
         # Exposure jump / I-frame jump
         if hasattr(self, '_prev_mean') and abs(mean - self._prev_mean) > 80:
-            logger.warning(f"{self.camera.config.name}: exposure jump > 80 - Detected exposure jump, dropping")
+            logger.warning(f"{self.camera.config.name} exposure jump > 80 - Detected exposure jump, dropping")
             return True
 
         if hasattr(self, '_prev_frame') and self._prev_frame is not None:
             diff = cv2.absdiff(frame, self._prev_frame)
             if diff.mean() > 120.0:
-                logger.warning(f"{self.camera.config.name}: diff.mean={diff.mean():.2f} - Detected corrupted frame, dropping")
+                logger.warning(f"{self.camera.config.name} diff.mean={diff.mean():.2f} - Detected corrupted frame, dropping")
                 return True
             
             # Optional: first row continuity
             cv2.absdiff(frame[0], self._prev_frame[0], dst=self._diff_buf_row)
             continuity_diff = self._diff_buf_row.mean()
             if continuity_diff.mean() > 150:
-                logger.warning(f"{self.camera.config.name}: continuity_diff.mean={continuity_diff.mean():.2f} - Detected corrupted frame, dropping")
+                logger.warning(f"{self.camera.config.name} continuity_diff.mean={continuity_diff.mean():.2f} - Detected corrupted frame, dropping")
                 return True
 
         self._prev_mean = mean
@@ -568,7 +568,7 @@ class RTSPReader(Reader):
         """Create a pipe for YOLO frames and return (read_fd, write_fd)."""
         read_fd, write_fd = os.pipe()
         logger.debug(
-            f"{self.camera.config.name}: Created YOLO pipe "
-            f"read FD={read_fd}, write FD={write_fd}"
+            f"{self.camera.config.name} created YOLO pipe "
+            f"read fd={read_fd}, write fd={write_fd}"
         )
         return read_fd, write_fd
