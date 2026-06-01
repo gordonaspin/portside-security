@@ -70,9 +70,6 @@ class Camera:
         # State variables
         self.is_night: bool = False
 
-    def is_lpr(self) -> bool:
-        return hasattr(self, "lpr")
-
     def update_yolo_confidence_threshold(self, val):
         self.motion.profile.yolo_confidence_threshold.value = val
 

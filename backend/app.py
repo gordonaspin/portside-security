@@ -98,10 +98,6 @@ def main(username, password, gui_username, gui_password,
 
     for camera in config["cameras"].values():
         camera["url"] = replace_url_credentials(camera["url"], username, password)
-        try:
-            camera["lpr"]["url"] = replace_url_credentials(camera["lpr"]["url"], username, password)
-        except KeyError:
-            pass
 
     _NVR = nvr = NVR(config)
     app = create_app(config, nvr)

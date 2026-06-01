@@ -15,7 +15,6 @@ from numpy.typing import NDArray
 from nvr.camera.camera import Camera
 from logger.logger import log_event
 from nvr.file_cleaner import FileCleaner
-from nvr.lpr import LicensePlateRecognition, VideoProcessor
 from nvr.processor import FrameProcessor
 from reader.rtsp_reader import Reader, RTSPReader
 from recorder.factory import FrameRecorderFactory
@@ -166,32 +165,6 @@ class NVR:
         files.sort(key=lambda x: x["start_time"])
 
         return files
-
-
-    def _lpr_frame_reader(self, camera: Camera):
-        """
-        Thread to read frames from the ffmpeg stdout stream and puts the frame on the camera queue.
-        The queue length is 1, so if the queue is full that frame on the queue is dropped and
-        replaced with the new frame. This means we drop frames to keep up. This is only for
-        image processing, frames written to segments are not dropped
-        """
-        current_thread().name = f"{camera.config.name} _lpr_frame_reader"
-
-        frame_size = camera.lpr.width * camera.lpr.height * 3
-
-        while not self.stop_event.is_set():
-            raw = self._read_exact(camera.lpr.process.stdout, frame_size)
-
-            if raw is None:
-                log_event(message="lpr reader failed", level="warn", camera=camera)
-                continue
-
-            frame = np.frombuffer(raw, np.uint8).reshape((camera.lpr.height, camera.lpr.width, 3))
-
-            # latest-frame-wins
-            if camera.lpr.queue.full():
-                camera.lpr.queue.get_nowait()
-            camera.lpr.queue.put(frame)
 
 
     def get_all_camera_resolutions(self,camera_config):

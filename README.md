@@ -93,8 +93,7 @@ Configuration is provided in a nvr.json file. "resolution" specifies the [x, y] 
     },
     "yolo": {
         "classes": ["person", "car", "truck", "bus", "cat", "dog", "bicycle", "motorcycle"],
-        "model": "backend/model/yolov8n.pt",
-        "lpr_model": "backend/model/license-plate-finetune-v1l.pt"
+        "model": "backend/model/yolov8n.pt"
     },
     "cameras": {
         "Cam1": {
@@ -145,14 +144,6 @@ Configuration is provided in a nvr.json file. "resolution" specifies the [x, y] 
             "minimum_motion_confidence": 0.3,
             "minimum_motion_frames": 8.0,
             "minimum_sum_box_area": 0.7,
-            "lpr": {
-                "enabled": false,
-                "url": "rtsp://username:password@hostname.com:554/cam/realmonitor?channel=1&subtype=0",
-                "top": 720,
-                "left": 384,
-                "width": 2304,
-                "height": 760
-            },
             "debug": false
         }
     }
