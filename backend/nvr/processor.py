@@ -4,6 +4,7 @@ from datetime import datetime
 from copy import deepcopy
 from logging import getLogger
 from threading import Thread, Event, current_thread
+from typing import Tuple
 
 import cv2
 import numpy as np
@@ -777,7 +778,7 @@ class FrameProcessor():
         self,
         frame_bgr: NDArray[np.uint8],
         yolo_result: Results | None
-    ) -> NDArray[np.uint8]:
+    ) -> Tuple[NDArray[np.uint8], bool]:
         """
         Choose the final debug frame:
         - if debug panels exist → use them
@@ -785,9 +786,9 @@ class FrameProcessor():
         - else → use raw frame
         """
         if self.camera.config.debug and self.camera.debug_motion_image is not None:
-            return self.camera.debug_motion_image
+            return self.camera.debug_motion_image, True
 
-        return self._apply_yolo_overlay(frame_bgr, yolo_result)
+        return self._apply_yolo_overlay(frame_bgr, yolo_result), False
 
 
     def _finalize_output(
@@ -806,14 +807,16 @@ class FrameProcessor():
         """
 
         # Select final frame (debug mosaic > YOLO overlay > raw)
-        final_frame = self._select_frame(frame_bgr, yolo_result)
+        final_frame, debug_frame = self._select_frame(frame_bgr, yolo_result)
         # Draw status text on the ORIGINAL frame
-        draw_status_text(
-            final_frame,
-            self.status_text,
-            self.objects_text,
-            self.camera.recording_state.recording,
-        )
+
+        if not debug_frame:
+            draw_status_text(
+                final_frame,
+                self.status_text,
+                self.objects_text,
+                self.camera.recording_state.recording,
+            )
         # Update GUI-visible frame
         self.camera.latest_frame = final_frame
 

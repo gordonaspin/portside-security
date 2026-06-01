@@ -55,20 +55,20 @@ def draw_status_text(frame, status_text, objects_text, is_recording):
         x=x,
         y=y,
         font=font,
-        color=(255,0,0) if is_recording else (0,255,0),
+        color="red" if is_recording else "lime",
         bg=(32,32,32)
     )
 
     # Second line
     if objects_text:
-        y += layout.title_spacing
+        y += h1
         h2 = draw_text(
             draw,
             objects_text,
             x=x,
             y=y,
             font=font,
-            color=(255,255,255),
+            color="white",
             bg=(32,32,32)
         )
 
@@ -85,7 +85,7 @@ class TextLayout:
         self.ref_font_size = 100
         self.ref_h = self._measure_ref_height()
 
-        self.title_fs, self.title_spacing = self._compute(20, 1.0)
+        self.title_fs, self.title_spacing = self._compute(20, 0.90)
         self.dbg_fs,   self.dbg_spacing   = self._compute(20, 0.80)
         self.label_fs, self.label_spacing = self._compute(20, 0.80)
 
@@ -178,10 +178,10 @@ def draw_debug_panels(
     half_w = w // 2
     half_h = h // 2
 
-    p1 = cv2.resize(orig_panel, (half_w, half_h))
-    p2 = cv2.resize(bg_panel, (half_w, half_h))
-    p3 = cv2.resize(diff_panel, (half_w, half_h))
-    p4 = cv2.resize(thresh_panel, (half_w, half_h))
+    p1 = cv2.resize(orig_panel, (half_w, half_h), cv2.INTER_AREA)
+    p2 = cv2.resize(bg_panel, (half_w, half_h), cv2.INTER_AREA)
+    p3 = cv2.resize(diff_panel, (half_w, half_h), cv2.INTER_AREA)
+    p4 = cv2.resize(thresh_panel, (half_w, half_h), cv2.INTER_AREA)
 
     # ---------------- DRAW TEXT AFTER RESIZE ----------------
     layout = TextLayout(half_h, half_w)
@@ -190,14 +190,15 @@ def draw_debug_panels(
 
     # --- Panel 1: Original ---
     pil_img, draw = begin_pillow_draw(p1)
-    draw_text(draw, status_text, 0, 0,
+    h1 = draw_text(draw, status_text, 0, 0,
               font_title,
-              "red" if is_recording else "green",
-              bg="darkslategray")
-    draw_text(draw, objects_text, 0, layout.title_spacing,
-              font_title, "white", bg="darkslategray")
+              "red" if is_recording else "lime",
+              bg=(32,32,32))
+    if objects_text:
+        draw_text(draw, objects_text, 0, h1,
+                font_title, "white", bg=(32,32,32))
     draw_text(draw, "original frame",
-              layout.px(0.01), layout.py(0.90),
+              layout.px(0.01), layout.py(0.80),
               font_title, "yellow")
     end_pillow_draw(p1, pil_img)
 
@@ -217,7 +218,10 @@ def draw_debug_panels(
 
     # --- Panel 4: Threshold ---
     pil_img, draw = begin_pillow_draw(p4)
-
+    draw_text(draw, "threshold",
+              layout.px(0.01), layout.py(0.90),
+              font_title, "yellow")
+    
     # Per-contour metrics (scaled coords)
     scale_x = half_w / w
     scale_y = half_h / h
@@ -241,10 +245,6 @@ def draw_debug_panels(
             label = f"{model_names[cls_id]} {conf:.2f}"
             draw_text(draw, label, xs, ys - layout.py(0.005),
                       font_label, "white")
-
-    draw_text(draw, "threshold",
-              layout.px(0.01), layout.py(0.90),
-              font_title, "yellow")
 
     end_pillow_draw(p4, pil_img)
 
