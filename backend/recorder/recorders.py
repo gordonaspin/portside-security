@@ -37,6 +37,7 @@ class Recorder:
         self.lock = threading.Lock()
         self.thread = None
         self.filename = None
+        self.log_filename = None
         self.fps = None
 
     def add_frame(self, frame):
@@ -69,6 +70,8 @@ class Recorder:
             dir=self.camera.config.recordings_dir,
             suffix=".mp4",
             delete=False).name
+        
+        self.log_filename = self.filename + ".log"
 
         # Seed the recording queue with a snapshot of the current pre-buffer
         self.record_queue = deque(list(self.rolling_buffer))
@@ -236,6 +239,9 @@ class FfmpegFrameRecorder(Recorder):
             "-pix_fmt", "bgr24",       # Matches OpenCV format
             "-s", f"{self.camera.config.width}x{self.camera.config.height}",
             "-r", f"{fps}",            # Framerate
+            "-use_wallclock_as_timestamps", "1",
+            "-vsync", "vfr",
+            
             "-i", "-",                 # Input from Python pipe
             
             # --- Compression & Compatibility Settings ---
@@ -250,12 +256,14 @@ class FfmpegFrameRecorder(Recorder):
         ]
         
         try:
+            log_file = open(self.log_filename, "w")
+
             # Run the process
             process = subprocess.Popen(
                 command,
                 stdin=subprocess.PIPE,
                 stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL
+                stderr=log_file,
                 )
             while True:
                 frame = None
@@ -276,13 +284,17 @@ class FfmpegFrameRecorder(Recorder):
         except Exception as e:
             pass
         finally:
+            log_file.close()
             process.stdin.close()
             process.wait()
     
     def _finalize_files(self, input_file: str, media_filename: str, timestamp_name_tags: str):
         # FFmpeg already produced a web‑ready MP4 at input_file
         os.rename(input_file, media_filename)
-
+        os.rename(
+            self.log_filename,
+            os.path.join(self.camera.config.logs_dir, timestamp_name_tags + "_merge.log"),
+        )
 
 class FfmpegSegmentRecorder(Recorder):
     def __init__(self, camera: Camera, pre_record_duration=PRE_RECORD_DURATION):
@@ -539,7 +551,7 @@ class FfmpegSegmentRecorder(Recorder):
         os.rename(input_file, media_filename)
         os.rename(
             self.log_filename,
-            os.path.join(self.camera.logs_dir, timestamp_name_tags + "_merge.log"),
+            os.path.join(self.camera.config.logs_dir, timestamp_name_tags + "_merge.log"),
         )
         os.rename(
             self.list_filename,
