@@ -3,8 +3,6 @@ from collections import defaultdict
 from dataclasses import dataclass
 from typing import Any
 
-from ultralytics import YOLO
-
 from nvr.camera.motion_profiles import DayMotionProfile, NightMotionProfile
 
 @dataclass
@@ -25,14 +23,16 @@ class MotionResult:
 
 
 class MotionDetector:
-    def __init__(self, cfg: dict, max_pixels: int, model: YOLO):
-        self.cfg = cfg
-        self.model = model
-        self.max_pixels = max_pixels
+    def __init__(self, cfg: dict, width: int, height: int):
+        self.width = width
+        self.height = height
+        self.max_pixels = self.width * self.height
 
         # Profiles
         self.day_profile = DayMotionProfile(
-            max_pixels=max_pixels,
+            width=width,
+            height=height,
+            max_pixels=self.max_pixels,
             yolo_confidence_threshold=cfg["yolo_confidence"],
             motion_threshold=cfg["motion_threshold"],
             min_motion_confidence=cfg["minimum_motion_confidence"],
@@ -40,7 +40,9 @@ class MotionDetector:
             min_sum_box_area=cfg["minimum_sum_box_area"],
         )
         self.night_profile = NightMotionProfile(
-            max_pixels=max_pixels,
+            width=width,
+            height=height,
+            max_pixels=self.max_pixels,
             yolo_confidence_threshold=cfg["yolo_confidence"],
             motion_threshold=cfg["motion_threshold"],
             min_motion_confidence=cfg["minimum_motion_confidence"],

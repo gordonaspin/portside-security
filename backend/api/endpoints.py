@@ -175,7 +175,7 @@ def create_app(config: dict, nvr: NVR):
 
     @app.get("/api/classes")
     def get_classes(user=Depends(require_user)):
-        return {"classes": config["yolo"]["classes"]}
+        return {"classes": config["model"]["classes"]}
 
     @app.get("/api/system_name")
     def get_system_name(user=Depends(require_user)):

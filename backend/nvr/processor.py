@@ -23,7 +23,6 @@ from utils.utils import (
     make_readable_ts,
     tags_to_str,
     boxes_overlap,
-    yolo_box_to_roi,
     detect_object_color)
 
 logger = getLogger("pynvr.processor")
@@ -34,15 +33,16 @@ class FrameProcessor():
         camera: Camera,
         reader: Reader,
         recorder_factory: FrameRecorderFactory,
-        model: YOLO,
-        selected_classes: list[int],
+        model_cfg: dict[str, str],
         stop_event: Event,
     ):
         self.camera: Camera = camera
         self.reader: Reader = reader
         self.recorder_factory: FrameRecorderFactory = recorder_factory
-        self.model: YOLO = model
-        self.selected_classes = selected_classes
+        self.model: YOLO = YOLO(model_cfg["name"])
+        classname_to_classindex: dict = {v: k for k, v in self.model.names.items()}
+        self.selected_classes: list[int] = [classname_to_classindex[n] for n in model_cfg["classes"]]
+
         self.stop_event: Event = stop_event
         self.thread: Thread = None
         self.recorder: Recorder = self.recorder_factory.create(self.camera)
@@ -89,6 +89,13 @@ class FrameProcessor():
             if frame_bgr is None:
                 continue
 
+            yolo_frame = self.camera.buffers.yolo_frame
+            if yolo_frame is None:
+                continue
+
+            full_h, full_w = frame_bgr.shape[:2]
+            yolo_h, yolo_w = yolo_frame.shape[:2]
+
             now = time.time()
             self.frame_count += 1
 
@@ -105,9 +112,18 @@ class FrameProcessor():
 
             motion_boxes = self._find_motion()
 
-            # --- YOLO PIPELINE ---
-            yolo_result = self._run_yolo_if_needed(frame_bgr, motion_boxes)
-            self._filter_yolo_overlaps(frame_bgr, yolo_result, motion_boxes)
+            # --- YOLO PIPELINE (runs on yolo_frame) ---
+            yolo_result = self._run_yolo_if_needed(yolo_frame, motion_boxes)
+
+            # --- Scale YOLO boxes to full resolution ---
+            self._scale_yolo_boxes_to_full_res(
+                yolo_result,
+                full_w, full_h,
+                yolo_w, yolo_h
+            )
+
+            # --- Filter YOLO detections based on motion overlap ---
+            self._filter_yolo_overlaps(frame_bgr, yolo_result, motion_boxes, full_w, full_h)
 
             # --- CONFIDENCE + PERSISTENCE ---
             self.camera.motion.update_confidence(motion_boxes, now)
@@ -118,12 +134,43 @@ class FrameProcessor():
                 # --- RECORDING LOGIC ---
                 self._update_recording_state(motion_boxes, now)
 
-            # --- DEBUG UI ---
+            # 1. Build status text strings
+            self._update_status_strings()
+
+            # 2. Build debug UI if camera.debug (uses annotated frame)
             self._render_debug_ui(frame_bgr, yolo_result)
 
-            # --- FINAL OUTPUT ---
+            # 3. Finalize output (select debug > YOLO > raw)
             self._finalize_output(frame_bgr, yolo_result)
+            
+            # 4. Draw status text on the ORIGINAL frame
+            draw_status_text(
+                self.camera.latest_frame,
+                self.status_text,
+                self.objects_text,
+                self.camera.recording_state.recording,
+            )
             self.recorder.add_frame(self.camera.latest_frame)
+
+    def _update_status_strings(self):
+        """
+        creates a string that represents the status (red/green for recording/live)
+        """
+        idx = int(time.time() * 4) % 4
+        record_cycle = ["*", "*", " ", " "]
+        pulse = record_cycle[idx] if self.camera.recording_state.recording else ""
+
+        status = f"{pulse}{'REC' if self.camera.recording_state.recording else 'LIVE'}"
+
+        parts = [status]
+        if self.camera.is_night:
+            parts.append("Night")
+
+        parts.append(f"FPS {int(self.reader.fps.value())}:{self.reader.drop_rate:.2f}")
+        parts.append(make_readable_ts(time.time()))
+
+        self.objects_text = tags_to_str(self.camera.motion.active_objects_dict)
+        self.status_text = " | ".join(parts)
 
     def _update_night_day(self, frame_bgr: NDArray[np.uint8], now: float) -> None:
         """
@@ -399,25 +446,19 @@ class FrameProcessor():
 
     def _run_yolo_if_needed(
         self,
-        frame_bgr: NDArray[np.uint8],
+        yolo_frame: NDArray[np.uint8],
         motion_boxes: list[tuple[int, int, int, int]]
     ) -> Results | None:
-        """
-        Run YOLO only when:
-        - debug mode is enabled, OR
-        - there is motion AND motion_confidence > 0.05
 
-        This preserves your original behavior exactly.
-        """
         if not (self.camera.config.debug or (motion_boxes and self.camera.motion.motion_confidence > 0.05)):
             return None
 
         result: Results = self.model.predict(
-            frame_bgr,
+            yolo_frame,
             conf=self.camera.motion.profile.yolo_confidence_threshold.value,
             classes=self.selected_classes if self.selected_classes else None,
             verbose=False,
-            imgsz=512,
+            imgsz=max(yolo_frame.shape[0], yolo_frame.shape[1]),
         )[0]
 
         return result
@@ -426,7 +467,7 @@ class FrameProcessor():
         self,
         frame_bgr,
         result: Results | None,
-        motion_boxes: list[tuple[int, int, int, int]]
+        motion_boxes: list[tuple[int, int, int, int]], full_w: int, full_h: int
     ) -> None:
         """
         Filter YOLO detections to only those overlapping motion boxes.
@@ -451,7 +492,7 @@ class FrameProcessor():
 
         # Inflate motion boxes
         inflated_motion_boxes = [
-            self._inflate_box(b, self.camera.motion.profile.inflate_motion_boxes)
+            self._inflate_box(b, self.camera.motion.profile.inflate_motion_boxes, frame_w=full_w, frame_h=full_h)
             for b in motion_boxes
         ]
 
@@ -478,23 +519,83 @@ class FrameProcessor():
         # Filter YOLO results
         result.boxes = result.boxes[keep_mask]
 
+        full_h, full_w = frame_bgr.shape[:2]
         # Extract class + color for each kept detection
         for box in result.boxes:
-            class_name = self.model.names[int(box.cls)]
-            roi = yolo_box_to_roi(frame_bgr, box)
+            x1 = max(0, min(full_w - 1, int(box.xyxy[0][0])))
+            y1 = max(0, min(full_h - 1, int(box.xyxy[0][1])))
+            x2 = max(0, min(full_w - 1, int(box.xyxy[0][2])))
+            y2 = max(0, min(full_h - 1, int(box.xyxy[0][3])))
+
+            roi = frame_bgr[y1:y2, x1:x2]
             if roi.size > 0:
+                class_name = self.model.names[int(box.cls)]
                 color = detect_object_color(roi, self.camera.is_night)
                 self.camera.motion.classes_in_frame_dict[class_name].add(color)
 
-    def _inflate_box(self, box, inflate_px: int) -> tuple[int, int, int, int]:
-        """Inflate a box by inflate_px in all directions, clamped to frame."""
-        x1, y1, x2, y2 = box
-        x1 = max(0, x1 - inflate_px)
-        y1 = max(0, y1 - inflate_px)
-        x2 = min(self.camera.config.width - 1, x2 + inflate_px)
-        y2 = min(self.camera.config.height - 1, y2 + inflate_px)
+    def _inflate_box(self, box, inflate_px, frame_w, frame_h):
+        """
+        Inflate a bounding box by inflate_px pixels on all sides.
+        Accepts either:
+            - a YOLO box tensor (xyxy)
+            - a tuple/list (x1, y1, x2, y2)
+        Returns a tuple (x1, y1, x2, y2) clamped to frame bounds.
+        """
+
+        # Normalize input
+        if hasattr(box, "xyxy"):   # YOLO Boxes object
+            xyxy = box.xyxy[0].cpu().numpy()
+            x1, y1, x2, y2 = xyxy.tolist()
+        else:
+            x1, y1, x2, y2 = box
+
+        x1 -= inflate_px
+        y1 -= inflate_px
+        x2 += inflate_px
+        y2 += inflate_px
+
+        # Clamp to frame bounds
+        x1 = max(0, min(frame_w - 1, x1))
+        y1 = max(0, min(frame_h - 1, y1))
+        x2 = max(0, min(frame_w - 1, x2))
+        y2 = max(0, min(frame_h - 1, y2))
+
         return (x1, y1, x2, y2)
 
+
+    def _scale_yolo_boxes_to_full_res(
+        self,
+        result: Results | None,
+        full_w: int,
+        full_h: int,
+        yolo_w: int,
+        yolo_h: int
+    ) -> None:
+
+        if result is None or result.boxes is None or len(result.boxes) == 0:
+            return
+
+        boxes = result.boxes
+
+        # Clone the entire data tensor (N x 6 or N x 7 depending on model)
+        data = boxes.data.clone()
+
+        # Extract xyxy (first 4 columns)
+        xyxy = data[:, :4]
+
+        scale_x = full_w / yolo_w
+        scale_y = full_h / yolo_h
+
+        scale = xyxy.new_tensor([scale_x, scale_y, scale_x, scale_y])
+
+        # Vectorized scaling (no in-place ops)
+        xyxy = xyxy * scale
+
+        # Replace the first 4 columns with the scaled coords
+        data[:, :4] = xyxy
+
+        # Replace the entire tensor (allowed)
+        boxes.data = data
 
     def _apply_fast_stop_logic(
         self,
@@ -662,11 +763,13 @@ class FrameProcessor():
 
         self.camera.debug_motion_image = draw_debug_panels(
             self.camera,
+            self.model.names,
             self.frame_count,
-            self.status_text,
-            self.objects_text,
             frame_bgr,
             yolo_result,
+            self.status_text,
+            self.objects_text,
+            self.camera.recording_state.recording,
             self.camera.motion.motion_boxes_list,
             [], [], [], [], []  # placeholders for krs/kcs/dsrs/dscs/dars/dacs
         )
@@ -708,35 +811,12 @@ class FrameProcessor():
         - update status text and objects text
         - store final frame in camera.latest_frame
         """
-        # Draw status text on the raw frame BEFORE selecting debug/YOLO overlays
-        draw_status_text(frame_bgr, self.status_text, self.objects_text, self.camera.recording_state.recording)
 
         # Select final frame (debug mosaic > YOLO overlay > raw)
         final_frame = self._select_frame(frame_bgr, yolo_result)
 
         # Update GUI-visible frame
         self.camera.latest_frame = final_frame
-
-        # Build status text
-        parts = [self._make_status()]
-        if self.camera.is_night:
-            parts.append("Night")
-
-        parts.append(f"FPS {int(self.reader.fps.value())}:{self.reader.drop_rate:.2f}")
-        parts.append(make_readable_ts(time.time()))
-
-        self.objects_text = tags_to_str(self.camera.motion.active_objects_dict)
-        self.status_text = " | ".join(parts)
-
-    def _make_status(self):
-        """
-        creates a string that represents the status (red/green for recording/live)
-        """
-        idx = int(time.time() * 4) % 4
-        record_cycle = ["*", "*", " ", " "]
-        pulse = record_cycle[idx] if self.camera.recording_state.recording else ""
-
-        return f"{pulse}{'REC' if self.camera.recording_state.recording else 'LIVE'}"
 
     def _apply_yolo_overlay(
         self,

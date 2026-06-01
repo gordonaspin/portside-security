@@ -5,13 +5,11 @@ import queue
 import time
 from datetime import datetime, timedelta
 from logging import getLogger
-from math import sqrt
 from threading import Thread, Event, current_thread
 
 import cv2
 import numpy as np
 from numpy.typing import NDArray
-from ultralytics import YOLO
 
 from nvr.camera.camera import Camera
 from logger.logger import log_event
@@ -22,6 +20,7 @@ from reader.rtsp_reader import Reader, RTSPReader
 from recorder.factory import FrameRecorderFactory
 from utils.thread_safe import ThreadSafeList
 from utils.utils import make_readable_ts, make_ts_string_precise
+from utils.utils import get_camera_resolution
 
 logger = getLogger("pynvr")
 
@@ -30,17 +29,10 @@ logger = getLogger("pynvr")
 # =========================
 class NVR:
     def __init__(self, config: dict):
-        self.width: int = config["resolution"]["width"]
-        self.height: int = config["resolution"]["height"]
-        self.max_pixels = self.width * self.height
+
         self.recordings_dir: str = config["recordings_directory"]
         self.logs_dir: str = config["logs_directory"]
-        self.lpr_model: str = config["yolo"]["lpr_model"]
         self.debug: bool = config["debug"]
-        
-        yolo = YOLO(config["yolo"]["model"])
-        classname_to_classindex: dict = {v: k for k, v in yolo.names.items()}
-        self.selected_classes: list[int] = [classname_to_classindex[n] for n in config["yolo"]["classes"]]
         self.stop_event: Event = Event()
         self.thread: Thread = None
 
@@ -50,22 +42,34 @@ class NVR:
         self.frame_readers: dict[str, Reader] = {}
         self.frame_processors: dict[str, FrameProcessor] = {}
 
-        for name, cfg in config["cameras"].items():
+        for name, _ in config["cameras"].items():
+            if not config["cameras"][name]["enabled"]:
+                log_event(message=f"{name} camera is disabled, skipping", level="info")
+                continue
+            actual_width, actual_height = get_camera_resolution(config["cameras"][name]["url"])
+            log_event(message=f"{name} camera resolution detected as {actual_width}x{actual_height}", level="info")
+            if actual_width is None or actual_height is None:
+                actual_width = config["cameras"][name]["resolution"]["width"]
+                actual_height = config["cameras"][name]["resolution"]["height"]
+                log_event(message=f"Could not get resolution, falling back to configured resolution {actual_width}x{actual_height}", level="warn", camera=name)
             self.cameras[name] = Camera(name=name,
-                                        cfg=cfg,
-                                        width=self.width,
-                                        height=self.height,
+                                        width=actual_width,
+                                        height=actual_height,
+                                        config=config,
                                         logs_dir=self.logs_dir,
                                         recordings_dir=self.recordings_dir,
-                                        model=YOLO(config["yolo"]["model"]),
                                         )
-            self.frame_readers[name] = RTSPReader(self.cameras[name], self.stop_event)
+
+            self.frame_readers[name] = RTSPReader(
+                self.cameras[name],
+                config["model"]["resolution"],
+                config["cameras"][name]["recorder_factory"] == "FfmpegSegmentRecorderFactory",
+                self.stop_event)
             self.frame_processors[name] = FrameProcessor(
                 camera=self.cameras[name],
                 reader=self.frame_readers[name],
                 recorder_factory=FrameRecorderFactory.create(self.cameras[name], config["cameras"][name]["recorder_factory"]),
-                model=YOLO(config["yolo"]["model"]),
-                selected_classes=self.selected_classes,
+                model_cfg=config["model"],
                 stop_event=self.stop_event,
                 )
         FileCleaner.stop_event = self.stop_event

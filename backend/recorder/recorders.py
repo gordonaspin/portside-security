@@ -11,7 +11,8 @@ from typing import override
 
 import cv2
 
-from constants import PRE_RECORD_DURATION
+from constants import PRE_RECORD_DURATION, TS_FILE_RING_SECONDS
+
 from logger.logger import log_event
 from nvr.camera.camera import Camera
 from nvr.file_cleaner import FileCleaner
@@ -298,6 +299,7 @@ class FfmpegSegmentRecorder(Recorder):
         self.tuner_stats_snapshot = None
         self.tuner_recs_snapshot = None
         self.fps: float | None = None
+        FileCleaner.add(self.camera.config.segments_dir, "*.ts", timedelta(seconds=TS_FILE_RING_SECONDS), timedelta(seconds=5))
 
     @override
     def add_frame(self, frame):

@@ -1,3 +1,4 @@
+import subprocess
 import time
 from collections import defaultdict
 from datetime import datetime
@@ -6,16 +7,24 @@ from math import sqrt
 import cv2
 import numpy as np
 
-def make_ts_string(epoch=time.time()):
+def make_ts_string(epoch=None):
+    if epoch is None:
+        epoch = time.time()
     return datetime.fromtimestamp(epoch).strftime("%Y%m%d_%H%M%S")
 
-def make_ts_string_precise(epoch=time.time()):
+def make_ts_string_precise(epoch=None):
+    if epoch is None:
+        epoch = time.time()
     return datetime.fromtimestamp(epoch).strftime("%Y%m%d_%H%M%S_%f")[:-3]
 
-def make_readable_ts(epoch=time.time()):
+def make_readable_ts(epoch=None):
+    if epoch is None:
+        epoch = time.time()
     return datetime.fromtimestamp(epoch).strftime("%Y/%m/%d %H:%M:%S")
 
-def make_readable_hms(epoch=time.time()):
+def make_readable_hms(epoch=None):
+    if epoch is None:
+        epoch = time.time()
     return datetime.fromtimestamp(epoch).strftime("%H:%M:%S")
 
 def tags_to_str(tags: defaultdict[set]):
@@ -29,24 +38,21 @@ def tags_to_str(tags: defaultdict[set]):
         parts.append(f"{object_str}-{color_str}")
     return "_".join(parts)
 
+def get_camera_resolution(url: str):
+    ffprobe_cmd = f"ffprobe -v error -select_streams v:0 -show_entries stream=width,height -of csv=p=0 '{url}'"
+    try:
+        output = subprocess.check_output(ffprobe_cmd, shell=True).decode().strip()
+        width, height = map(int, output.split(","))
+        return width, height
+    except Exception as e:
+        return None, None
+
 def boxes_overlap(a, b) -> bool:
     """Return True if two boxes (x1,y1,x2,y2) overlap."""
     ax1, ay1, ax2, ay2 = a
     bx1, by1, bx2, by2 = b
     return not (ax2 < bx1 or bx2 < ax1 or ay2 < by1 or by2 < ay1)
 
-def yolo_box_to_roi(frame_bgr, box):
-    x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
-
-    # Clamp to image bounds
-    h, w = frame_bgr.shape[:2]
-    x1 = max(0, min(x1, w))
-    x2 = max(0, min(x2, w))
-    y1 = max(0, min(y1, h))
-    y2 = max(0, min(y2, h))
-
-    roi = frame_bgr[y1:y2, x1:x2].copy()
-    return roi
 
 def detect_object_color(roi_bgr, is_night: bool):
     """

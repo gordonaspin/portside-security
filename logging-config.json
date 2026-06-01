@@ -47,33 +47,76 @@
         "file"
       ]
     },
+    "root": {
+      "level": "DEBUG",
+      "handlers": [
+        "stderr", 
+        "file"
+      ]
+    },
     "uvicorn.error": {
       "level": "INFO",
       "handlers": [
         "stderr",
         "file"
-      ]
+      ],
+      "propagate": false
     },
     "uvicorn.access": {
       "level": "ERROR",
       "handlers": [
         "stderr",
         "file"
-      ]
+      ],
+      "propagate": false
     },
     "pynvr": {
       "level": "DEBUG",
       "handlers": [
         "stderr",
         "file"
-      ]
+      ],
+      "propagate": false
     },
     "pynvr.cleaner": {
       "level": "INFO",
       "handlers": [
         "stderr",
         "file"
-      ]
+      ],
+      "propagate": false
+    },
+    "pynvr.reader": {
+      "level": "DEBUG",
+      "handlers": [
+        "stderr",
+        "file"
+      ],
+      "propagate": false
+    },
+    "pynvr.recorder": {
+      "level": "DEBUG",
+      "handlers": [
+        "stderr",
+        "file"
+      ],
+      "propagate": false
+    },
+    "pynvr.processor": {
+      "level": "DEBUG",
+      "handlers": [
+        "stderr",
+        "file"
+      ],
+      "propagate": false
+    },
+    "pynvr.webrtc": {
+      "level": "DEBUG",
+      "handlers": [
+        "stderr",
+        "file"
+      ],
+      "propagate": false
     }
   }
 }

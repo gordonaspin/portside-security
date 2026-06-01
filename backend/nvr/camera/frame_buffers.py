@@ -2,46 +2,43 @@ import numpy as np
 from numpy.typing import NDArray
 
 class FrameBuffers:
-    def __init__(self, width: int, height: int):
-        self.width = width
-        self.height = height
-        self.initialized = False
+    def __init__(self, config: dict, width: int, height: int):
 
         # Buffers (all start as None)
-        self.background_buf: NDArray[np.float32] | None = None
-        self.bg_frame_buf: NDArray[np.uint8] | None = None
-        self.diff_blur_buf: NDArray[np.uint8] | None = None
-        self.diff_buf: NDArray[np.uint8] | None = None
-        self.diff_mask_buf: NDArray[np.uint8] | None = None
-        self.diff_filtered_buf: NDArray[np.uint8] | None = None
-        self.edges_buf: NDArray[np.uint8] | None = None
-        self.gray_buf: NDArray[np.uint8] | None = None
-        self.thresh_buf: NDArray[np.uint8] | None = None
-        self.sobel_x_buf: NDArray[np.int16] | None = None
-        self.sobel_y_buf: NDArray[np.int16] | None = None
-        self.sobel_x_abs_buf: NDArray[np.uint8] | None = None
-        self.sobel_y_abs_buf: NDArray[np.uint8] | None = None
+        self.background_buf: NDArray[np.float32]    = np.zeros((height, width), dtype=np.float32)
+        self.bg_frame_buf: NDArray[np.uint8]        = np.zeros((height, width), dtype=np.uint8)
+        self.diff_blur_buf: NDArray[np.uint8]       = np.zeros((height, width), dtype=np.uint8)
+        self.diff_buf: NDArray[np.uint8]            = np.zeros((height, width), dtype=np.uint8)
+        self.diff_mask_buf: NDArray[np.uint8]       = np.zeros((height, width), dtype=np.uint8)
+        self.diff_filtered_buf: NDArray[np.uint8]   = np.zeros((height, width), dtype=np.uint8)
+        self.edges_buf: NDArray[np.uint8]           = np.zeros((height, width), dtype=np.uint8)
+        self.gray_buf: NDArray[np.uint8]            = np.zeros((height, width), dtype=np.uint8)
+        self.thresh_buf: NDArray[np.uint8]          = np.zeros((height, width), dtype=np.uint8)
+        self.sobel_x_buf: NDArray[np.int16]         = np.zeros((height, width), dtype=np.int16)
+        self.sobel_y_buf: NDArray[np.int16]         = np.zeros((height, width), dtype=np.int16)
+        self.sobel_x_abs_buf: NDArray[np.uint8]     = np.zeros((height, width), dtype=np.uint8)
+        self.sobel_y_abs_buf: NDArray[np.uint8]     = np.zeros((height, width), dtype=np.uint8)
 
-    def initialize(self, frame_bgr: NDArray[np.uint8]):
-        if self.initialized:
-            return
+        # Full-res frame buffer (NumPy)
+        self.full_frame = np.empty((height, width, 3), dtype=np.uint8)
+        self.full_frame_bytes = memoryview(self.full_frame).cast('B')
+        self.full_frame_size = height * width * 3
 
-        h, w = frame_bgr.shape[:2]
+        # Read buffer for full-res pipe
+        self.read_buf_full = bytearray(self.full_frame_size)
+        self.read_view_full = memoryview(self.read_buf_full)
 
-        self.bg_frame_buf      = np.zeros((h, w), dtype=np.uint8)
-        self.diff_blur_buf     = np.zeros((h, w), dtype=np.uint8)
-        self.diff_buf          = np.zeros((h, w), dtype=np.uint8)
-        self.diff_filtered_buf = np.zeros((h, w), dtype=np.uint8)
-        self.diff_mask_buf     = np.zeros((h, w), dtype=np.uint8)
-        self.edges_buf         = np.zeros((h, w), dtype=np.uint8)
-        self.gray_buf          = np.zeros((h, w), dtype=np.uint8)
-        self.thresh_buf        = np.zeros((h, w), dtype=np.uint8)
-        self.sobel_x_buf       = np.zeros((h, w), dtype=np.int16)
-        self.sobel_y_buf       = np.zeros((h, w), dtype=np.int16)
-        self.sobel_x_abs_buf   = np.zeros((h, w), dtype=np.uint8)
-        self.sobel_y_abs_buf   = np.zeros((h, w), dtype=np.uint8)
+        # YOLO buffer (only if dual-pipe)
+        if (width != config["model"]["resolution"]["width"] or height != config["model"]["resolution"]["height"]):
+            self.yolo_frame = np.empty((config["model"]["resolution"]["height"], config["model"]["resolution"]["width"], 3), dtype=np.uint8)
+            self.yolo_frame_bytes = memoryview(self.yolo_frame).cast('B')
+            self.yolo_frame_size = config["model"]["resolution"]["height"] * config["model"]["resolution"]["width"] * 3
 
-        # Background model starts as float32 version of first gray frame
-        self.background_buf = self.gray_buf.astype("float32")
-
-        self.initialized = True
+            self.read_buf_yolo = bytearray(self.yolo_frame_size)
+            self.read_view_yolo = memoryview(self.read_buf_yolo)
+        else:
+            self.yolo_frame = None
+            self.yolo_frame_bytes = None
+            self.yolo_frame_size = None
+            self.read_buf_yolo = None
+            self.read_view_yolo = None
