@@ -160,7 +160,7 @@ class FrameProcessor():
         if self.camera.is_night:
             parts.append("Night")
 
-        parts.append(f"FPS {int(self.reader.fps.value())}:{self.reader.drop_rate:.2f}")
+        parts.append(f"FPS {int(self.recorder.fps.as_int())}/{int(self.reader.fps.as_int())}")
         parts.append(make_readable_ts(time.time()))
 
         self.objects_text = tags_to_str(self.camera.motion.active_objects_dict)
@@ -649,7 +649,7 @@ class FrameProcessor():
             self.camera.recording_state.recording = True
             self.camera.recording_state.recording_start_time = now
             self.camera.motion.active_objects_dict = deepcopy(self.camera.motion.classes_in_frame_dict)
-            self.recorder.start_recording(self.reader.fps.value())
+            self.recorder.start_recording()
 
             log_event(
                 message=f"recording start {tags_to_str(self.camera.motion.active_objects_dict)}",
@@ -665,10 +665,7 @@ class FrameProcessor():
         # --- STOP RECORDING ---
         if self.camera.recording_state.recording and not self.camera.recording_state.should_continue:
             if now - self.camera.motion.last_motion_time > constants.POST_RECORD_DURATION:
-                tags = deepcopy(self.camera.motion.active_objects_dict)
-
-                self.recorder.stop_recording(tags, self.reader.fps.value())
-
+                self.recorder.stop_recording()
                 # Reset state
                 self.recorder = self.recorder_factory.create(self.camera)
                 self.camera.recording_state.recording = False

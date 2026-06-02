@@ -27,12 +27,13 @@ def draw_text(draw, text, x, y, font, color, bg=None):
     bbox = draw.textbbox((x, y), text, font=font)
     tw = bbox[2] - bbox[0]
     th = bbox[3] - bbox[1]
+    padding = 2
 
     if bg is not None:
-        draw.rectangle([x, y, x + tw + 8, y + th + 8], fill=bg)
+        draw.rectangle([x, y, x + tw + padding*2, y + th + padding*2], fill=bg)
 
-    draw.text((x + 4, y + 4), text, font=font, fill=color)
-    return th + 8
+    draw.text((x + padding, y), text, font=font, fill=color)
+    return th + padding*2
 
 def end_pillow_draw(frame, pil_img):
     bgr = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)

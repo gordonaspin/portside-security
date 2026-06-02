@@ -16,29 +16,9 @@ from paddle.signal import frame
 
 from logger.logger import log_event
 from nvr.camera.camera import Camera
+from utils.utils import RollingAverage
 
 logger = getLogger("pynvr.reader")
-
-class RollingAverage:
-    def __init__(self, window_size=100):
-        self.window = deque(maxlen=window_size)
-        self.sum = 0.0
-
-    def update(self, value):
-        # If full, remove oldest from sum
-        if len(self.window) == self.window.maxlen:
-            self.sum -= self.window[0]
-
-        self.window.append(value)
-        self.sum += value
-
-        return self.sum / len(self.window)
-    
-    def value(self):
-        if not self.window:
-            return 0.0
-        return self.sum / len(self.window)
-
 
 class Reader():
     def __init__(self):
