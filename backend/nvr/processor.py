@@ -107,6 +107,9 @@ class FrameProcessor():
             # --- MOTION PIPELINE ---
             self._compute_gray_and_blur(frame_bgr)
             self._update_background()
+            if self.frame_count < 30:
+                continue
+            
             self._compute_motion_diff()
             if self._apply_shadow_filters():
                 continue

@@ -186,14 +186,27 @@ def create_app(config: dict, nvr: NVR):
         return config["mosaic"]
 
     @app.get("/api/events")
-    def api_events(mobile: bool=False, user=Depends(require_user)):
+    def api_events(
+        mobile: bool = False,
+        since: float | None = None,
+        user = Depends(require_user)
+    ):
         events = list(nvr.recordings)
+
+        # --- MOBILE FILTER (your existing logic) ---
         if mobile:
             cutoff_time = datetime.now() - timedelta(hours=4)
             end_times = [obj["end_time"] for obj in events]
             index = bisect.bisect_left(end_times, cutoff_time.timestamp())
             events = events[index:]
-        return {"events": list(nvr.recordings)}
+
+        # --- NEW: RETURN ONLY EVENTS NEWER THAN "since" ---
+        if since is not None:
+            start_times = [obj["start_time"] for obj in events]
+            index = bisect.bisect_right(start_times, since)
+            events = events[index:]
+
+        return {"events": events}
 
     @app.get("/api/logs")
     def get_logs(user=Depends(require_user)):

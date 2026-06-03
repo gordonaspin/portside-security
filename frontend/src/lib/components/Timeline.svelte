@@ -64,13 +64,20 @@
   }
 
   async function loadEvents() {
-    const res = await fetch(
-      `/api/events?mobile=${isMobile ? 1 : 0}`,
-      { credentials: "include" }
-    );
+    // newest event is at the END (oldest → newest)
+    const newestStart = events.length > 0
+      ? events[events.length - 1].start_time
+      : null;
+
+    const url = newestStart
+      ? `/api/events?mobile=${isMobile ? 1 : 0}&since=${newestStart}`
+      : `/api/events?mobile=${isMobile ? 1 : 0}`;
+
+    const res = await fetch(url, { credentials: "include" });
     const data = await res.json();
 
-    events = data.events.map((rec) => {
+    // map new events
+    const newEvents = data.events.map((rec) => {
       const media_url_encoded = rec.media_filename
         .split("/")
         .map(encodeURIComponent)
@@ -87,6 +94,9 @@
       };
     });
 
+    // append because list is oldest → newest
+    events = [...events, ...newEvents];
+
     // Desktop: align right edge to latest event on initial load only
     if (!initialAligned) {
       if (!isMobile && events.length > 0) {
@@ -102,6 +112,7 @@
       initialAligned = true;
     }
   }
+
 
   function getTimelineBounds() {
     const end = serverNow - offsetSeconds;
