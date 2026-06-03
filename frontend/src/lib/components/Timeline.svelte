@@ -877,6 +877,7 @@
         <div><strong>Start:</strong> {new Date(hoverEvent.start_time * 1000).toLocaleString()}</div>
         <div><strong>Stop:</strong> {new Date(hoverEvent.end_time * 1000).toLocaleString()}</div>
         <div><strong>Duration:</strong> {(hoverEvent.end_time - hoverEvent.start_time).toFixed(1)}s</div>
+        <div><strong>Recorder:</strong> {hoverEvent.recorder_type}</div>
       </div>
       <div class="tooltip-classes">
         {#each Object.entries(hoverEvent.tags || {}) as [cls, detail]}

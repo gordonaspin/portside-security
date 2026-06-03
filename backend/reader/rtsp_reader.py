@@ -460,7 +460,7 @@ class RTSPReader(Reader):
         base = [
             "ffmpeg",
             "-rtsp_transport", "tcp",
-            "-fflags", "nobuffer+genpts",
+            "-fflags", "nobuffer+genpts+discardcorrupt",
             "-flags", "low_delay",
             "-avioflags", "direct",
             "-i", url,

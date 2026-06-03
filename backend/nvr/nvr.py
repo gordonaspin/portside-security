@@ -63,12 +63,12 @@ class NVR:
             self.frame_readers[name] = RTSPReader(
                 self.cameras[name],
                 config["model"]["resolution"],
-                config["cameras"][name]["recorder_factory"] == "FfmpegSegmentRecorderFactory",
+                config["cameras"][name]["recorder"] == "FFmpegSegment",
                 self.stop_event)
             self.frame_processors[name] = FrameProcessor(
                 camera=self.cameras[name],
                 reader=self.frame_readers[name],
-                recorder_factory=FrameRecorderFactory.create(self.cameras[name], config["cameras"][name]["recorder_factory"]),
+                recorder_factory=FrameRecorderFactory.create(self.cameras[name], config["cameras"][name]["recorder"]),
                 model_cfg=config["model"],
                 stop_event=self.stop_event,
                 )

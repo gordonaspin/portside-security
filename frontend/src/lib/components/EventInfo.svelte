@@ -36,6 +36,7 @@
       {/each}
       </span>
     </div>
+    <div class="row"><span class="label"><b>Recorder:</b></span><span class="value">{event.recorder_type}</span></div>
     <div class="row"><b>Metadata:</b><a href="{metadataHref}" target="_blank">click to open</a></div>
   {:else}
     <p>No event selected.</p>
