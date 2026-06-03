@@ -129,7 +129,7 @@ class NightMotionProfile(MotionProfile):
             yolo_confidence_threshold - 0.10,
             motion_threshold * 0.7,
             min_motion_confidence,
-            min_motion_frames - 2,
+            min_motion_frames,
             min_sum_box_area * 0.6
         )
 

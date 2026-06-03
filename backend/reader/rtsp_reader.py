@@ -13,6 +13,7 @@ import cv2
 import numpy as np
 from numpy.typing import NDArray
 from paddle.signal import frame
+from ultralytics import data
 
 from logger.logger import log_event
 from nvr.camera.camera import Camera
@@ -48,6 +49,8 @@ class RTSPReader(Reader):
         self.process: subprocess.Popen | None = None
         self.yolo_pipe: None | object = None  # file object for YOLO pipe
         self.yolo_fd_write: int | None = None
+        self.log_filename: str = None
+        self.log_file: object = None
 
         self.thread: Thread = None
         self.frame_queue: Queue[NDArray[np.uint8]] = Queue(maxsize=1)
@@ -98,6 +101,8 @@ class RTSPReader(Reader):
                 self.process.stdout.close()
             if self.yolo_pipe is not None:
                 self.yolo_pipe.close()
+            if self.log_file is not None:
+                self.log_file.close()
 
             self.process = None
             self.yolo_pipe = None
@@ -158,6 +163,17 @@ class RTSPReader(Reader):
         # ------------------------------------------------------------
         # START FFMPEG PROCESS
         # ------------------------------------------------------------
+        self.log_filename = os.path.join(self.camera.config.logs_dir, f"{self.camera.config.name}_ffmpeg.log")
+        self.log_file = open(self.log_filename, "a")
+        for item in ffmpeg_cmd:
+            if item.startswith('-'):
+                self.log_file.write("\n")
+            self.log_file.write(f"{item} ")
+        self.log_file.write(f"\n--- Starting FFmpeg for {self.camera.config.name} {time.strftime('%Y-%m-%d %H:%M:%S')} ---\n")
+        self.log_file.flush()
+
+        if self.camera.config.name == "Entry":
+            pass
         if need_yolo_pipe:
             log_event(
                 message="starting dual-pipe RTSP reader",
@@ -169,8 +185,8 @@ class RTSPReader(Reader):
                 ffmpeg_cmd,
                 stdin=subprocess.DEVNULL,
                 stdout=subprocess.PIPE,      # actual-res frames
-                stderr=subprocess.PIPE,
-                pass_fds=(yolo_fd_write,),
+                stderr=self.log_file,             # FFmpeg logs
+                pass_fds=(yolo_fd_write,),   # yolo-res frames on separate pipe
                 bufsize=0,
             )
 
@@ -191,8 +207,8 @@ class RTSPReader(Reader):
             process = subprocess.Popen(
                 ffmpeg_cmd,
                 stdin=subprocess.DEVNULL,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,    # actual-res frames (also used for YOLO in single-pipe mode)
+                stderr=self.log_file,             # FFmpeg logs
                 bufsize=0,
             )
 
@@ -434,15 +450,6 @@ class RTSPReader(Reader):
         # ------------------------------------------------------------
         # OUTPUT RULES
         # ------------------------------------------------------------
-        # 4. Segment files:
-        #    - segment_mode=True  → use actual resolution
-        #    - segment_mode=False → rescale to configured resolution
-        #
-        # 5. stdout always outputs actual resolution
-        #
-        # 6. second pipe only if actual != yolo
-        # ------------------------------------------------------------
-
         need_yolo_pipe = not (actual_w == yolo_w and actual_h == yolo_h)
 
         if need_yolo_pipe and yolo_fd is None:
@@ -484,15 +491,6 @@ class RTSPReader(Reader):
             else:
                 filters.append(f"[0:v]scale={yolo_w}:{yolo_h},format=bgr24[yolo]")
 
-        # Segment output only if filespec is provided
-        if filespec is not None:
-            if segment_mode:
-                # actual resolution
-                filters.append(f"[0:v]format=bgr24[seg]")
-            else:
-                # configured resolution
-                filters.append(f"[0:v]scale={config_w}:{config_h},format=bgr24[seg]")
-
         filter_graph = ";".join(filters)
 
         # ------------------------------------------------------------
@@ -509,12 +507,12 @@ class RTSPReader(Reader):
         ]
 
         # ------------------------------------------------------------
-        # SEGMENT FILE OUTPUT
+        # SEGMENT FILE OUTPUT (NO FILTERING → LOSSLESS)
         # ------------------------------------------------------------
         if filespec is not None:
             cmd += [
-                "-map", "[seg]",
-                "-c:v", "mpeg2video",   # or "copy" if your camera codec matches
+                "-map", "0:v",          # <‑‑ direct from camera, NOT filtered
+                "-c:v", "copy",         # <‑‑ lossless
                 "-f", "segment",
                 "-segment_time", "1",
                 "-reset_timestamps", "0",
@@ -535,6 +533,7 @@ class RTSPReader(Reader):
             ]
 
         return cmd
+
 
 
     def _needs_yolo_pipe(self) -> bool:

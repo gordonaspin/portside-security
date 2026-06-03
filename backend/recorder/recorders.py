@@ -523,9 +523,8 @@ class FFmpegSegmentRecorder(Recorder):
 
         if self.segments:
             logger.debug(f"{self.camera.config.name} captured {len(self.segments)} segments for recording")
-            # Wake the worker
-            self.event.set()
-            self.thread.join()  # Wait for the recording thread to finish before proceeding
+            super().stop_recording()  # This will signal the worker to start merging
+
 
     def _async_writer_worker(self):
         """
@@ -560,7 +559,7 @@ class FFmpegSegmentRecorder(Recorder):
                     continue
 
         # Run ffmpeg concat to merge segments into a single MP4, with the moov atom at the front for streaming
-        ffmpeg_cmd = [
+        ffmpeg_cmd1 = [
             "ffmpeg",
             "-y",
             "-fflags", "+genpts",
@@ -575,6 +574,18 @@ class FFmpegSegmentRecorder(Recorder):
             "-vsync", "cfr",
             "-r", f"{self.fps.as_int()}",
             "-video_track_timescale", "90000",
+            self.temporary_media_filename,
+        ]
+        ffmpeg_cmd = [
+            "ffmpeg",
+            "-y",
+            "-fflags", "+genpts",
+            "-f", "concat",
+            "-safe", "0",
+            "-i", self.list_filename,
+            "-c", "copy",
+            "-movflags", "+faststart",
+
             self.temporary_media_filename,
         ]
 
