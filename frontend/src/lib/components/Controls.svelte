@@ -242,16 +242,18 @@
   font-family: "Fira Code", "JetBrains Mono", Consolas, monospace;
   font-size: 0.7rem;
   color: #eee;
-  position: relative;
+  position: absolute;
+  top: 100%;        /* directly below the header */
+  right: 0;         /* align to the right edge */
   z-index: 10000;
-  width: 100%;
+  width: 10vw;
 }
 /* Expanded overlay state */
 .controls-wrapper.expanded {
   position: absolute;
   top: 100%;        /* directly below the header */
   right: 0;         /* align to the right edge */
-  width: 420px;     /* or whatever width you want */
+  width: 50vw;     /* or whatever width you want */
   max-height: 80vh; /* prevent it from going off-screen */
   overflow-y: auto;
   z-index: 9999;
