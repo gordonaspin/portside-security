@@ -104,7 +104,7 @@ class Recorder:
         self.final_fps = self.fps.as_int()
         self.final_tags = deepcopy(self.camera.motion.active_objects_dict)
         self.final_tags_str = tags_to_str(self.final_tags)
-        self.final_timestamp_tags_str = timestamp_str + "_" + self.final_tags_str
+        self.final_timestamp_tags_str = timestamp_str + "_" + self.camera.config.name + "_" + self.final_tags_str
         self.final_media_filename = os.path.join(self.camera.config.recordings_dir, self.final_timestamp_tags_str + ".mp4")
         self.final_metadata_filename = os.path.join(self.camera.config.metadata_dir, self.final_timestamp_tags_str + ".json")
         self.final_log_filename = os.path.join(self.camera.config.logs_dir, self.final_timestamp_tags_str + ".log")

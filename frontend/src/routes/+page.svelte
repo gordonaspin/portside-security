@@ -91,10 +91,12 @@
 
 </script>
 <div class="page">
-  <h3>{system_name}</h3>
+  <div class="header-row">
+    <h3>{system_name}</h3>
 
-  <div class="panel">
-    <Controls />
+    <div class="controls-container">
+      <Controls />
+    </div>
   </div>
 
   <div class="panel">
@@ -156,7 +158,20 @@
     padding: 1rem;
     color: #ddd;
   }
-
+  .header-row {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between; /* title left, controls right */
+    width: 100%;
+  }
+  .controls-container {
+    position: relative; /* anchor for absolute overlay */
+  }
+  .controls-panel {
+    flex-shrink: 0; /* prevent shrinking */
+    margin-left: 1rem;
+  }
   /* ============================================================
     SHARED FLEX ROW BEHAVIOR (Timeline+Player and Log+Info rows)
     ============================================================ */

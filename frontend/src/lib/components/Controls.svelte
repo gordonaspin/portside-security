@@ -106,7 +106,7 @@
   }
 </script>
 
-<div class="controls-wrapper">
+<div class="controls-wrapper {collapsed ? '' : 'expanded'}">
   <div class="controls-header" on:click={toggle}>
     <span>Controls</span>
     <label for="toggle_button"/>
@@ -245,6 +245,17 @@
   position: relative;
   z-index: 10000;
   width: 100%;
+}
+/* Expanded overlay state */
+.controls-wrapper.expanded {
+  position: absolute;
+  top: 100%;        /* directly below the header */
+  right: 0;         /* align to the right edge */
+  width: 420px;     /* or whatever width you want */
+  max-height: 80vh; /* prevent it from going off-screen */
+  overflow-y: auto;
+  z-index: 9999;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.6);
 }
 
 .controls-header {
