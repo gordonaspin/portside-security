@@ -209,9 +209,19 @@ def create_app(config: dict, nvr: NVR):
         return {"events": events}
 
     @app.get("/api/logs")
-    def get_logs(user=Depends(require_user)):
-        html = "\n".join(event_log)
-        return {"html": html}
+    def get_logs(
+        since: float | None = None,
+        user=Depends(require_user)
+        ):
+
+        logs = event_log
+
+        if since is not None:
+            timestamps = [obj["timestamp"] for obj in event_log]
+            index = bisect.bisect_right(timestamps, since)
+            logs = event_log[index:]
+
+        return {"logs": logs}
 
     @app.get("/api/cameras/{camera_name}/settings")
     def get_camera_settings(camera_name: str):

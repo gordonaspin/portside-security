@@ -15,6 +15,7 @@ import atexit
 import json
 import sys
 import threading
+import time
 from datetime import datetime, timezone
 from logging import (
     getLogger,
@@ -58,13 +59,21 @@ def log_event(message, level="info", camera=None, file_path=None):
         case "error": logger.error(fstr)
         case "record": logger.info(fstr)
 
+    path = None
     if file_path:
         path = Path(file_path)
-        if path.is_file():
-            message += f' <a href="/{file_path}" target="_blank">{path.parent.name}/{path.name}</a>'
+        #if path.is_file():
+        #    message += f' <a href="/{file_path}" target="_blank">{path.parent.name}/{path.name}</a>'
 
-    entry = f'<div class="log-{level}">[{timestamp}] ' + (f"{camera.config.name:<8} " if camera else "") + f"{message}</div>"
-    event_log.insert(0, entry)
+    #entry = f'<div class="log-{level}">[{timestamp}] ' + (f"{camera.config.name:<8} " if camera else "") + f"{message}</div>"
+    entry = {
+        "timestamp": time.time(),
+        "level": level,
+        "message": message,
+        "file_path": f"/{file_path}",
+        "anchor": f"{path.parent.name}/{path.name}" if path else "" 
+    }
+    event_log.append(entry)
 
     if len(event_log) > constants.MAX_LOG_LINES:
         event_log.pop()

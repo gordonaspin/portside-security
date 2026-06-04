@@ -8,6 +8,7 @@
   import { debug, log, error } from "$lib/stores/logging";
   import { onMount } from 'svelte';
 
+  let logs = []
   let logHtml = '';
   let loadingEvent = false;
   let system_name = ""
@@ -22,13 +23,48 @@
 
   async function fetchLogs() {
     if (loadingEvent) return;
+    loadingEvent = true;
 
-    const res = await fetch('/api/logs', { credentials: "include" });
+    // newest log is at the END (ascending timestamps)
+    const newestTimestamp = logs.length > 0
+      ? logs[logs.length - 1].timestamp
+      : null;
+
+    const url = newestTimestamp
+      ? `/api/logs?since=${newestTimestamp}`
+      : `/api/logs`;
+
+    const res = await fetch(url, { credentials: "include" });
     const data = await res.json();
-    if (data.html !== logHtml) {
-      logHtml = data.html;
-    }
+
+    // append new logs
+    logs = [...logs, ...data.logs];
+
+    // rebuild markup
+    logHtml = [...logs] // copy
+      .reverse()        // newest to oldest  
+      .map((log) => {
+        const date = new Date(log.timestamp * 1000);
+        const formatted = date.toISOString().replace("T", " ").slice(0, 19);
+
+        return `
+          <div class="log-entry log-${log.level}">
+            <span class="log-time">${formatted}</span>
+            <span class="log-level">${log.level.toUpperCase()}</span>
+            <span class="log-message">${log.message}</span>
+            ${
+              log.file_path
+                ? `<a class="log-file" href="${log.file_path}" target="_blank">${log.anchor}</a>`
+                : ""
+            }
+          </div>
+        `;
+      })
+      .join("");
+
+    loadingEvent = false;
   }
+
   setInterval(fetchLogs, 1000);
 
   function handleSelectEvent(e) {
@@ -56,25 +92,40 @@
 </script>
 <div class="page">
   <h3>{system_name}</h3>
+
   <div class="panel">
     <Controls />
   </div>
+
   <div class="panel">
     <MosaicVideo />
   </div>
-  <div class="panel">
-    <Timeline onSelectEvent={handleSelectEvent} />
+
+  <!-- FLEX ROW THAT BECOMES A COLUMN ON MOBILE -->
+  <div class="timeline-player-row">
+    <div class="panel timeline-panel">
+      <Timeline onSelectEvent={handleSelectEvent} />
+    </div>
+
+    <div class="panel player-panel">
+      <MediaPlayer event={selectedEvent} />
+    </div>
   </div>
-  <div class="panel">
-    <EventInfo event={selectedEvent} />
+
+  <div class="log-info-row">
+    <div class="panel log-panel">
+      <div class="event-log-content">
+        <EventLog html={logHtml} on:selectMedia={(e) => handleLogMedia(e.detail)}/>
+      </div>
+    </div>
+
+    <div class="panel info-panel">
+      <EventInfo event={selectedEvent} />
+    </div>
   </div>
-  <div class="panel">
-    <MediaPlayer event={selectedEvent} />
-  </div>
-  <div class="panel">
-    <EventLog html={logHtml} on:selectMedia={(e) => handleLogMedia(e.detail)} />
-  </div>
+
 </div>
+
 
 <style>
   /* Page background */
@@ -97,7 +148,7 @@
     box-sizing: border-box;
   }
 
-  /* Panels (match EventInfo / Controls look) */
+  /* Panels */
   .panel {
     background: #1a1a1a;
     border: 1px solid #333;
@@ -106,13 +157,88 @@
     color: #ddd;
   }
 
-  /* Responsive layout */
-  @media (max-width: 600px) {
-    .page {
-      padding: 0.5rem;
+  /* ============================================================
+    SHARED FLEX ROW BEHAVIOR (Timeline+Player and Log+Info rows)
+    ============================================================ */
+  .timeline-player-row,
+  .log-info-row {
+    display: flex;
+    flex-direction: row;
+    gap: 12px;
+    width: 100%;
+    align-items: stretch; /* forces equal height */
+  }
+
+  /* ============================================================
+    LEFT PANELS (Timeline + EventLog)
+    ============================================================ */
+  .timeline-panel,
+  .log-panel {
+    flex: 1; /* same width */
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  /* EventLog panel (left side) */
+  .log-panel {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+
+    /* ~10 lines tall */
+    line-height: 0.9rem;
+    max-height: calc(0.9rem * 10 + 1rem); /* padding allowance */
+  }
+
+  /* The actual scrollable content */
+  .log-panel :global(.event-log-content) {
+    flex: 1;              /* fill the panel height */
+    overflow-y: auto;     /* scroll only here */
+  }
+  /* ============================================================
+    RIGHT PANELS (MediaPlayer + EventInfo)
+    ============================================================ */
+  .player-panel,
+  .info-panel {
+    width: 704px; /* same width */
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* MediaPlayer should fill its panel */
+  .player-panel :global(video),
+  .player-panel :global(.media-player-root) {
+    height: 100%;
+    width: 100%;
+  }
+
+  /* EventInfo should NOT stretch children */
+  .info-panel {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .info-panel :global(*) {
+    height: auto;
+    width: auto;
+  }
+
+
+  /* ============================================================
+    MOBILE LAYOUT
+    ============================================================ */
+  @media (max-width: 900px) {
+    .timeline-player-row,
+    .log-info-row {
+      flex-direction: column;
     }
-    .panel {
-      padding: 0.75rem;
+
+    .player-panel,
+    .info-panel {
+      width: 100%;
     }
   }
 </style>

@@ -305,7 +305,9 @@ class AVFFmpegFrameRecorder(Recorder):
 
     def _async_writer_worker(self):
         try:
-            #log_file = open(self.temporary_log_filename, "w")
+            log_file = open(self.temporary_log_filename, "w")
+            log_file.write(f"OpenAV recorder started for {self.camera.config.name} at {make_readable_ts}\n")
+            log_file.write(f"writing to {self.temporary_media_filename}\n")
             output = av.open(
                 str(self.temporary_media_filename),
                 mode="w",
@@ -315,6 +317,7 @@ class AVFFmpegFrameRecorder(Recorder):
                 }
             )
             stream = output.add_stream("libx264") # , rate=self.fps.as_int())
+            log_file.write(f"libx264 stream added\n")
             stream.options = {
                 "preset": "ultrafast",
                 "tune": "zerolatency",
@@ -323,7 +326,7 @@ class AVFFmpegFrameRecorder(Recorder):
             stream.height = self.camera.config.height
             stream.pix_fmt = "yuv420p"
             stream.codec_context.max_b_frames = 0
-
+            log_file.write(f"stream width: {self.camera.config.width} height: {self.camera.config.height} pix_fmt: yuv420p\n")
             first_pts_μs = None
             frame_number = 0
             timebase = Fraction(1, 1_000_000)
@@ -348,22 +351,26 @@ class AVFFmpegFrameRecorder(Recorder):
                 video_frame.pts = pts_μs
                 video_frame.time_base = timebase
                 frame_number += 1
+                log_file.write(f"encoding frame to stream: {frame_number} with timebase: {timebase}\n")
+                packet_number = 0
                 for packet in stream.encode(video_frame):
+                    packet_number += 1
+                    log_file.write(f"sending packet {packet_number} to muxer\n")
                     output.mux(packet)
 
+            log_file.write(f"flushing stream\n")
+            packet_number = 0
             for packet in stream.encode():
+                log_file.write(f"flushing packet {packet_number} to muxer\n")
                 output.mux(packet)
 
             output.close()
+            log_file.close()
 
         except Exception as e:
             logger.error(f"AVError in AVFFmpegFrameRecorder: {e}")
             traceback.print_exc()
 
-    @override
-    def _finalize_log_file(self):
-        # For ffmpeg frame recorder, we write logs directly in the recording thread, so no need to rename
-        pass
 
     @override
     def start_recording(self):
@@ -455,11 +462,6 @@ class FFmpegFrameRecorder(Recorder):
             log_file.close()
             process.stdin.close()
             process.wait()
-
-    @override
-    def _finalize_log_file(self):
-        # For ffmpeg frame recorder, we write logs directly in the recording thread, so no need to rename
-        pass
 
     @override
     def start_recording(self):
