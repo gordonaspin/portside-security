@@ -1,6 +1,7 @@
 <script>
   import { onMount, onDestroy, tick } from "svelte";
   import { debug, log, error } from "$lib/stores/logging";
+  import { safeFetch } from '$lib/network/safeFetch';
 
   export let onSelectEvent = () => {};
   const TICK_HEIGHT = 20;
@@ -31,13 +32,13 @@
   let selectedEventId = null;
 
   async function loadServerTime() {
-    const res = await fetch("/api/server_time", { credentials: "include" });
+    const res = await safeFetch("/api/server_time", { credentials: "include" });
     const data = await res.json();
     serverNow = data.epoch;
   }
 
   async function loadClasses() {
-    const res = await fetch("/api/classes", { credentials: "include" });
+    const res = await safeFetch("/api/classes", { credentials: "include" });
     const data = await res.json();
     classes = data.classes;
 
@@ -59,7 +60,7 @@
   }
 
   async function loadCameras() {
-    const res = await fetch("/api/cameras", { credentials: "include" });
+    const res = await safeFetch("/api/cameras", { credentials: "include" });
     cameras = await res.json();
   }
 
@@ -73,7 +74,7 @@
       ? `/api/events?mobile=${isMobile ? 1 : 0}&since=${newestStart}`
       : `/api/events?mobile=${isMobile ? 1 : 0}`;
 
-    const res = await fetch(url, { credentials: "include" });
+    const res = await safeFetch(url, { credentials: "include" });
     const data = await res.json();
 
     // map new events

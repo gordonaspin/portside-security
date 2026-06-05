@@ -7,6 +7,7 @@
   import EventLog from "$lib/components/EventLog.svelte";
   import { debug, log, error } from "$lib/stores/logging";
   import { onMount } from 'svelte';
+  import { safeFetch } from '$lib/network/safeFetch';
 
   let logs = []
   let logHtml = '';
@@ -15,7 +16,7 @@
   let selectedEvent = null;
 
   onMount(async () => {
-      const res = await fetch('/api/system_name', { credentials: "include" });
+      const res = await safeFetch('/api/system_name', { credentials: "include" });
       const data = await res.json();
       system_name = data.system_name;
     }
@@ -34,7 +35,7 @@
       ? `/api/logs?since=${newestTimestamp}`
       : `/api/logs`;
 
-    const res = await fetch(url, { credentials: "include" });
+    const res = await safeFetch(url, { credentials: "include" });
     const data = await res.json();
 
     // append new logs
@@ -51,6 +52,7 @@
           <div class="log-entry log-${log.level}">
             <span class="log-time">${formatted}</span>
             <span class="log-level">${log.level.toUpperCase()}</span>
+            <span class="log-camera">${log.camera}</span>
             <span class="log-message">${log.message}</span>
             ${
               log.file_path
@@ -77,7 +79,7 @@
     // Remove leading slash
     const clean = metadata_url.startsWith("/") ? metadata_url.slice(1) : metadata_url;
 
-    const res = await fetch(metadata_url, { credentials: "include" });
+    const res = await safeFetch(metadata_url, { credentials: "include" });
     const data = await res.json();
   
     selectedEvent = {
@@ -168,10 +170,7 @@
   .controls-container {
     position: relative; /* anchor for absolute overlay */
   }
-  .controls-panel {
-    flex-shrink: 0; /* prevent shrinking */
-    margin-left: 1rem;
-  }
+
   /* ============================================================
     SHARED FLEX ROW BEHAVIOR (Timeline+Player and Log+Info rows)
     ============================================================ */

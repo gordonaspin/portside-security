@@ -46,7 +46,7 @@ class Recorder:
         self.event: threading.Event = threading.Event()
         self.lock: threading.Lock = threading.Lock()
         self.thread: threading.Thread | None = None
-
+        self.duration_seconds: float = 0
         self.temporary_media_filename: str = None
         self.temporary_log_filename: str = None
 
@@ -162,11 +162,11 @@ class Recorder:
 
         frame_count = cap.get(cv2.CAP_PROP_FRAME_COUNT)
         cap.release()
-        duration_seconds = 0
+        self.duration_seconds = 0.0
         if frame_count and fps:
-            duration_seconds = frame_count / fps
+            self.duration_seconds = frame_count / fps
 
-        self.formatted_duration = str(timedelta(seconds=int(duration_seconds)))
+        self.formatted_duration = str(timedelta(seconds=int(self.duration_seconds)))
 
         metadata = self._create_metadata()
 
@@ -176,7 +176,10 @@ class Recorder:
         self.report_complete()
 
     def report_complete(self):
-        log_event(message=f"recording available {self.formatted_duration}", level="record", camera=self.camera, file_path=self.final_metadata_filename)
+        if self.duration_seconds <= 0.0:
+            log_event(message=f"recording broken {self.formatted_duration}", level="error", camera=self.camera, file_path=self.final_metadata_filename)
+        else:
+            log_event(message=f"recording available {self.formatted_duration}", level="record", camera=self.camera, file_path=self.final_metadata_filename)
 
     def _finalize_media_file(self):
         os.rename(self.temporary_media_filename, self.final_media_filename)
@@ -210,7 +213,7 @@ class Recorder:
 class OpenCVFrameRecorder(Recorder):
     def __init__(self, camera: Camera, pre_record_duration=PRE_RECORD_DURATION):
         super().__init__(camera=camera, pre_record_duration=pre_record_duration)
-        logger.debug(f"{self.camera.config.name} initialized OpenCVFrameRecorder with pre-record duration {pre_record_duration}s and max pre-frames {self.max_pre_frames}")
+        logger.debug(f"{self.camera.config.name} created OpenCVFrameRecorder with pre-record duration {pre_record_duration}s and max pre-frames {self.max_pre_frames}")
 
 
     def _async_writer_worker(self):
@@ -300,7 +303,7 @@ class OpenCVFrameRecorder(Recorder):
 class AVFFmpegFrameRecorder(Recorder):
     def __init__(self, camera: Camera, pre_record_duration=PRE_RECORD_DURATION):
         super().__init__(camera=camera, pre_record_duration=pre_record_duration)
-        logger.debug(f"{self.camera.config.name} initialized AVFFmpegFrameRecorder with pre-record duration {pre_record_duration}s and max pre-frames {self.max_pre_frames}")
+        logger.debug(f"{self.camera.config.name} created AVFFmpegFrameRecorder with pre-record duration {pre_record_duration}s and max pre-frames {self.max_pre_frames}")
 
 
     def _async_writer_worker(self):
@@ -340,6 +343,12 @@ class AVFFmpegFrameRecorder(Recorder):
 
                 if frame is None:
                     time.sleep(0.01)
+                    continue
+
+                height, width = frame.shape[:2]
+                if height != self.camera.config.height or width != self.camera.config.width:
+                    log_file.write(f"error in frame size: width: {width}, height: {height}\n")
+                    logger.error(f"{self.camera.config.name} error in frame size: width: {width}, height: {height}")
                     continue
 
                 if first_pts_μs is None:
@@ -391,7 +400,7 @@ class AVFFmpegFrameRecorder(Recorder):
 class FFmpegFrameRecorder(Recorder):
     def __init__(self, camera: Camera, pre_record_duration=PRE_RECORD_DURATION):
         super().__init__(camera=camera, pre_record_duration=pre_record_duration)
-        logger.debug(f"{self.camera.config.name} initialized FFmpegFrameRecorder with pre-record duration {pre_record_duration}s and max pre-frames {self.max_pre_frames}")
+        logger.debug(f"{self.camera.config.name} created FFmpegFrameRecorder with pre-record duration {pre_record_duration}s and max pre-frames {self.max_pre_frames}")
 
     def _async_writer_worker(self):
         """Background thread that continuously drains the queue and writes to disk."""
@@ -485,7 +494,7 @@ class FFmpegSegmentRecorder(Recorder):
         self.segments: list[str] = []
         FileCleaner.add(self.camera.config.segments_dir, "*.ts", timedelta(seconds=TS_FILE_RING_SECONDS), timedelta(seconds=5))
         FileCleaner.add(self.camera.config.segments_dir, "*.list", timedelta(seconds=TS_FILE_RING_SECONDS), timedelta(seconds=5))
-        logger.debug(f"{self.camera.config.name} initialized FfmpegSegmentRecorder with pre-record duration {pre_record_duration}s and max pre-frames {self.max_pre_frames}")
+        logger.debug(f"{self.camera.config.name} created FfmpegSegmentRecorder with pre-record duration {pre_record_duration}s and max pre-frames {self.max_pre_frames}")
 
     @override
     def should_add_frame(self):

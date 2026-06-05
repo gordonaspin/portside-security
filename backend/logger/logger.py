@@ -69,6 +69,7 @@ def log_event(message, level="info", camera=None, file_path=None):
     entry = {
         "timestamp": time.time(),
         "level": level,
+        "camera": camera.config.name if camera else "",
         "message": message,
         "file_path": f"/{file_path}",
         "anchor": f"{path.parent.name}/{path.name}" if path else "" 

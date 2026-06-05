@@ -1,4 +1,6 @@
 <script>
+  import { safeFetch } from '$lib/network/safeFetch';
+
   let username = "";
   let password = "";
   let error = "";
@@ -6,7 +8,7 @@
   async function login() {
     error = "";
 
-    const res = await fetch("/login", {
+    const res = await safeFetch("/login", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       credentials: "include",

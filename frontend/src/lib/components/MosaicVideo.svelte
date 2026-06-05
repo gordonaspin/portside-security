@@ -1,6 +1,7 @@
 <script>
   import { onMount, onDestroy } from "svelte";
   import { debug, log, error } from "$lib/stores/logging";
+  import { safeFetch } from '$lib/network/safeFetch';
 
   let cameras = [];
   let isFocusMode = false;
@@ -16,7 +17,7 @@
 
   async function loadCameras() {
     try {
-      const res = await fetch("/api/cameras", { credentials: "include" });
+      const res = await safeFetch("/api/cameras", { credentials: "include" });
       cameras = await res.json();
     } catch (err) {
       error("Failed to load cameras:", err);
@@ -25,7 +26,7 @@
 
   async function loadMosaicDimensions() {
     try {
-      const res = await fetch("/api/mosaic_dimensions", { credentials: "include" });
+      const res = await safeFetch("/api/mosaic_dimensions", { credentials: "include" });
       const dimensions = await res.json();
       mosaicRows = dimensions.rows;
       mosaicCols = dimensions.columns;
@@ -70,7 +71,7 @@
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
 
-    const res = await fetch("/signal", {
+    const res = await safeFetch("/signal", {
       credentials: "include",
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -115,7 +116,7 @@
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
 
-    const res = await fetch("/signal", {
+    const res = await safeFetch("/signal", {
       credentials: "include",
       method: "POST",
       headers: { "Content-Type": "application/json" },

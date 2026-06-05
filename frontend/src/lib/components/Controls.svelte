@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import { safeFetch } from '$lib/network/safeFetch';
   import { debug, log, error } from "$lib/stores/logging";
 
   let yoloConfidence = { value: 0.5, min: 0.1, max: 0.9, step: 0.01};
@@ -17,7 +18,7 @@
   let loading = false;
 
   onMount(async () => {
-    cameras = await (await fetch("/api/cameras", { credentials: "include" })).json();
+    cameras = await (await safeFetch("/api/cameras", { credentials: "include" })).json();
 
     if (cameras.length > 0) {
       selectedCamera = cameras[0].name;
@@ -33,7 +34,7 @@
   async function loadCameraSettings(camera) {
     loading = true;   // start shimmer + fade-out
 
-    const res = await fetch(`/api/cameras/${camera}/settings`);
+    const res = await safeFetch(`/api/cameras/${camera}/settings`);
     const s = await res.json();
 
     applyProfileValue(yoloConfidence, s.yolo_confidence_threshold);
@@ -69,7 +70,7 @@
   async function update(setting, value) {
     if (!selectedCamera) return;
 
-    await fetch(`/api/cameras/${selectedCamera}/settings/${setting}`, {
+    await safeFetch(`/api/cameras/${selectedCamera}/settings/${setting}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ value })
@@ -83,7 +84,7 @@
   }
 
   async function updateDebug() {
-    await fetch('/api/settings/debug', {
+    await safeFetch('/api/settings/debug', {
       credentials: "include",
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -92,7 +93,7 @@
   }
 
   async function updateCameraDebug(name) {
-    await fetch(`/api/settings/debug/${name}`, {
+    await safeFetch(`/api/settings/debug/${name}`, {
       credentials: "include",
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -246,7 +247,7 @@
   top: 100%;        /* directly below the header */
   right: 0;         /* align to the right edge */
   z-index: 10000;
-  width: 10vw;
+  width: 30vw;
 }
 /* Expanded overlay state */
 .controls-wrapper.expanded {

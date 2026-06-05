@@ -24,7 +24,7 @@ def begin_pillow_draw(frame):
 
 def draw_text(draw, text, x, y, font, color, bg=None):
     """Draw text with optional background box."""
-    bbox = draw.textbbox((x, y), text, font=font)
+    bbox = draw.textbbox((x, y), "|"+text[:-1], font=font) # trick to get full height box
     tw = bbox[2] - bbox[0]
     th = bbox[3] - bbox[1]
     padding = 2
