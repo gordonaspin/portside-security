@@ -18,7 +18,7 @@ from typing import override
 
 import cv2
 
-from constants import PRE_RECORD_DURATION, TS_FILE_RING_SECONDS
+from constants import PRE_RECORD_DURATION, TS_FILE_RING_SECONDS, MINIMUM_RECORDING_DURATION
 
 from logger.logger import log_event
 from nvr.camera.camera import Camera
@@ -167,10 +167,13 @@ class Recorder:
 
         metadata = self._create_metadata()
 
-        with open(self.final_metadata_filename, "w") as f:
-            json.dump(metadata, f, default=lambda o: o.__dict__, indent=4)
+        if self.duration_seconds < MINIMUM_RECORDING_DURATION:
+            log_event(message=f"auto-deleted recording with duration {self.duration_seconds} {self.final_media_filename}", level="info", camera=self.camera)
+        else:
+            with open(self.final_metadata_filename, "w") as f:
+                json.dump(metadata, f, default=lambda o: o.__dict__, indent=4)
 
-        self.report_complete()
+            self.report_complete()
 
     def report_complete(self):
         if self.duration_seconds <= 0.0:
@@ -188,7 +191,6 @@ class Recorder:
         # Convert to a standard dict and sets to lists
         serializable_tags = {k: list(v) for k, v in self.final_tags.items()}
 
-
         json_data = {
             "camera": self.camera.config.name,
             "fps": self.final_fps,
@@ -197,6 +199,8 @@ class Recorder:
             "log_filename": self.final_log_filename,
             "start_time": self.final_start_time,
             "end_time": self.final_end_time,
+            "duration": self.duration_seconds,
+            "duration_fmt": self.formatted_duration,
             "start_fmt": make_readable_ts(self.final_start_time),
             "end_fmt": make_readable_ts(self.final_end_time),
             "metadata_filename": self.final_metadata_filename,
@@ -210,8 +214,6 @@ class Recorder:
 class OpenCVFrameRecorder(Recorder):
     def __init__(self, camera: Camera, pre_record_duration=PRE_RECORD_DURATION):
         super().__init__(camera=camera, pre_record_duration=pre_record_duration)
-        logger.debug(f"{self.camera.config.name} created OpenCVFrameRecorder with pre-record duration {pre_record_duration}s and max pre-frames {self.max_pre_frames}")
-
 
     def _async_writer_worker(self):
         """Background thread that continuously drains the queue and writes to disk."""
@@ -300,8 +302,6 @@ class OpenCVFrameRecorder(Recorder):
 class AVFFmpegFrameRecorder(Recorder):
     def __init__(self, camera: Camera, pre_record_duration=PRE_RECORD_DURATION):
         super().__init__(camera=camera, pre_record_duration=pre_record_duration)
-        logger.debug(f"{self.camera.config.name} created AVFFmpegFrameRecorder with pre-record duration {pre_record_duration}s and max pre-frames {self.max_pre_frames}")
-
 
     def _async_writer_worker(self):
         try:
@@ -388,7 +388,6 @@ class AVFFmpegFrameRecorder(Recorder):
 class FFmpegFrameRecorder(Recorder):
     def __init__(self, camera: Camera, pre_record_duration=PRE_RECORD_DURATION):
         super().__init__(camera=camera, pre_record_duration=pre_record_duration)
-        logger.debug(f"{self.camera.config.name} created FFmpegFrameRecorder with pre-record duration {pre_record_duration}s and max pre-frames {self.max_pre_frames}")
 
     def _async_writer_worker(self):
         """Background thread that continuously drains the queue and writes to disk."""
@@ -482,7 +481,6 @@ class FFmpegSegmentRecorder(Recorder):
         self.segments: list[str] = []
         FileCleaner.add(self.camera.config.segments_dir, "*.ts", timedelta(seconds=TS_FILE_RING_SECONDS), timedelta(seconds=5))
         FileCleaner.add(self.camera.config.segments_dir, "*.list", timedelta(seconds=TS_FILE_RING_SECONDS), timedelta(seconds=5))
-        logger.debug(f"{self.camera.config.name} created FfmpegSegmentRecorder with pre-record duration {pre_record_duration}s and max pre-frames {self.max_pre_frames}")
 
     @override
     def should_add_frame(self):

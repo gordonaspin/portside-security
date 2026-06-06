@@ -68,7 +68,6 @@ class RTSPReader(Reader):
 
     @override
     def start(self):
-        logger.debug(f"starting RTSP reader for camera {self.camera.config.name}")
         self._open_stream()
         self.thread = Thread(target=self._frame_reader, daemon=True)
         self.thread.start()

@@ -38,6 +38,6 @@ class FrameRecorderFactory:
         if factory_name not in FrameRecorderFactory.factory_mapping:
             logger.warning(f"Unknown recorder factory '{factory_name}', defaulting to AVFFmpegFrameRecorderFactory")
         else:
-            logger.info(f"Using '{factory_name}' recorder factory for camera '{camera.config.name}'")
+            logger.info(f"Using {factory_name} recorder factory for camera {camera.config.name}")
         return FrameRecorderFactory.factory_mapping.get(factory_name, AVFFmpegFrameRecorderFactory)
 
