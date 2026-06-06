@@ -12,7 +12,6 @@ from typing import override
 import cv2
 import numpy as np
 from numpy.typing import NDArray
-from paddle.signal import frame
 from ultralytics import data
 
 from logger.logger import log_event

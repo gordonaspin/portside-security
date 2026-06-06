@@ -57,10 +57,12 @@ class FileCleaner():
                     cutoff = now - config.age_seconds
                     for file in path.rglob(config.filespec):
                         if file not in FileCleaner.do_not_delete_set and file.is_file():
-                            # .stat().st_mtime gets the modification time
-                            stat_entry = file.stat()
-                            if stat_entry.st_mtime < cutoff:
-                                file.unlink()
-                                logger.debug(f"file cleaner deleted: {file} dated {make_readable_ts(stat_entry.st_mtime)}")
+                            try:
+                                stat_entry = file.stat()
+                                if stat_entry.st_mtime < cutoff:
+                                    file.unlink()
+                                    logger.debug(f"file cleaner deleted: {file} dated {make_readable_ts(stat_entry.st_mtime)}")
+                            except Exception:
+                                pass                # file could have disappeared or been renamed
                     config.last_cleanup_time = now
             time.sleep(FileCleaner.min_sleep_seconds)

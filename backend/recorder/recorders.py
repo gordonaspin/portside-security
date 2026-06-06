@@ -3,7 +3,6 @@ from turtle import fd
 import av
 import json
 import os
-import struct
 import subprocess
 import tempfile
 import threading
@@ -18,7 +17,6 @@ from logging import getLogger
 from typing import override
 
 import cv2
-from paddle.device import stream
 
 from constants import PRE_RECORD_DURATION, TS_FILE_RING_SECONDS
 
@@ -309,18 +307,20 @@ class AVFFmpegFrameRecorder(Recorder):
     def _async_writer_worker(self):
         try:
             log_file = open(self.temporary_log_filename, "w")
-            log_file.write(f"OpenAV recorder started for {self.camera.config.name} at {make_readable_ts}\n")
-            log_file.write(f"writing to {self.temporary_media_filename}\n")
+            log_file.write(f"OpenAV recorder started for {self.camera.config.name} at {make_readable_ts()}\n")
+            log_file.write(f"writing {len(self.record_queue)} frames to {self.temporary_media_filename}\n")
+
             output = av.open(
                 str(self.temporary_media_filename),
                 mode="w",
                 format="mp4",
-                options={
-                    "movflags": "faststart",
-                }
+                options={"movflags": "faststart"},
             )
-            stream = output.add_stream("libx264") # , rate=self.fps.as_int())
-            log_file.write(f"libx264 stream added\n")
+
+            # -----------------------------
+            # Configure stream correctly
+            # -----------------------------
+            stream = output.add_stream("libx264")
             stream.options = {
                 "preset": "ultrafast",
                 "tune": "zerolatency",
@@ -329,56 +329,107 @@ class AVFFmpegFrameRecorder(Recorder):
             stream.height = self.camera.config.height
             stream.pix_fmt = "yuv420p"
             stream.codec_context.max_b_frames = 0
-            log_file.write(f"stream width: {self.camera.config.width} height: {self.camera.config.height} pix_fmt: yuv420p\n")
-            first_pts_μs = None
+
+            # The critical part: correct time_base + framerate
+            fps = self.fps.as_int()
+            stream.time_base = Fraction(1, fps)
+            stream.codec_context.time_base = stream.time_base
+            stream.codec_context.framerate = fps
+
+            log_file.write(f"stream configured: {stream.width}x{stream.height} @ {fps}fps\n")
+
             frame_number = 0
-            timebase = Fraction(1, 1_000_000)
+
+            # -----------------------------
+            # Main encoding loop
+            # -----------------------------
             while True:
-                frame = None
                 with self.lock:
                     if len(self.record_queue) > 0:
                         pts_μs, frame = self.record_queue.popleft()
                     elif self.event.is_set() and len(self.record_queue) == 0:
                         break
+                    else:
+                        frame = None
 
                 if frame is None:
                     time.sleep(0.01)
                     continue
 
-                height, width = frame.shape[:2]
-                if height != self.camera.config.height or width != self.camera.config.width:
-                    log_file.write(f"error in frame size: width: {width}, height: {height}\n")
-                    logger.error(f"{self.camera.config.name} error in frame size: width: {width}, height: {height}")
+                h, w = frame.shape[:2]
+                if h != self.camera.config.height or w != self.camera.config.width:
+                    msg = f"Skipping bad frame size {w}x{h}\n"
+                    log_file.write(msg)
+                    logger.error(msg)
                     continue
 
-                if first_pts_μs is None:
-                    first_pts_μs = pts_μs
+                # -----------------------------
+                # Create PyAV frame
+                # -----------------------------
+                try:
+                    video_frame = av.VideoFrame.from_ndarray(frame, format="bgr24")
+                except Exception as e:
+                    msg = f"exception {e} in creating frame from ndarray\n"
+                    log_file.write(msg)
+                    log_file.write(traceback.format_exc())
+                    logger.error(msg)
+                    continue
 
-                pts_μs -= first_pts_μs  # Normalize to start at 0
-
-                video_frame = av.VideoFrame.from_ndarray(frame, format="bgr24")
-                video_frame.pts = pts_μs
-                video_frame.time_base = timebase
+                # -----------------------------
+                # Correct PTS assignment
+                # -----------------------------
+                video_frame.pts = frame_number
+                video_frame.time_base = stream.time_base
                 frame_number += 1
-                log_file.write(f"encoding frame to stream: {frame_number} with timebase: {timebase}\n")
-                packet_number = 0
-                for packet in stream.encode(video_frame):
-                    packet_number += 1
-                    log_file.write(f"sending packet {packet_number} to muxer\n")
-                    output.mux(packet)
 
-            log_file.write(f"flushing stream\n")
-            packet_number = 0
-            for packet in stream.encode():
-                log_file.write(f"flushing packet {packet_number} to muxer\n")
-                output.mux(packet)
+                log_file.write(f"encoding frame {frame_number} pts={video_frame.pts}\n")
+
+                # -----------------------------
+                # Encode + mux packets
+                # -----------------------------
+                try:
+                    for packet in stream.encode(video_frame):
+                        log_file.write("sending packet to muxer\n")
+                        output.mux(packet)
+                except Exception as e:
+                    msg = f"exception {e} in stream.encode at frame {frame_number}\n"
+                    log_file.write(msg)
+                    log_file.write(traceback.format_exc())
+                    logger.error(msg)
+                    continue
+
+            # -----------------------------
+            # Flush encoder
+            # -----------------------------
+            log_file.write("flushing encoder\n")
+            try:
+                for packet in stream.encode():
+                    log_file.write("flushing packet to muxer\n")
+                    output.mux(packet)
+            except Exception as e:
+                msg = f"exception {e} during flush\n"
+                log_file.write(msg)
+                log_file.write(traceback.format_exc())
+                logger.error(msg)
+
+            # -----------------------------
+            # Required final MP4 flush
+            # -----------------------------
+            try:
+                output.mux(None)
+            except Exception:
+                pass
 
             output.close()
             log_file.close()
 
         except Exception as e:
             logger.error(f"AVError in AVFFmpegFrameRecorder: {e}")
-            traceback.print_exc()
+            try:
+                log_file.write(f"AVError in AVFFmpegFrameRecorder: {e}\n")
+                log_file.write(traceback.format_exc())
+            except:
+                pass
 
 
     @override

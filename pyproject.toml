@@ -13,8 +13,6 @@ dependencies = [
     "bcrypt==4.3.0",
     "passlib",
     "uvicorn",
-    "paddleocr",
-    "paddlepaddle",
     "keyring"
 ]
 requires-python = "==3.12.13"

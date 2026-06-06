@@ -7,6 +7,4 @@ fastapi
 bcrypt==4.3.0
 passlib
 uvicorn
-paddleocr
-paddlepaddle
 keyring
