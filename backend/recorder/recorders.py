@@ -76,14 +76,13 @@ class Recorder:
             copied_frame = frame.copy()
             
             # Keep updating the rolling pre-buffer history
-            now = time.monotonic_ns() // 1000  # Convert to microseconds for better precision in ffmpeg timestamps
+            now_ns = time.monotonic_ns() // 1000  # Convert to microseconds for better precision in ffmpeg timestamps
   # microseconds
-            precise = make_ts_string_precise(now)
-            self.rolling_buffer.append((now, copied_frame))
+            self.rolling_buffer.append((now_ns, copied_frame))
             
             # If actively recording, append subsequent frames to the stream
             if self.camera.recording_state.recording:
-                self.record_queue.append((now, copied_frame))
+                self.record_queue.append((now_ns, copied_frame))
 
 
     def can_start(self):
@@ -333,7 +332,7 @@ class AVFFmpegFrameRecorder(Recorder):
                 frame = None
                 with self.lock:
                     if len(self.record_queue) > 0:
-                        pts_μs, frame = self.record_queue.popleft()
+                        timestamp_μs, frame = self.record_queue.popleft()
                     elif self.event.is_set() and len(self.record_queue) == 0:
                         break
 
@@ -424,7 +423,7 @@ class FFmpegFrameRecorder(Recorder):
                 stderr=log_file,
                 )
             
-            first_pts_μs = 0
+            first_pts_μs = None
             frame_number = 0
             delta_μs = 0
             prev_pts_μs = 0
@@ -432,7 +431,7 @@ class FFmpegFrameRecorder(Recorder):
                 frame = None
                 with self.lock:
                     if len(self.record_queue) > 0:
-                        pts_μs, frame = self.record_queue.popleft()
+                        timestamp_μs, frame = self.record_queue.popleft()
                     elif self.event.is_set() and len(self.record_queue) == 0:
                         break
 
@@ -440,14 +439,14 @@ class FFmpegFrameRecorder(Recorder):
                     time.sleep(0.01)
                     continue
 
-                if first_pts_μs == 0:
-                    first_pts_μs = pts_μs
+                if first_pts_μs is None:
+                    first_pts_μs = timestamp_μs
 
-                pts_μs -= first_pts_μs
-                delta_μs = pts_μs - prev_pts_μs
-                prev_pts_μs = pts_μs
+                timestamp_μs -= first_pts_μs
+                delta_μs = timestamp_μs - prev_pts_μs
+                prev_pts_μs = timestamp_μs
 
-                #logger.debug(f"FfmpegFrameRecorder writing frame {frame_number} with pts {pts_μs} delta {delta_μs} to ffmpeg")
+                logger.debug(f"FfmpegFrameRecorder writing frame {frame_number} with pts {timestamp_μs} delta {delta_μs} to ffmpeg")
                 sleep_time = (delta_μs / 1_000_000) * 0.9
                 if sleep_time > 0:
                     time.sleep(sleep_time)

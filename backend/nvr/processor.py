@@ -134,7 +134,7 @@ class FrameProcessor():
             self.camera.motion.update_persistence(motion_boxes)
             self._apply_fast_stop_logic(motion_boxes, now)
 
-            if self.frame_count > constants.DELAY_FIRST_RECORDING_SECONDS * 20:
+            if self.recorder.fps.as_int() > 0 and self.frame_count > constants.DELAY_FIRST_RECORDING_SECONDS * self.recorder.fps.as_int():
                 # --- RECORDING LOGIC ---
                 self._update_recording_state(motion_boxes, now)
 
