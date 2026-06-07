@@ -222,7 +222,7 @@ class RTSPReader(Reader):
         - dual-pipe mode (full-res on stdout, yolo-res on self.yolo_pipe)
         """
 
-        current_thread().name = f"{self.camera.config.name} _frame_reader"
+        current_thread().name = f"{self.camera.config.name} frame reader"
 
         fail_count = 0
 

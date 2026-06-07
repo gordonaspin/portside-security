@@ -107,6 +107,7 @@ def main(username, password, gui_username, gui_password,
 
     logger.info("waiting on NVR threads to finish...")
     for thread in nvr.threads():
+        logger.info(f"waiting on thread {thread.name}")
         thread.join()
     
     for handler in logger.handlers:

@@ -44,7 +44,7 @@ class FileCleaner():
         """
         Thread that periodically deletes old files
         """
-        current_thread().name = "cleanup_segments"
+        current_thread().name = "file cleaner"
 
         while True:
             if FileCleaner.stop_event is not None and FileCleaner.stop_event.is_set():

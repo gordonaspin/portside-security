@@ -1,4 +1,5 @@
 from logging import getLogger
+from threading import Event
 
 from constants import PRE_RECORD_DURATION
 from nvr.camera.camera import Camera
@@ -8,23 +9,23 @@ logger = getLogger("pynvr.recorder")
 
 class OpenCVFrameRecorderFactory:
     @staticmethod
-    def create(camera: Camera, pre_record_duration=PRE_RECORD_DURATION):
-        return OpenCVFrameRecorder(camera=camera, pre_record_duration=pre_record_duration)
+    def create(camera: Camera, stop_event: Event, pre_record_duration=PRE_RECORD_DURATION):
+        return OpenCVFrameRecorder(camera=camera, stop_event=stop_event, pre_record_duration=pre_record_duration)
 
 class AVFFmpegFrameRecorderFactory:
     @staticmethod
-    def create(camera: Camera, pre_record_duration=PRE_RECORD_DURATION):
-        return AVFFmpegFrameRecorder(camera=camera, pre_record_duration=pre_record_duration)
+    def create(camera: Camera, stop_event: Event, pre_record_duration=PRE_RECORD_DURATION):
+        return AVFFmpegFrameRecorder(camera=camera, stop_event=stop_event, pre_record_duration=pre_record_duration)
 
 class FFmpegFrameRecorderFactory:
     @staticmethod
-    def create(camera: Camera, pre_record_duration=PRE_RECORD_DURATION):
-        return FFmpegFrameRecorder(camera=camera, pre_record_duration=pre_record_duration)
+    def create(camera: Camera, stop_event: Event,pre_record_duration=PRE_RECORD_DURATION):
+        return FFmpegFrameRecorder(camera=camera, stop_event=stop_event, pre_record_duration=pre_record_duration)
 
 class FFmpegSegmentRecorderFactory:
     @staticmethod
-    def create(camera: Camera, pre_record_duration=PRE_RECORD_DURATION):
-        return FFmpegSegmentRecorder(camera=camera, pre_record_duration=pre_record_duration)
+    def create(camera: Camera, stop_event: Event, pre_record_duration=PRE_RECORD_DURATION):
+        return FFmpegSegmentRecorder(camera=camera, stop_event=stop_event, pre_record_duration=pre_record_duration)
 
 class FrameRecorderFactory:
     factory_mapping = {

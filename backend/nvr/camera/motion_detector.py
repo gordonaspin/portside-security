@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from nvr.camera.motion_profiles import DayMotionProfile, NightMotionProfile
+from utils.utils import make_readable_ts
 
 @dataclass
 class MotionResult:
@@ -115,12 +116,26 @@ class MotionDetector:
             self.motion_persistence = max(0, self.motion_persistence - 1)
 
     def profile_to_dict(self) -> dict:
-        prof = self.profile
         data: dict[str, Any] = {}
+        data["noise"] = self.noise
+        data["classes"] = {key: list(value) for key, value in self.classes_in_frame_dict.items()}
+        data["active_objects"] = {key: list(value) for key, value in self.active_objects_dict.items()}
+
+        data["motion_confidence"] = self.motion_confidence
+        data["motion_persistence"] = self.motion_persistence
+        data["edge_density"] = self.edge_density
+        data["score"] = self.score
+        data["pixel_score"] = self.pixel_score
+        data["box_score"] = self.box_score
+        data["persist_score"] = self.persist_score
+        data["last_motion_time"] = make_readable_ts(self.last_motion_time)
+        data["has_moving_object"] = self.has_moving_object
+        data["profile"] = {}
+        prof = self.profile
         for k, v in vars(prof).items():
             if k.startswith("_"):
                 continue
             if callable(v):
                 continue
-            data[k] = v
+            data["profile"][k] = v
         return data

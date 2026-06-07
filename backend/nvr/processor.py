@@ -46,7 +46,7 @@ class FrameProcessor():
 
         self.stop_event: Event = stop_event
         self.thread: Thread = None
-        self.recorder: Recorder = self.recorder_factory.create(self.camera)
+        self.recorder: Recorder = self.recorder_factory.create(self.camera, self.stop_event)
         self.frame_count: int = 0
         self.status_text: str = "Not streaming"
         self.objects_text: str = ""
@@ -81,7 +81,7 @@ class FrameProcessor():
         - store the image and status in the camera object, the GUI will read this image
         """
 
-        current_thread().name = f"{self.camera.config.name} _process_frames"
+        current_thread().name = f"{self.camera.config.name} processor"
 
         while not self.stop_event.is_set() and not self.reader.process.stdout.closed:
 
@@ -670,7 +670,7 @@ class FrameProcessor():
             if now - self.camera.motion.last_motion_time > constants.POST_RECORD_DURATION:
                 self.recorder.stop_recording()
                 # Reset state
-                self.recorder = self.recorder_factory.create(self.camera)
+                self.recorder = self.recorder_factory.create(self.camera, self.stop_event)
                 self.camera.recording_state.recording = False
                 self.camera.motion.classes_in_frame_dict.clear()
                 self.camera.motion.active_objects_dict.clear()

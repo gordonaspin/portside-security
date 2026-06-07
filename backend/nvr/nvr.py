@@ -128,7 +128,7 @@ class NVR:
         load events into recordings list and check each ffmpeg process
         every 5 seconds and restart if necessary
         """
-        current_thread().name = "event_loader"
+        current_thread().name = "event loader"
 
         while not self.stop_event.is_set():
             self.recordings = ThreadSafeList(self._load_events())
@@ -153,10 +153,19 @@ class NVR:
                                 logger.warning(f"invalid JSON in file {f}, deleting the file")
                                 os.remove(f)
                                 continue
-                            event.pop("segments", None)
-                            event.pop("profile", None)
-                            event.pop("tuner_stats", None)
-                            event.pop("recommendations", None)
+                            for k in list(event):
+                                # only send necessary event data to gui
+                                if k not in ["camera",
+                                                "tags",
+                                                "media_filename",
+                                                "start_time",
+                                                "end_time",
+                                                "start_fmt",
+                                                "end_fmt",
+                                                "metadata_filename",
+                                                "recorder_type"
+                                                ]:
+                                    event.pop(k, None)
                             files.append(event)
                     except FileNotFoundError:
                         pass # it's possible a clean-up job whacked the file
