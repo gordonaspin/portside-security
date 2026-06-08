@@ -1,6 +1,10 @@
 // src/hooks.client.ts
 import { serverOffline } from '$lib/stores/connection';
 
+export function handleError({ error, event }) {
+  console.error("Client error:", error);
+}
+
 export async function handleFetch({ request, fetch }) {
   try {
     const res = await fetch(request);

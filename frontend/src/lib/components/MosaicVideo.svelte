@@ -236,20 +236,24 @@
     ></video>
 
     <div class="overlay-grid"
-        style="
-          grid-template-columns: repeat({isFocusMode ? 1 : mosaicCols}, 1fr);
-          grid-template-rows: repeat({isFocusMode ? 1 : mosaicRows}, 1fr);
-        ">
+     style="
+       --cols: {isFocusMode ? 1 : mosaicCols};
+       --rows: {isFocusMode ? 1 : mosaicRows};
+       grid-template-columns: repeat({isFocusMode ? 1 : mosaicCols}, 1fr);
+       grid-template-rows: repeat({isFocusMode ? 1 : mosaicRows}, 1fr);
+     ">
       {#if isFocusMode}
         {#each cameras.filter(c => c.name === currentCamera) as cam}
           <div class="overlay-cell">
             <div class="overlay-text-block">
               <div class="status-text { $cameraStatus[cam.name]?.recording ? 'recording' : 'live' }">
-                <span>{$cameraStatus[cam.name]?.status}</span>
+                {$cameraStatus[cam.name]?.status}
               </div>
-              <div class="objects-text">
-                <span>{$cameraStatus[cam.name]?.objects}</span>
-              </div>
+              {#if $cameraStatus[cam.name]?.objects?.length > 0}
+                <div class="objects-text">
+                  {$cameraStatus[cam.name]?.objects}
+                </div>
+              {/if}
             </div>
           </div>
         {/each}
@@ -258,11 +262,13 @@
           <div class="overlay-cell">
             <div class="overlay-text-block">
               <div class="status-text { $cameraStatus[cam.name]?.recording ? 'recording' : 'live' }">
-                <span>{$cameraStatus[cam.name]?.status}</span>
+                {$cameraStatus[cam.name]?.status}
               </div>
-              <div class="objects-text">
-                <span>{$cameraStatus[cam.name]?.objects}</span>
-              </div>
+              {#if $cameraStatus[cam.name]?.objects?.length > 0}
+                <div class="objects-text">
+                  {$cameraStatus[cam.name]?.objects}
+                </div>
+              {/if}
             </div>
           </div>
         {/each}
@@ -297,6 +303,8 @@ video {
   display: grid;
   pointer-events: none;
   z-index: 10;
+  --tile-w: calc(100vw / var(--cols));
+  --tile-h: calc(100vh / var(--rows));
 }
 
 .overlay-cell {
@@ -305,24 +313,27 @@ video {
 
 .overlay-text-block {
   position: absolute;
-  top: 4px;
-  left: 4px;
+  top: 0px;
+  left: 0px;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 1px;
   pointer-events: none;
 }
 
 .status-text,
 .objects-text {
   background: rgba(0,0,0,0.55);
-  padding: 2px 6px;
-  border-radius: 3px;
-  font-size: 0.75rem;
-  color: #fff;
-  width: fit-content;
+  border-radius: 1px;
   white-space: pre;
+  color: #fff;
+
+  /* area-based scaling (browser-safe) */
+  font-size: calc((var(--tile-w) + var(--tile-h)) * 0.004);
+
+  padding: 1px;
 }
+
 .status-text.recording {
   background: rgba(200, 0, 0, 0.75); /* red */
 }
