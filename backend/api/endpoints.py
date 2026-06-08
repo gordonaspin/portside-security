@@ -1,4 +1,6 @@
+import asyncio
 import bisect
+import json
 import secrets
 import time
 from datetime import datetime, timedelta
@@ -7,7 +9,7 @@ from aiortc import RTCPeerConnection, RTCSessionDescription
 from fastapi import FastAPI, Request, Depends, HTTPException, Response, Cookie
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from passlib.context import CryptContext
 from pydantic import BaseModel
 
@@ -314,6 +316,39 @@ def create_app(config: dict, nvr: NVR):
     @app.get("/api/server_time")
     async def server_time(user=Depends(require_user)):
         return {"epoch": time.time()}
+    
+
+    async def status_generator():
+        try:
+            while True:
+                payload = []
+
+                for processor in nvr.frame_processors.values():
+                    payload.append({
+                        "name": processor.camera.config.name,
+                        "status": processor.status_text,
+                        "objects": processor.objects_text,
+                        "recording": processor.camera.recording_state.recording
+                    })
+
+                # Convert to JSON and wrap in SSE format
+                msg = (
+                    "retry: 3000\n"
+                   f"data: {json.dumps(payload)}\n\n"
+                )
+                yield msg
+                await asyncio.sleep(0.5)
+
+        except asyncio.CancelledError:
+            print("Client disconnected from SSE stream.")
+
+    @app.get("/camera_status")
+    async def stream_events(user=Depends(require_user)):
+        return StreamingResponse(
+            status_generator(),
+            media_type="text/event-stream"
+        )
+
 
     app.mount("/recordings", AuthStaticFiles(directory=config["recordings_directory"], check_dir=True), name="recordings")
     app.mount("/", AuthStaticFiles(directory="backend/frontend_dist", html=True), name="frontend")

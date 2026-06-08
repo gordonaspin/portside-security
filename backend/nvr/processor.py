@@ -807,16 +807,16 @@ class FrameProcessor():
         """
 
         # Select final frame (debug mosaic > YOLO overlay > raw)
-        final_frame, debug_frame = self._select_frame(frame_bgr, yolo_result)
+        final_frame, is_debug_frame = self._select_frame(frame_bgr, yolo_result)
         # Draw status text on the ORIGINAL frame
 
-        if not debug_frame:
-            draw_status_text(
-                final_frame,
-                self.status_text,
-                self.objects_text,
-                self.camera.recording_state.recording,
-            )
+        #if not is_debug_frame:
+        #    draw_status_text(
+        #        final_frame,
+        #        self.status_text,
+        #        self.objects_text,
+        #        self.camera.recording_state.recording,
+        #    )
         # Update GUI-visible frame
         self.camera.latest_frame = final_frame
 

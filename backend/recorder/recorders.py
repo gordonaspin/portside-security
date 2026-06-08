@@ -41,7 +41,8 @@ class Recorder:
         # Recording queue (unlimited size, used during active recording)
         self.record_queue: deque = deque()
         
-        self.last_frame_time: float = time.time()
+        self.frame_count: int = 0
+        self.window_start: float = time.time()
         # Thread management states
         self.event: threading.Event = threading.Event()
         self.lock: threading.Lock = threading.Lock()
@@ -68,9 +69,11 @@ class Recorder:
     
     def add_frame(self, frame):
         now = time.time()
-        if now - self.last_frame_time > 0:
-            self.fps.update(1 / (now - self.last_frame_time))
-        self.last_frame_time = now
+        self.frame_count += 1
+        if now - self.window_start >= 1.0:
+            self.fps.update(self.frame_count / (now - self.window_start))
+            self.frame_count = 0
+            self.window_start = now
 
         """Call this inside your main loop for every single incoming frame."""
         with self.lock:

@@ -2,6 +2,8 @@
   import { onMount, onDestroy } from "svelte";
   import { debug, log, error } from "$lib/stores/logging";
   import { safeFetch } from '$lib/network/safeFetch';
+  import { cameraStatus } from "$lib/stores/cameraStatus";
+  import { startStatusEvents } from "$lib/services/statusEvents";
 
   let cameras = [];
   let isFocusMode = false;
@@ -14,6 +16,8 @@
   let mosaicTitle = "";
   let mosaicRows = 0
   let mosaicCols = 0
+  let videoWidth = 3840;
+  let videoHeight = 1046;
 
   async function loadCameras() {
     try {
@@ -43,6 +47,11 @@
     videoEl.play().catch(() => {});
   }
 
+  function setVideoDimensions(settings) {
+    videoWidth = settings.width;
+    videoHeight = settings.height;
+    console.log("settings: ", settings);
+  }
   // ------------------------------------------------------
   // MOSAIC STREAM
   // ------------------------------------------------------
@@ -65,6 +74,11 @@
 
     pc.ontrack = (event) => {
       log("Mosaic track received");
+      const track = event.track;
+      track.onunmute = () => {
+        const settings = track.getSettings();
+        setVideoDimensions(settings)
+      };
       attachVideoTrack(mosaicVideo, event.streams[0]);
     };
 
@@ -110,6 +124,11 @@
 
     pc.ontrack = (event) => {
       log("Focused track received");
+      const track = event.track;
+      track.onunmute = () => {
+        const settings = track.getSettings();
+        setVideoDimensions(settings)
+      };
       attachVideoTrack(mosaicVideo, event.streams[0]);
     };
 
@@ -185,7 +204,18 @@
     log("Mosaic.svelte mounted");
     await loadMosaicDimensions()
     await loadCameras();
+    const stopSSE = startStatusEvents();
+    
     startMosaic();
+    mosaicVideo.onloadedmetadata = () => {
+      videoWidth = mosaicVideo.videoWidth;
+      videoHeight = mosaicVideo.videoHeight;
+      console.log("video metadata:", videoWidth, videoHeight);
+    };
+
+    return () => {
+      stopSSE();
+    };
   });
 
   onDestroy(() => {
@@ -194,70 +224,109 @@
   });
 </script>
 <h3 class="mosaic-title">{mosaicTitle}</h3>
-<video
-  id="mosaic"
-  bind:this={mosaicVideo}
-  on:click={handleMosaicClick}
-  autoplay
-  playsinline
-  style="width: 100%; height: auto;"
->
-<track label="English" kind="captions" srclang="en" src="silent.vtt" default>
-</video>
+<div class="mosaic-container">
+  <div class="video-wrapper"
+       style="aspect-ratio: {videoWidth} / {videoHeight};">
+    <video
+      id="mosaic"
+      bind:this={mosaicVideo}
+      on:click={handleMosaicClick}
+      autoplay
+      playsinline
+    ></video>
 
-<style>
-  video {
-    cursor: pointer;
-  }
-  .mosaic-title {
-    margin: 0;
-    padding: 0 0 0.25rem 0;
-    font-size: 1rem;
-    font-weight: bold;
-    color: #eee;
-    font-family: inherit;
-  }
-</style>
-<!--
-<script lang="ts">
-  export let visible: boolean = true;
-  const log = window.mosaic.log;
-  const error = window.mosaic.error;
-
-  let mosaicTitle;
-
-  export function setMosaicTitle(t) {
-    mosaicTitle = t;
-  }
-
-  // expose to mosaic.js
-  window.setMosaicTitle = setMosaicTitle;
-</script>
-
-<h3 class="mosaic-title">{mosaicTitle}</h3>
-<div style="text-align:center; width:100%; margin-bottom:1rem; display:{visible ? 'block' : 'none'};">
-  <video
-    id="mosaic"
-    autoplay
-    playsinline
-    style="
-      width: 100%;
-      max-width: 100%;
-      border: 2px solid #888;
-      background: black;
-    "
-  >
-  <track label="English" kind="captions" srclang="en" src="silent.vtt" default>
-  </video>
+    <div class="overlay-grid"
+        style="
+          grid-template-columns: repeat({isFocusMode ? 1 : mosaicCols}, 1fr);
+          grid-template-rows: repeat({isFocusMode ? 1 : mosaicRows}, 1fr);
+        ">
+      {#if isFocusMode}
+        {#each cameras.filter(c => c.name === currentCamera) as cam}
+          <div class="overlay-cell">
+            <div class="overlay-text-block">
+              <div class="status-text { $cameraStatus[cam.name]?.recording ? 'recording' : 'live' }">
+                <span>{$cameraStatus[cam.name]?.status}</span>
+              </div>
+              <div class="objects-text">
+                <span>{$cameraStatus[cam.name]?.objects}</span>
+              </div>
+            </div>
+          </div>
+        {/each}
+      {:else}
+        {#each cameras as cam}
+          <div class="overlay-cell">
+            <div class="overlay-text-block">
+              <div class="status-text { $cameraStatus[cam.name]?.recording ? 'recording' : 'live' }">
+                <span>{$cameraStatus[cam.name]?.status}</span>
+              </div>
+              <div class="objects-text">
+                <span>{$cameraStatus[cam.name]?.objects}</span>
+              </div>
+            </div>
+          </div>
+        {/each}
+      {/if}
+    </div>
+  </div>
 </div>
 <style>
-  .mosaic-title {
-    margin: 0;
-    padding: 0 0 0.25rem 0;
-    font-size: 1rem;
-    font-weight: bold;
-    color: #eee;
-    font-family: inherit;
-  }
+.mosaic-container {
+  width: 100%;
+  position: relative;
+}
+
+.video-wrapper {
+  position: relative;
+  width: 100%;
+  /* height is determined by aspect-ratio */
+}
+
+video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: fill; /* IMPORTANT */
+  cursor: pointer;
+}
+
+.overlay-grid {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  pointer-events: none;
+  z-index: 10;
+}
+
+.overlay-cell {
+  position: relative;
+}
+
+.overlay-text-block {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  pointer-events: none;
+}
+
+.status-text,
+.objects-text {
+  background: rgba(0,0,0,0.55);
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-size: 0.75rem;
+  color: #fff;
+  width: fit-content;
+  white-space: pre;
+}
+.status-text.recording {
+  background: rgba(200, 0, 0, 0.75); /* red */
+}
+.status-text.live {
+  background: rgba(0, 140, 0, 0.75); /* green */
+}
 </style>
--->
