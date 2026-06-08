@@ -4,6 +4,7 @@
   import { safeFetch } from '$lib/network/safeFetch';
   import { cameraStatus } from "$lib/stores/cameraStatus";
   import { startStatusEvents } from "$lib/services/statusEvents";
+  import { serverOffline } from '$lib/stores/connection';
 
   let cameras = [];
   let isFocusMode = false;
@@ -18,6 +19,12 @@
   let mosaicCols = 0
   let videoWidth = 3840;
   let videoHeight = 1046;
+
+  let stopSSE = null;
+
+  $: if ($serverOffline) {
+    stopSSE?.();
+  }
 
   async function loadCameras() {
     try {
@@ -204,7 +211,7 @@
     log("Mosaic.svelte mounted");
     await loadMosaicDimensions()
     await loadCameras();
-    const stopSSE = startStatusEvents();
+    stopSSE = startStatusEvents();
     
     startMosaic();
     mosaicVideo.onloadedmetadata = () => {
@@ -317,7 +324,6 @@ video {
   left: 0px;
   display: flex;
   flex-direction: column;
-  gap: 1px;
   pointer-events: none;
 }
 

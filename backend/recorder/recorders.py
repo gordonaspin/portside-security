@@ -62,7 +62,7 @@ class Recorder:
         self.final_metadata_filename: str = None
         self.final_timestamp_name_tags: str = None
 
-        self.fps: RollingAverage = RollingAverage(100)
+        self.fps: RollingAverage = RollingAverage()
     
     def should_add_frame(self):
         return True
@@ -232,7 +232,7 @@ class OpenCVFrameRecorder(Recorder):
             self.temporary_media_filename,
             fourcc,
             self.fps.as_int(),
-            (self.camera.config.width, self.camera.config.height)
+            (self.camera.width, self.camera.height)
             )
         
         try:
@@ -336,28 +336,22 @@ class AVFFmpegFrameRecorder(Recorder):
                 "preset": "ultrafast",
                 "tune": "zerolatency",
             }
-            stream.width = self.camera.config.width
-            stream.height = self.camera.config.height
+            stream.width = self.camera.width
+            stream.height = self.camera.height
             stream.pix_fmt = "yuv420p"
             stream.codec_context.max_b_frames = 0
-            log_file.write(f"stream width: {self.camera.config.width} height: {self.camera.config.height} pix_fmt: yuv420p\n")
+            log_file.write(f"stream width: {self.camera.width} height: {self.camera.height} pix_fmt: yuv420p\n")
             frame_number = 0
             while not self.stop_event.is_set():
                 frame = None
                 with self.lock:
                     if len(self.record_queue) > 0:
-                        timestamp_μs, frame = self.record_queue.popleft()
+                        _, frame = self.record_queue.popleft()
                     elif self.event.is_set() and len(self.record_queue) == 0:
                         break
 
                 if frame is None:
                     time.sleep(0.01)
-                    continue
-
-                height, width = frame.shape[:2]
-                if height != self.camera.config.height or width != self.camera.config.width:
-                    log_file.write(f"error in frame size: width: {width}, height: {height}\n")
-                    logger.error(f"{self.camera.config.name} error in frame size: width: {width}, height: {height}")
                     continue
 
                 video_frame = av.VideoFrame.from_ndarray(frame, format="bgr24")
@@ -415,7 +409,7 @@ class FFmpegFrameRecorder(Recorder):
             "-y",
             "-f", "rawvideo",
             "-pix_fmt", "bgr24",       # Matches OpenCV format
-            "-s", f"{self.camera.config.width}x{self.camera.config.height}",
+            "-s", f"{self.camera.width}x{self.camera.height}",
             "-r", f"{self.fps.as_int()}",            # Framerate
             "-i", "-",                 # Input from Python pipe
             

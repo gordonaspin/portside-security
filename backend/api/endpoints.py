@@ -320,7 +320,7 @@ def create_app(config: dict, nvr: NVR):
 
     async def status_generator():
         try:
-            while True:
+            while not nvr.stop_event.is_set():
                 payload = []
 
                 for processor in nvr.frame_processors.values():
@@ -340,7 +340,7 @@ def create_app(config: dict, nvr: NVR):
                 await asyncio.sleep(0.5)
 
         except asyncio.CancelledError:
-            print("Client disconnected from SSE stream.")
+            log_event("Client disconnected from SSE stream.")
             raise
 
     @app.get("/camera_status")

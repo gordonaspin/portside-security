@@ -8,7 +8,7 @@ import cv2
 import numpy as np
 
 class RollingAverage:
-    def __init__(self, window_size=100):
+    def __init__(self, window_size=20):
         self.window = deque(maxlen=window_size)
         self.sum = 0.0
 

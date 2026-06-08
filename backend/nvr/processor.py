@@ -833,4 +833,110 @@ class FrameProcessor():
         if yolo_result is None:
             return frame_bgr
 
-        return yolo_result.plot(pil=False)
+        #return yolo_result.plot(pil=False)
+        return self.draw_yolo_boxes_fullres(
+            frame_bgr,
+            yolo_result,
+            self.model.names
+            )
+    
+    import cv2
+
+    def draw_yolo_boxes_fullres(
+        self,
+        frame,
+        result,
+        class_names=None,
+        min_conf=0.25,
+        box_thickness=2,
+        font_scale=0.5,
+    ):
+        """
+        Draws YOLO boxes on a full-resolution frame.
+        Assumes boxes have already been scaled to full resolution.
+
+        frame: np.ndarray (H, W, 3) BGR
+        result: Ultralytics Results object (with scaled boxes)
+        class_names: model.names (list or dict)
+        min_conf: minimum confidence to draw
+        """
+
+        if result is None or result.boxes is None or len(result.boxes) == 0:
+            return frame
+
+        H, W = frame.shape[:2]
+
+        boxes = result.boxes
+        xyxy = boxes.xyxy.cpu().numpy()
+        confs = boxes.conf.cpu().numpy()
+        cls_ids = boxes.cls.cpu().numpy().astype(int)
+
+        def yolo_color(cid: int):
+            """
+            Deterministic, distinct, visually balanced color for each class.
+            Matches Ultralytics-style palette behavior.
+            """
+            # Hash the class ID into a stable 24-bit value
+            h = (cid * 2654435761) & 0xFFFFFFFF
+
+            # Extract RGB components
+            r = (h >> 16) & 255
+            g = (h >> 8) & 255
+            b = h & 255
+
+            # Boost brightness so colors are not too dark
+            return (int(b * 0.7 + 75), int(g * 0.7 + 75), int(r * 0.7 + 75))
+
+        for (x1, y1, x2, y2), conf, cid in zip(xyxy, confs, cls_ids):
+            if conf < min_conf:
+                continue
+
+            # clamp
+            x1 = int(max(0, min(W - 1, x1)))
+            y1 = int(max(0, min(H - 1, y1)))
+            x2 = int(max(0, min(W - 1, x2)))
+            y2 = int(max(0, min(H - 1, y2)))
+
+            if x2 <= x1 or y2 <= y1:
+                continue
+
+            color = yolo_color(cid)
+
+            # draw box
+            cv2.rectangle(frame, (x1, y1), (x2, y2), color, box_thickness)
+
+            # label text
+            label = str(cid)
+            if class_names is not None:
+                if isinstance(class_names, dict):
+                    label = class_names.get(cid, str(cid))
+                else:
+                    if 0 <= cid < len(class_names):
+                        label = class_names[cid]
+
+            label = f"{label} {conf:.2f}"
+
+            # text size
+            (tw, th), baseline = cv2.getTextSize(
+                label, cv2.FONT_HERSHEY_SIMPLEX, font_scale, 1
+            )
+
+            # text background box
+            tx1, ty1 = x1, max(0, y1 - th - baseline - 2)
+            tx2, ty2 = x1 + tw + 4, y1
+
+            cv2.rectangle(frame, (tx1, ty1), (tx2, ty2), color, -1)
+
+            # text
+            cv2.putText(
+                frame,
+                label,
+                (tx1 + 2, ty2 - baseline - 1),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                font_scale,
+                (0, 0, 0),
+                1,
+                cv2.LINE_AA,
+            )
+
+        return frame

@@ -191,13 +191,7 @@ def draw_debug_panels(
 
     # --- Panel 1: Original ---
     pil_img, draw = begin_pillow_draw(p1)
-    h1 = draw_text(draw, status_text, 0, 0,
-              font_title,
-              "red" if is_recording else "lime",
-              bg=(32,32,32))
-    if objects_text:
-        draw_text(draw, objects_text, 0, h1,
-                font_title, "white", bg=(32,32,32))
+
     draw_text(draw, "original frame",
               layout.px(0.01), layout.py(0.80),
               font_title, "yellow")

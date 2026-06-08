@@ -57,8 +57,8 @@ class RTSPReader(Reader):
         self.total_frames: int = 0
         self.total_drops: int = 0
         self.last_frame_time: float = 0.0
-        self.fps: RollingAverage = RollingAverage(100)
-        self.dt: RollingAverage = RollingAverage(100)
+        self.fps: RollingAverage = RollingAverage()
+        self.dt: RollingAverage = RollingAverage()
 
         # For corruption detection
         self._prev_full_mean: float = 0.0
