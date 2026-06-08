@@ -107,7 +107,7 @@ class FrameProcessor():
             # --- MOTION PIPELINE ---
             self._compute_gray_and_blur(frame_bgr)
             self._update_background()
-            if self.frame_count < 30:
+            if time.time() - self.camera.start_time < constants.DELAY_FIRST_RECORDING_SECONDS:
                 continue
             
             self._compute_motion_diff()

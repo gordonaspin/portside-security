@@ -329,9 +329,15 @@ video {
   color: #fff;
 
   /* area-based scaling (browser-safe) */
-  font-size: calc((var(--tile-w) + var(--tile-h)) * 0.004);
+  font-size: calc((var(--tile-w) + var(--tile-h)) * 0.008);
 
   padding: 1px;
+}
+@media (max-width: 700px) {
+  .status-text,
+  .objects-text {
+    font-size: calc((var(--tile-w) + var(--tile-h)) * 0.0045); /* larger text */
+  }
 }
 
 .status-text.recording {

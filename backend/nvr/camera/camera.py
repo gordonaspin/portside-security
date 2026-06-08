@@ -1,4 +1,5 @@
 import os
+import time
 from queue import Queue
 
 import numpy as np
@@ -54,6 +55,7 @@ class Camera:
     ):
         self.width = width
         self.height = height
+        self.start_time = time.time()
         self.config = CameraConfig(config, name, logs_dir, recordings_dir)
         self.buffers = FrameBuffers(config, width, height)
         self.motion = MotionDetector(config["cameras"][name], width, height)

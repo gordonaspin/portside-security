@@ -341,6 +341,7 @@ def create_app(config: dict, nvr: NVR):
 
         except asyncio.CancelledError:
             print("Client disconnected from SSE stream.")
+            raise
 
     @app.get("/camera_status")
     async def stream_events(user=Depends(require_user)):
