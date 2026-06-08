@@ -22,6 +22,28 @@
     }
   )
 
+  function formatEastern(date) {
+    const options = {
+      timeZone: "America/New_York",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: false
+    };
+
+    // Example output: "06/08/2026, 15:58:17"
+    const parts = new Intl.DateTimeFormat("en-US", options).format(date);
+
+    // Convert to your desired "YYYY-MM-DD HH:MM:SS"
+    const [mdy, hms] = parts.split(", ");
+    const [month, day, year] = mdy.split("/");
+
+    return `${year}-${month}-${day} ${hms}`;
+  }
+
   async function fetchLogs() {
     if (loadingEvent) return;
     loadingEvent = true;
@@ -46,7 +68,7 @@
       .reverse()        // newest to oldest  
       .map((log) => {
         const date = new Date(log.timestamp * 1000);
-        const formatted = date.toISOString().replace("T", " ").slice(0, 19);
+        const formatted = formatEastern(date)
 
         return `
           <div class="log-entry log-${log.level}">
