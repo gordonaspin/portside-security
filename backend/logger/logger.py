@@ -77,7 +77,7 @@ def log_event(message, level="info", camera=None, file_path=None):
     event_log.append(entry)
 
     if len(event_log) > constants.MAX_LOG_LINES:
-        event_log.pop()
+        event_log.pop(0)
 
 def setup_logging(config_path: Path) -> Path:
     """Configure logging using a JSON config file.
