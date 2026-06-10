@@ -4,18 +4,21 @@ import json
 import secrets
 import time
 from datetime import datetime, timedelta
+from logging import getLogger
 
 from aiortc import RTCPeerConnection, RTCSessionDescription
 from fastapi import FastAPI, Request, Depends, HTTPException, Response, Cookie
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, EventSourceResponse
 from passlib.context import CryptContext
 from pydantic import BaseModel
 
 from nvr.nvr import NVR
 from logger.logger import log_event, event_log
 from webrtc.webrtc import CameraTrack, MosaicTrack
+
+logger = getLogger("pynvr")
 
 # -------------------------
 # AUTH SETUP
@@ -180,7 +183,7 @@ def create_app(config: dict, nvr: NVR):
         return {"classes": config["model"]["classes"]}
 
     @app.get("/api/system_name")
-    def get_system_name(user=Depends(require_user)):
+    def get_system_name():
         return {"system_name": config["system_name"]}
 
     @app.get("/api/mosaic_dimensions")
@@ -318,36 +321,73 @@ def create_app(config: dict, nvr: NVR):
         return {"epoch": time.time()}
     
 
-    async def status_generator():
+    async def event_generator():
+        last_log_time = time.time()
+        last_recording_time = time.time()
+
         try:
             while not nvr.stop_event.is_set():
-                payload = []
 
+                # CAMERA STATUS
                 for processor in nvr.frame_processors.values():
-                    payload.append({
+                    data = {
                         "name": processor.camera.config.name,
                         "status": processor.status_text,
                         "objects": processor.objects_text,
                         "recording": processor.camera.recording_state.recording
-                    })
+                    }
+                    payload = {"type": "cameraStatus", "data": data}
 
-                # Convert to JSON and wrap in SSE format
-                msg = (
-                    "retry: 3000\n"
-                   f"data: {json.dumps(payload)}\n\n"
-                )
-                yield msg
+                    yield (
+                        "event: cameraStatus\n"
+                        f"data: {json.dumps(payload)}\n\n"
+                    )
+
+                # LOGS
+                logs_list = list(event_log)
+
+                if last_log_time is not None:
+                    timestamps = [obj["timestamp"] for obj in logs_list]
+                    index = bisect.bisect_right(timestamps, last_log_time)
+                    logs_list = logs_list[index:]
+
+                for logLine in logs_list:
+                    payload = {"type": "logLine", "data": logLine}
+                    yield (
+                        "event: logLine\n"
+                        f"data: {json.dumps(payload)}\n\n"
+                    )
+
+                last_log_time = time.time()
+
+                # RECORDINGS
+                recordings = list(nvr.recordings)
+                start_times = None
+                if last_recording_time is not None:
+                    start_times = [obj["start_time"] for obj in recordings]
+                    index = bisect.bisect_right(start_times, last_recording_time)
+                    recordings = recordings[index:]
+
+                for recording in recordings:
+                    payload = {"type": "newEvent", "data": recording}
+                    yield (
+                        "event: newEvent\n"
+                        f"data: {json.dumps(payload)}\n\n"
+                    )
+
+                if recordings:
+                    last_recording_time = recordings[-1]["start_time"]
+
                 await asyncio.sleep(0.5)
 
         except asyncio.CancelledError:
             log_event("Client disconnected from SSE stream.")
             raise
 
-    @app.get("/camera_status")
-    async def stream_events(user=Depends(require_user)):
-        return StreamingResponse(
-            status_generator(),
-            media_type="text/event-stream"
+    @app.get("/api/stream")
+    async def stream(user=Depends(require_user)):
+        return EventSourceResponse(
+            event_generator()
         )
 
 

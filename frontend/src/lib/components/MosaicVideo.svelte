@@ -1,9 +1,8 @@
-<script>
+<script lang="ts">
   import { onMount, onDestroy } from "svelte";
   import { debug, log, error } from "$lib/stores/logging";
   import { safeFetch } from '$lib/network/safeFetch';
-  import { cameraStatus } from "$lib/stores/cameraStatus";
-  import { startStatusEvents } from "$lib/services/statusEvents";
+  import { cameraStatusStore } from "$lib/stores/cameraStatus";
   import { serverOffline } from '$lib/stores/connection';
 
   let cameras = [];
@@ -20,11 +19,6 @@
   let videoWidth = 3840;
   let videoHeight = 1046;
 
-  let stopSSE = null;
-
-  $: if ($serverOffline) {
-    stopSSE?.();
-  }
 
   async function loadCameras() {
     try {
@@ -57,7 +51,7 @@
   function setVideoDimensions(settings) {
     videoWidth = settings.width;
     videoHeight = settings.height;
-    console.log("settings: ", settings);
+    log("settings: ", settings);
   }
   // ------------------------------------------------------
   // MOSAIC STREAM
@@ -211,17 +205,12 @@
     log("Mosaic.svelte mounted");
     await loadMosaicDimensions()
     await loadCameras();
-    stopSSE = startStatusEvents();
     
     startMosaic();
     mosaicVideo.onloadedmetadata = () => {
       videoWidth = mosaicVideo.videoWidth;
       videoHeight = mosaicVideo.videoHeight;
-      console.log("video metadata:", videoWidth, videoHeight);
-    };
-
-    return () => {
-      stopSSE();
+      log("video metadata:", videoWidth, videoHeight);
     };
   });
 
@@ -253,12 +242,12 @@
         {#each cameras.filter(c => c.name === currentCamera) as cam}
           <div class="overlay-cell">
             <div class="overlay-text-block">
-              <div class="status-text { $cameraStatus[cam.name]?.recording ? 'recording' : 'live' }">
-                {$cameraStatus[cam.name]?.status}
+              <div class="status-text { $cameraStatusStore[cam.name]?.recording ? 'recording' : 'live' }">
+                {$cameraStatusStore[cam.name]?.status}
               </div>
-              {#if $cameraStatus[cam.name]?.objects?.length > 0}
+              {#if $cameraStatusStore[cam.name]?.objects?.length > 0}
                 <div class="objects-text">
-                  {$cameraStatus[cam.name]?.objects}
+                  {$cameraStatusStore[cam.name]?.objects}
                 </div>
               {/if}
             </div>
@@ -268,12 +257,12 @@
         {#each cameras as cam}
           <div class="overlay-cell">
             <div class="overlay-text-block">
-              <div class="status-text { $cameraStatus[cam.name]?.recording ? 'recording' : 'live' }">
-                {$cameraStatus[cam.name]?.status}
+              <div class="status-text { $cameraStatusStore[cam.name]?.recording ? 'recording' : 'live' }">
+                {$cameraStatusStore[cam.name]?.status}
               </div>
-              {#if $cameraStatus[cam.name]?.objects?.length > 0}
+              {#if $cameraStatusStore[cam.name]?.objects?.length > 0}
                 <div class="objects-text">
-                  {$cameraStatus[cam.name]?.objects}
+                  {$cameraStatusStore[cam.name]?.objects}
                 </div>
               {/if}
             </div>

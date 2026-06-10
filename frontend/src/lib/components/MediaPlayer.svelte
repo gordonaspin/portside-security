@@ -1,4 +1,4 @@
-<script>
+<script lang="ts">
   import { debug, log, error } from "$lib/stores/logging";
 
   export let event = null;

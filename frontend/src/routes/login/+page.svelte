@@ -1,10 +1,19 @@
 <script>
+  import { onMount } from 'svelte';
+  import { goto } from '$app/navigation';
   import { safeFetch } from '$lib/network/safeFetch';
 
   let username = "";
   let password = "";
   let error = "";
+  let system_name = ""
 
+  onMount(async () => {
+      const res = await safeFetch('/api/system_name', { credentials: "include" });
+      const data = await res.json();
+      system_name = data.system_name;
+    }
+  )
   async function login() {
     error = "";
 
@@ -19,13 +28,12 @@
       error = "Invalid username or password";
       return;
     }
-
-    window.location.href = "/";
+    goto('/')
   }
 </script>
 
 <div class="login-panel">
-  <h3 class="login-title">Login</h3>
+  <h3 class="login-title">{system_name}</h3>
 
   <div class="login-body">
     <label>

@@ -1,9 +1,11 @@
-<script>
+<script lang="ts">
   import { onMount, onDestroy, tick } from "svelte";
   import { debug, log, error } from "$lib/stores/logging";
   import { safeFetch } from '$lib/network/safeFetch';
+  import { eventStore, addEvent } from "$lib/stores/events";
 
   export let onSelectEvent = () => {};
+
   const TICK_HEIGHT = 20;
   const ROW_HEIGHT = 40;
   const HEADER_HEIGHT = TICK_HEIGHT + 36;  // extra band for date header
@@ -30,6 +32,38 @@
   let serverNow = 0;
   let legendItems = [];
   let selectedEventId = null;
+
+  onMount(async () => {
+    ctx = canvas.getContext("2d");
+
+    await loadServerTime();
+    await loadClasses();
+    await loadCameras();
+
+    await loadEvents();
+    drawTimeline();
+
+    if (isMobile) {
+      zoomHours = 4;   // 4h window
+      offsetSeconds = 0; // live edge at now
+    }
+    zoomHours = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, zoomHours));
+
+    computedLeftMargin = computeDynamicLeftMargin();
+    drawTimeline();
+
+    ro = new ResizeObserver(() => {
+      computedLeftMargin = computeDynamicLeftMargin();
+      drawTimeline();
+    });
+    ro.observe(canvas);
+
+    serverTimeInterval = setInterval(async () => {
+      await loadServerTime();
+      drawTimeline();
+    }, 60000);
+
+  });
 
   async function loadServerTime() {
     const res = await safeFetch("/api/server_time", { credentials: "include" });
@@ -65,55 +99,28 @@
   }
 
   async function loadEvents() {
-    // newest event is at the END (oldest → newest)
-    const newestStart = events.length > 0
-      ? events[events.length - 1].start_time
-      : null;
 
-    const url = newestStart
-      ? `/api/events?mobile=${isMobile ? 1 : 0}&since=${newestStart}`
-      : `/api/events?mobile=${isMobile ? 1 : 0}`;
+    const url = `/api/events?mobile=${isMobile ? 1 : 0}`;
 
     const res = await safeFetch(url, { credentials: "include" });
     const data = await res.json();
 
-    // map new events
-    const newEvents = data.events.map((rec) => {
-      const media_url_encoded = rec.media_filename
-        .split("/")
-        .map(encodeURIComponent)
-        .join("/");
-      const metadata_url_encoded = rec.metadata_filename
-        .split("/")
-        .map(encodeURIComponent)
-        .join("/");
-
-      return {
-        ...rec,
-        media_url: "/" + media_url_encoded,
-        metadata_url: "/" + metadata_url_encoded
-      };
-    });
-
-    // append because list is oldest → newest
-    events = [...events, ...newEvents];
-
-    // Desktop: align right edge to latest event on initial load only
-    if (!initialAligned) {
-      if (!isMobile && events.length > 0) {
-        const latestEnd = Math.max(...events.map((e) => e.end_time));
-        offsetSeconds = Math.max(0, serverNow - latestEnd);
-      }
-
-      if (isMobile) {
-        zoomHours = 4;
-        offsetSeconds = 0; // live edge
-      }
-
-      initialAligned = true;
+    for (const entry of data.events) {
+      addEvent(entry);
     }
   }
 
+  $: if (!initialAligned && $eventStore.length > 0) {
+    if (!isMobile) {
+      const latestEnd = Math.max(...$eventStore.map((e) => e.end_time));
+      offsetSeconds = Math.max(0, serverNow - latestEnd);
+    } else {
+      zoomHours = 4;
+      offsetSeconds = 0;
+    }
+
+    initialAligned = true;
+  }
 
   function getTimelineBounds() {
     const end = serverNow - offsetSeconds;
@@ -216,7 +223,6 @@
     ctx.closePath();
   }
 
-
   function handleLegendClick(mx, my) {
     for (const item of legendItems) {
       if (
@@ -239,7 +245,6 @@
   }
 
   function drawTimeTicks(w) {
-    
     const DATE_LABEL_Y = 2;       // day/date
     const TIME_LABEL_Y = 20;      // HH:MM
     const TICK_TOP_Y   = 36;      // tick lines start here
@@ -413,7 +418,7 @@
 
     const { start, end } = getTimelineBounds();
 
-    events.forEach((ev) => {
+    $eventStore.forEach((ev) => {
       const row = cameraRowIndex(ev.camera);
       if (row === -1) return;
 
@@ -480,54 +485,54 @@
   $: if (hoverEvent) updateTooltipPosition();
 
   async function updateTooltipPosition() {
-      await tick(); // wait for tooltip to render
+    await tick(); // ensure tooltip is rendered
 
-      const margin = 12;
+    const margin = 12;
 
-      // Tooltip element
-      const tooltipEl = document.querySelector(".tooltip");
-      if (!tooltipEl) return;
+    const tooltipEl = document.querySelector(".tooltip");
+    if (!tooltipEl) return;
 
-      const tooltipRect = tooltipEl.getBoundingClientRect();
+    const tooltipRect = tooltipEl.getBoundingClientRect();
 
-      // Timeline wrapper element (tooltip is positioned relative to this)
-      const wrapperEl = document.querySelector(".timeline-wrapper");
-      const wrapperRect = wrapperEl.getBoundingClientRect();
+    const wrapperEl = document.querySelector(".timeline-wrapper");
+    const wrapperRect = wrapperEl.getBoundingClientRect();
 
-      // Convert mouse coords (canvas-relative) to viewport coords
-      const canvasRect = canvas.getBoundingClientRect();
-      const mouseViewportX = canvasRect.left + mouseX;
-      const mouseViewportY = canvasRect.top + mouseY;
+    const canvasRect = canvas.getBoundingClientRect();
 
-      // Default position (to the right of cursor)
-      let left = mouseViewportX + margin;
-      let top = mouseViewportY + margin;
+    // Mouse position in wrapper coordinates
+    const mouseXInWrapper = mouseX + (canvasRect.left - wrapperRect.left);
+    const mouseYInWrapper = mouseY + (canvasRect.top - wrapperRect.top);
 
-      // Clamp horizontally (flip if needed)
-      if (left + tooltipRect.width > window.innerWidth) {
-          left = mouseViewportX - tooltipRect.width - margin;
-      }
-      if (left < margin) {
-          left = margin;
-      }
+    // Default: tooltip to the right of pointer
+    let left = mouseXInWrapper + margin;
+    let top = mouseYInWrapper + margin;
 
-      // Clamp vertically
-      if (top + tooltipRect.height > window.innerHeight) {
-          top = window.innerHeight - tooltipRect.height - margin;
-      }
-      if (top < margin) {
-          top = margin;
-      }
+    // Flip horizontally if overflowing right edge of wrapper
+    if (left + tooltipRect.width > wrapperRect.width) {
+      left = mouseXInWrapper - tooltipRect.width - margin;
+    }
 
-      // Convert viewport coords → wrapper coords
-      tooltipLeft = left - wrapperRect.left;
-      tooltipTop = top - wrapperRect.top;
+    // Clamp horizontally inside wrapper
+    if (left < margin) {
+      left = margin;
+    }
+
+    // Clamp vertically inside wrapper
+    if (top + tooltipRect.height > wrapperRect.height) {
+      top = wrapperRect.height - tooltipRect.height - margin;
+    }
+    if (top < margin) {
+      top = margin;
+    }
+
+    tooltipLeft = left;
+    tooltipTop = top;
   }
 
   function findEventAt(x, y) {
     const { start, end } = getTimelineBounds();
 
-    return events.find((ev) => {
+    return $eventStore.find((ev) => {
       const row = cameraRowIndex(ev.camera);
       if (row === -1) return false;
 
@@ -701,7 +706,6 @@
     }
   }
 
-
   function onPointerUp(e) {
     // Release capture if we had it
     if (canvas.hasPointerCapture(e.pointerId)) {
@@ -793,44 +797,10 @@
   let loadEventsInterval;
   let ro;
 
-  onMount(async () => {
-    ctx = canvas.getContext("2d");
-
-    await loadServerTime();
-    await loadClasses();
-    await loadCameras();
-    await loadEvents();
-
-    if (isMobile) {
-      zoomHours = 4;   // 4h window
-      offsetSeconds = 0; // live edge at now
-    }
-    zoomHours = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, zoomHours));
-
-    computedLeftMargin = computeDynamicLeftMargin();
-    drawTimeline();
-
-    ro = new ResizeObserver(() => {
-      computedLeftMargin = computeDynamicLeftMargin();
-      drawTimeline();
-    });
-    ro.observe(canvas);
-
-    serverTimeInterval = setInterval(async () => {
-      await loadServerTime();
-      drawTimeline();
-    }, 60000);
-
-    loadEventsInterval = setInterval(async () => {
-      await loadEvents();
-      drawTimeline();
-    }, 5000);
-  });
-
   function hasVisibleEvents() {
     const { start, end } = getTimelineBounds();
 
-    return events.some((ev) => {
+    return $eventStore.some((ev) => {
       // camera exists?
       const row = cameraRowIndex(ev.camera);
       if (row === -1) return false;
@@ -917,6 +887,7 @@
 
   .timeline-wrapper {
     position: relative;
+    overflow: visible;
     z-index: 1;
   }
 

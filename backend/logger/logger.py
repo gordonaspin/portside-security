@@ -16,6 +16,7 @@ import json
 import sys
 import threading
 import time
+from collections import deque
 from datetime import datetime, timezone
 from logging import (
     getLogger,
@@ -37,7 +38,7 @@ import constants as constants
 
 logger = getLogger("pynvr")
 
-event_log = []
+event_log = deque(maxlen=constants.MAX_LOG_LINES)
 
 # =========================
 # LOGGING
@@ -76,8 +77,6 @@ def log_event(message, level="info", camera=None, file_path=None):
     }
     event_log.append(entry)
 
-    if len(event_log) > constants.MAX_LOG_LINES:
-        event_log.pop(0)
 
 def setup_logging(config_path: Path) -> Path:
     """Configure logging using a JSON config file.

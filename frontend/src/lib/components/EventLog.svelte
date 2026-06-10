@@ -1,26 +1,54 @@
-<script>
+<script lang="ts">
+  import { onMount } from 'svelte';
   import { createEventDispatcher } from "svelte";
   import { debug, log, error } from "$lib/stores/logging";
-
-  export let html = "";
-  export let title = "Event Log";
+  import { logStore, addLog } from "$lib/stores/logs"
+  import { safeFetch } from "$lib/network/safeFetch";
 
   const dispatch = createEventDispatcher();
 
+  let container;
+
+  onMount(async () => {
+    const res = await safeFetch('/api/logs', { credentials: "include" });
+    const data = await res.json();
+
+    // Initial load: newest at top
+    for (const log of data.logs) {
+      addLog(log);
+    }
+  });
+
   function handleClick(e) {
     const link = e.target.closest("a");
-    log("EventLog click:", e.target);
     if (!link) return;
 
     e.preventDefault();
     dispatch("selectMedia", link.getAttribute("href"));
   }
+
+  function fmt(ts) {
+    return new Date(ts * 1000).toLocaleTimeString();
+  }
 </script>
 
-<h3 class="event-log-title">{title}</h3>
-<div class="event-log" on:click={handleClick}>
-  {@html html}
+<h3 class="event-log-title">Event Log</h3>
+
+<div class="event-log" bind:this={container} on:click={handleClick}>
+  {#each $logStore as log}
+    <div class="log-entry log-{log.level}">
+      <span class="log-time">{fmt(log.timestamp)}</span>
+      <span class="log-{log.level.toLowerCase()}">{log.level.toUpperCase()}</span>
+      <span class="log-camera">{log.camera}</span>
+      <span class="log-message">{log.message}</span>
+
+      {#if log.file_path}
+        <a class="log-file" href={log.file_path} target="_blank">{log.anchor}</a>
+      {/if}
+    </div>
+  {/each}
 </div>
+
 
 <style>
   .event-log-title {
@@ -31,19 +59,7 @@
     color: #eee;
     font-family: inherit;
   }
-
   .event-log {
-/*    background: #222;
-    border: 1px solid #555;
-    border-radius: 4px;
-    padding: 0.5rem;
-
-    font-family: inherit;
-    font-size: 0.9rem;
-    line-height: 1.35;
-    color: #eee;
-    gap: 0.25rem;
-*/
     white-space: normal;
     overflow-wrap: break-word;
     word-break: break-word;
@@ -55,31 +71,31 @@
     max-height: 300px;      /* adjust to taste */
     overflow-y: auto;
   }
-  :global(.log-info) {
+  .log-info {
     font-size: 0.7rem;
     color: #00c853;
   }
-  :global(.log-debug) {
+  .log-debug {
     font-size: 0.7rem;
     color: #AA0088;
   }
-  :global(.log-warn) {
+  .log-warn {
     font-size: 0.7rem;
     color: #ffd600;
   }
-  :global(.log-error) {
+  .log-error {
     font-size: 0.7rem;
     color: #ff5252;
   }
-  :global(.log-record) {
+  .log-record {
     font-size: 0.7rem;
     color: #17e8ff;
   }
-  :global(.log-info a),
-  :global(.log-debug a),
-  :global(.log-warn a),
-  :global(.log-error a),
-  :global(.log-record a) {
+  .log-info a,
+  .log-debug a,
+  .log-warn a,
+  .log-error a,
+  .log-record a {
     font-size: 0.7rem;
     color: #eee;
     text-decoration: underline;

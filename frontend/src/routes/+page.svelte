@@ -9,9 +9,6 @@
   import { onMount } from 'svelte';
   import { safeFetch } from '$lib/network/safeFetch';
 
-  let logs = []
-  let logHtml = '';
-  let loadingEvent = false;
   let system_name = ""
   let selectedEvent = null;
 
@@ -22,82 +19,12 @@
     }
   )
 
-  function formatEastern(date) {
-    const options = {
-      timeZone: "America/New_York",
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit",
-      hour12: false
-    };
-
-    // Example output: "06/08/2026, 15:58:17"
-    const parts = new Intl.DateTimeFormat("en-US", options).format(date);
-
-    // Convert to your desired "YYYY-MM-DD HH:MM:SS"
-    const [mdy, hms] = parts.split(", ");
-    const [month, day, year] = mdy.split("/");
-
-    return `${year}-${month}-${day} ${hms}`;
-  }
-
-  async function fetchLogs() {
-    if (loadingEvent) return;
-    loadingEvent = true;
-
-    // newest log is at the END (ascending timestamps)
-    const newestTimestamp = logs.length > 0
-      ? logs[logs.length - 1].timestamp
-      : null;
-
-    const url = newestTimestamp
-      ? `/api/logs?since=${newestTimestamp}`
-      : `/api/logs`;
-
-    const res = await safeFetch(url, { credentials: "include" });
-    const data = await res.json();
-
-    // append new logs
-    logs = [...logs, ...data.logs];
-
-    // rebuild markup
-    logHtml = [...logs] // copy
-      .reverse()        // newest to oldest  
-      .map((log) => {
-        const date = new Date(log.timestamp * 1000);
-        const formatted = formatEastern(date)
-
-        return `
-          <div class="log-entry log-${log.level}">
-            <span class="log-time">${formatted}</span>
-            <span class="log-level">${log.level.toUpperCase()}</span>
-            <span class="log-camera">${log.camera}</span>
-            <span class="log-message">${log.message}</span>
-            ${
-              log.file_path
-                ? `<a class="log-file" href="${log.file_path}" target="_blank">${log.anchor}</a>`
-                : ""
-            }
-          </div>
-        `;
-      })
-      .join("");
-
-    loadingEvent = false;
-  }
-
-  setInterval(fetchLogs, 1000);
-
   function handleSelectEvent(e) {
     selectedEvent = e;
     log("Selected video: ", selectedEvent)
   }
 
   async function handleLogMedia(metadata_url) {
-    loadingEvent = true;
     // Remove leading slash
     const clean = metadata_url.startsWith("/") ? metadata_url.slice(1) : metadata_url;
 
@@ -110,7 +37,6 @@
       metadata_url: "/" + data.metadata_filename.split("/").map(encodeURIComponent).join("/"),
     };
     log("Selected video: ", selectedEvent)
-    loadingEvent = false;
   }
 
 </script>
@@ -141,7 +67,7 @@
   <div class="log-info-row">
     <div class="panel log-panel">
       <div class="event-log-content">
-        <EventLog html={logHtml} on:selectMedia={(e) => handleLogMedia(e.detail)}/>
+        <EventLog on:selectMedia={(e) => handleLogMedia(e.detail)}/>
       </div>
     </div>
 

@@ -1,36 +1,74 @@
 <script lang="ts">
-  import favicon from '$lib/assets/favicon.svg';
-  export const ssr = false;
+  export let data; // contains { user } from +layout.server.js
 
+  import favicon from '$lib/assets/favicon.svg';
+  import { onDestroy } from 'svelte';
+  import { cameraStatusStore } from '$lib/stores/cameraStatus';
+  import { addEvent } from "$lib/stores/events";
+  import { addLog } from "$lib/stores/logs";
   import { serverOffline } from '$lib/stores/connection';
 
-  $: offline = $serverOffline;
-
-  // Auto‑reload every 5 seconds while offline
+  let es: EventSource | null = null;
   let interval: ReturnType<typeof setInterval>;
 
-  $: if (offline) {
-    // Start interval only once
-    if (!interval) {
-      interval = setInterval(async () => {
-        try {
-          await fetch('/api/server_time', { method: 'GET' });
-          location.reload();
-        } catch {
-          // do nothing
-        }
-      }, 5000);
-    }
-  } else {
-    // Clear interval when back online
-    if (interval) {
-      clearInterval(interval);
-      interval = null;
-    }
+  $: if (data.user && !es) {
+    startEventStream();
   }
+
+  $: if (!data.user && es) {
+    es.close();
+    es = null;
+  }
+
+  function startEventStream() {
+    const source = new EventSource('/api/stream', { withCredentials: true });
+    es = source;
+
+    source.onopen = () => serverOffline.set(false);
+
+    source.onerror = () => {
+      serverOffline.set(true);
+      source.close();
+      es = null;
+    };
+
+    source.addEventListener("cameraStatus", (ev) => {
+      const cam = JSON.parse(ev.data).data;
+      cameraStatusStore.update((current) => ({ ...current, [cam.name]: cam }));
+    });
+
+    source.addEventListener("newEvent", (ev) => {
+      addEvent(JSON.parse(ev.data).data);
+    });
+
+    source.addEventListener("logLine", (ev) => {
+      addLog(JSON.parse(ev.data).data);
+    });
+
+  }
+
+  $: if ($serverOffline && !interval) {
+    interval = setInterval(async () => {
+      try {
+        await fetch('/api/server_time');
+        location.reload();
+      } catch {}
+    }, 5000);
+  }
+
+  $: if (!$serverOffline && interval) {
+    clearInterval(interval);
+    interval = null;
+  }
+
+  onDestroy(() => {
+    es?.close();
+    es = null;
+  });
+
 </script>
 
-{#if offline}
+{#if $serverOffline}
   <div class="offline-banner">
     ⚠️ Server unreachable
     <button class="reload-btn" on:click={() => location.reload()}>
