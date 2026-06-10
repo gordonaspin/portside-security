@@ -20,6 +20,7 @@ from nvr.camera.motion_tuner import MotionDecision
 from reader.rtsp_reader import Reader
 from recorder.factory import FrameRecorderFactory
 from recorder.recorders import Recorder
+from utils.thread_safe import ThreadSafeList
 from utils.utils import (
     make_readable_ts,
     tags_to_str,
@@ -36,6 +37,7 @@ class FrameProcessor():
         recorder_factory: FrameRecorderFactory,
         model_cfg: dict[str, str],
         stop_event: Event,
+        recordings: ThreadSafeList
     ):
         self.camera: Camera = camera
         self.reader: Reader = reader
@@ -45,8 +47,9 @@ class FrameProcessor():
         self.selected_classes: list[int] = [classname_to_classindex[n] for n in model_cfg["classes"]]
 
         self.stop_event: Event = stop_event
+        self.recordings: ThreadSafeList = recordings
         self.thread: Thread = None
-        self.recorder: Recorder = self.recorder_factory.create(self.camera, self.stop_event)
+        self.recorder: Recorder = self.recorder_factory.create(self.camera, self.stop_event, self.recordings)
         self.frame_count: int = 0
         self.status_text: str = "Not streaming"
         self.objects_text: str = ""
@@ -670,7 +673,7 @@ class FrameProcessor():
             if now - self.camera.motion.last_motion_time > constants.POST_RECORD_DURATION:
                 self.recorder.stop_recording()
                 # Reset state
-                self.recorder = self.recorder_factory.create(self.camera, self.stop_event)
+                self.recorder = self.recorder_factory.create(self.camera, self.stop_event, self.recordings)
                 self.camera.recording_state.recording = False
                 self.camera.motion.classes_in_frame_dict.clear()
                 self.camera.motion.active_objects_dict.clear()

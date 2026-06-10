@@ -10,6 +10,7 @@ import time
 import traceback
 import uuid
 from collections import defaultdict, deque
+from collections.abc import Callable
 from copy import deepcopy
 from datetime import timedelta
 from fractions import Fraction
@@ -24,14 +25,16 @@ from constants import PRE_RECORD_DURATION, TS_FILE_RING_SECONDS, MINIMUM_RECORDI
 from logger.logger import log_event
 from nvr.camera.camera import Camera
 from nvr.file_cleaner import FileCleaner
+from utils.thread_safe import ThreadSafeList
 from utils.utils import make_readable_ts, make_ts_string, tags_to_str, make_ts_string_precise, RollingAverage
 
 logger = getLogger("pynvr.recorder")
 
 class Recorder:
-    def __init__(self, camera: Camera, stop_event: Event, pre_record_duration=PRE_RECORD_DURATION):
+    def __init__(self, camera: Camera, stop_event: Event, recordings: Callable, pre_record_duration=PRE_RECORD_DURATION):
         self.camera: Camera = camera
         self.stop_event = stop_event
+        self.recordings: Callable = recordings
         self.pre_record_duration: float = pre_record_duration
         self.max_pre_frames: int = int(20 * pre_record_duration)
         self.uuid: str = str(uuid.uuid4())
@@ -181,13 +184,14 @@ class Recorder:
             with open(self.final_metadata_filename, "w") as f:
                 json.dump(metadata, f, default=lambda o: o.__dict__, indent=4)
 
-            self.report_complete()
+            if self.duration_seconds <= 0.0:
+                log_event(message=f"recording broken {self.formatted_duration}", level="error", camera=self.camera, file_path=self.final_metadata_filename)
+            else:
+                self.report_complete()
+                self.recordings(self.final_metadata_filename)
 
     def report_complete(self):
-        if self.duration_seconds <= 0.0:
-            log_event(message=f"recording broken {self.formatted_duration}", level="error", camera=self.camera, file_path=self.final_metadata_filename)
-        else:
-            log_event(message=f"recording available {self.formatted_duration}", level="record", camera=self.camera, file_path=self.final_metadata_filename)
+        log_event(message=f"recording available {self.formatted_duration}", level="record", camera=self.camera, file_path=self.final_metadata_filename)
 
     def _finalize_media_file(self):
         os.rename(self.temporary_media_filename, self.final_media_filename)
@@ -220,8 +224,8 @@ class Recorder:
 
 
 class OpenCVFrameRecorder(Recorder):
-    def __init__(self, camera: Camera, stop_event: Event, pre_record_duration=PRE_RECORD_DURATION):
-        super().__init__(camera=camera, stop_event=stop_event, pre_record_duration=pre_record_duration)
+    def __init__(self, camera: Camera, stop_event: Event, recordings: Callable, pre_record_duration=PRE_RECORD_DURATION):
+        super().__init__(camera=camera, stop_event=stop_event, recordings=recordings, pre_record_duration=pre_record_duration)
 
     def _async_writer_worker(self):
         """Background thread that continuously drains the queue and writes to disk."""
@@ -312,8 +316,8 @@ class OpenCVFrameRecorder(Recorder):
         log_event(message=f"OpenCV frame recording available {self.formatted_duration}", level="record", camera=self.camera, file_path=self.final_metadata_filename)
 
 class AVFFmpegFrameRecorder(Recorder):
-    def __init__(self, camera: Camera, stop_event: Event, pre_record_duration=PRE_RECORD_DURATION):
-        super().__init__(camera=camera, stop_event=stop_event, pre_record_duration=pre_record_duration)
+    def __init__(self, camera: Camera, stop_event: Event, recordings: Callable, pre_record_duration=PRE_RECORD_DURATION):
+        super().__init__(camera=camera, stop_event=stop_event, recordings=recordings, pre_record_duration=pre_record_duration)
 
     def _async_writer_worker(self):
         current_thread().name = f"AVFFmpeg {self.camera.config.name} recorder"
@@ -397,8 +401,8 @@ class AVFFmpegFrameRecorder(Recorder):
 
 
 class FFmpegFrameRecorder(Recorder):
-    def __init__(self, camera: Camera, stop_event: Event, pre_record_duration=PRE_RECORD_DURATION):
-        super().__init__(camera=camera, stop_event=stop_event, pre_record_duration=pre_record_duration)
+    def __init__(self, camera: Camera, stop_event: Event, recordings: Callable, pre_record_duration=PRE_RECORD_DURATION):
+        super().__init__(camera=camera, stop_event=stop_event, recordings=recordings, pre_record_duration=pre_record_duration)
 
     def _async_writer_worker(self):
         current_thread().name = f"FFmpeg {self.camera.config.name} recorder"
@@ -492,8 +496,8 @@ class FFmpegFrameRecorder(Recorder):
 
 
 class FFmpegSegmentRecorder(Recorder):
-    def __init__(self, camera: Camera, stop_event: Event, pre_record_duration=PRE_RECORD_DURATION):
-        super().__init__(camera=camera, stop_event=stop_event, pre_record_duration=pre_record_duration)
+    def __init__(self, camera: Camera, stop_event: Event, recordings: Callable, pre_record_duration=PRE_RECORD_DURATION):
+        super().__init__(camera=camera, stop_event=stop_event, recordings=recordings, pre_record_duration=pre_record_duration)
         self.segments: list[str] = []
         FileCleaner.add(self.camera.config.segments_dir, "*.ts", timedelta(seconds=TS_FILE_RING_SECONDS), timedelta(seconds=5))
         FileCleaner.add(self.camera.config.segments_dir, "*.list", timedelta(seconds=TS_FILE_RING_SECONDS), timedelta(seconds=5))

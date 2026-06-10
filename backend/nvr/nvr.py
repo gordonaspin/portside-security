@@ -36,11 +36,10 @@ class NVR:
         self.stop_event: Event = Event()
         self.thread: Thread = None
 
-        self.recordings: ThreadSafeList = ThreadSafeList()
-
         self.cameras: dict[str, Camera] = {}
         self.frame_readers: dict[str, Reader] = {}
         self.frame_processors: dict[str, FrameProcessor] = {}
+        self.recordings: ThreadSafeList = ThreadSafeList()
 
         camera_resolutions = self.get_all_camera_resolutions(config["cameras"])
         for name, _ in config["cameras"].items():
@@ -59,7 +58,7 @@ class NVR:
                                         logs_dir=self.logs_dir,
                                         recordings_dir=self.recordings_dir,
                                         )
-
+    
             self.frame_readers[name] = RTSPReader(
                 self.cameras[name],
                 config["model"]["resolution"],
@@ -71,6 +70,7 @@ class NVR:
                 recorder_factory=FrameRecorderFactory.create(self.cameras[name], config["cameras"][name]["recorder"]),
                 model_cfg=config["model"],
                 stop_event=self.stop_event,
+                recordings=self.add_recording
                 )
         FileCleaner.stop_event = self.stop_event
         FileCleaner.add(self.recordings_dir, "*.mp4", timedelta(**config["keep_recordings_timedelta"]), timedelta(minutes=5))
@@ -86,6 +86,8 @@ class NVR:
         1 ffmpeg frame reader thread for each camera reading from stdout and writing frames to a queue
         1 frame processor thread to read frames from the queue and do image processing
         """
+        self._load_events()
+
         if not self.stop_event.is_set():
             for camera in self.cameras.values():
                 if camera.config.enabled:
@@ -131,7 +133,6 @@ class NVR:
         current_thread().name = "event loader"
 
         while not self.stop_event.is_set():
-            self.recordings = ThreadSafeList(self._load_events())
             time.sleep(5)
             for reader in self.frame_readers.values():
                 if reader.process and reader.process.poll() is not None:
@@ -139,41 +140,52 @@ class NVR:
                     reader.restart()
             pass
 
-    def _load_events(self):
-        files = []
+    def add_recording(self, metadata_file: str):
+        self.recordings.append(self._load_event(metadata_file=metadata_file))
 
+    def _load_event(self, metadata_file:str) -> dict:
+        event = None
+
+        with open(metadata_file) as fp:
+            try:
+                event = json.load(fp)
+                for k in list(event):
+                    # only send necessary event data to gui
+                    if k not in ["camera",
+                                    "tags",
+                                    "media_filename",
+                                    "start_time",
+                                    "end_time",
+                                    "start_fmt",
+                                    "end_fmt",
+                                    "metadata_filename",
+                                    "recorder_type"
+                                    ]:
+                        event.pop(k, None)
+
+            except json.JSONDecodeError:
+                logger.warning(f"invalid JSON in file {metadata_file}, deleting the file")
+                os.remove(metadata_file)
+        return event
+
+    def _load_events(self):
+        events = []
+
+        start = time.time()
         for camera in self.cameras.values():
             if camera.config.enabled:
                 for f in glob.glob(f"{camera.config.metadata_dir}/*.json"):
                     try:
-                        with open(f) as fp:
-                            try:
-                                event = json.load(fp)
-                            except json.JSONDecodeError:
-                                logger.warning(f"invalid JSON in file {f}, deleting the file")
-                                os.remove(f)
-                                continue
-                            for k in list(event):
-                                # only send necessary event data to gui
-                                if k not in ["camera",
-                                                "tags",
-                                                "media_filename",
-                                                "start_time",
-                                                "end_time",
-                                                "start_fmt",
-                                                "end_fmt",
-                                                "metadata_filename",
-                                                "recorder_type"
-                                                ]:
-                                    event.pop(k, None)
-                            files.append(event)
+                        events.append(self._load_event(f))
+
                     except FileNotFoundError:
                         pass # it's possible a clean-up job whacked the file
 
         # Sort globally by start_time
-        files.sort(key=lambda x: x["start_time"])
+        events.sort(key=lambda x: x["start_time"])
+        self.recordings.extend(events)
 
-        return files
+        logger.debug(f"loaded {len(events)} events in {(time.time() - start):.2f} seconds")
 
 
     def get_all_camera_resolutions(self,camera_config):

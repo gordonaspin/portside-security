@@ -33,6 +33,18 @@
   let legendItems = [];
   let selectedEventId = null;
 
+  $: drawTimeline(
+    $eventStore,
+    cameras,
+    classes,
+    selectedClasses,
+    zoomHours,
+    offsetSeconds,
+    serverNow,
+    computedLeftMargin,
+    selectedEventId
+  );
+
   onMount(async () => {
     ctx = canvas.getContext("2d");
 
@@ -41,7 +53,7 @@
     await loadCameras();
 
     await loadEvents();
-    drawTimeline();
+    //drawTimeline();
 
     if (isMobile) {
       zoomHours = 4;   // 4h window
@@ -50,17 +62,17 @@
     zoomHours = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, zoomHours));
 
     computedLeftMargin = computeDynamicLeftMargin();
-    drawTimeline();
+    //drawTimeline();
 
     ro = new ResizeObserver(() => {
       computedLeftMargin = computeDynamicLeftMargin();
-      drawTimeline();
+      //drawTimeline();
     });
     ro.observe(canvas);
 
     serverTimeInterval = setInterval(async () => {
       await loadServerTime();
-      drawTimeline();
+      //drawTimeline();
     }, 60000);
 
   });
@@ -110,7 +122,10 @@
     }
   }
 
-  $: if (!initialAligned && $eventStore.length > 0) {
+  $: if (
+    !initialAligned && 
+    $eventStore.length > 0
+  ) {
     if (!isMobile) {
       const latestEnd = Math.max(...$eventStore.map((e) => e.end_time));
       offsetSeconds = Math.max(0, serverNow - latestEnd);
@@ -122,7 +137,33 @@
     initialAligned = true;
   }
 
+  $: if (initialAligned && $eventStore.length > 0) {
+    const latestEnd = Math.max(...$eventStore.map(e => e.end_time));
+    const { end } = getTimelineBounds();
+
+    // user is visually at live edge (within 1 second)
+    const atLiveEdge = Math.abs(end - latestEnd) < 1;
+
+    if (atLiveEdge) {
+      offsetSeconds = Math.max(0, serverNow - latestEnd);
+    }
+  }
+
   function getTimelineBounds() {
+    const latestEnd =
+      $eventStore.length > 0
+        ? Math.max(...$eventStore.map(e => e.end_time))
+        : serverNow;
+
+    // live edge is the max of server time and latest event time
+    const edge = Math.max(serverNow, latestEnd);
+
+    const end = edge - offsetSeconds;
+    const start = end - zoomHours * HOUR;
+
+    return { start, end };
+  }
+  function getTimelineBounds2() {
     const end = serverNow - offsetSeconds;
     const start = end - zoomHours * HOUR;
     return { start, end };
@@ -237,7 +278,7 @@
           selectedClasses.add(item.cls);
         }
         selectedClasses = new Set(selectedClasses);
-        drawTimeline();
+        //drawTimeline();
         return true;
       }
     }
@@ -671,7 +712,7 @@
 
       offsetSeconds = Math.max(0, offsetSeconds);
 
-      requestAnimationFrame(drawTimeline);
+      //requestAnimationFrame(drawTimeline);
       return;
     }
 
@@ -702,7 +743,7 @@
 
       offsetSeconds = Math.max(0, offsetSeconds);
 
-      requestAnimationFrame(drawTimeline);
+      //requestAnimationFrame(drawTimeline);
     }
   }
 
@@ -751,7 +792,7 @@
     if (ev) {
       selectedEventId = ev.start_time;
       onSelectEvent(ev);
-      drawTimeline()
+      //drawTimeline()
     }
   }
 
@@ -789,7 +830,7 @@
     offsetSeconds = Math.max(0, newOffset);
     zoomHours = newZoom;
 
-    requestAnimationFrame(drawTimeline);
+    //requestAnimationFrame(drawTimeline);
   }
 
   // Lifecycle

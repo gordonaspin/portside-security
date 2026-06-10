@@ -370,6 +370,7 @@ def create_app(config: dict, nvr: NVR):
 
                 for recording in recordings:
                     payload = {"type": "newEvent", "data": recording}
+                    logger.debug(f"sending event: {payload}")
                     yield (
                         "event: newEvent\n"
                         f"data: {json.dumps(payload)}\n\n"
