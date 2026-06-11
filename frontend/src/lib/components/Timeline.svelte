@@ -35,7 +35,7 @@
 
   $: drawTimeline(
     $eventStore,
-    cameras,
+//    cameras,
     classes,
     selectedClasses,
     zoomHours,
@@ -112,7 +112,7 @@
 
   async function loadEvents() {
 
-    const url = `/api/events?mobile=${isMobile ? 1 : 0}`;
+    const url = `/api/events?mobile=${isMobile ? 1 : 1}`;
 
     const res = await safeFetch(url, { credentials: "include" });
     const data = await res.json();
@@ -126,7 +126,7 @@
     !initialAligned && 
     $eventStore.length > 0
   ) {
-    if (!isMobile) {
+      if (!isMobile) {
       const latestEnd = Math.max(...$eventStore.map((e) => e.end_time));
       offsetSeconds = Math.max(0, serverNow - latestEnd);
     } else {
@@ -177,6 +177,7 @@
 
   function drawTimeline() {
     if (!ctx) return;
+    const start = Date.now()
 
     const w = (canvas.width = canvas.clientWidth);
     const h = (canvas.height = canvas.clientHeight);
@@ -191,6 +192,7 @@
     if (!hasVisibleEvents()) {
       drawNoEventsMessage();
     }
+    log("drawTimeline took ms: ", Date.now() - start);
   }
 
   function drawBackground(w, h) {
@@ -779,6 +781,26 @@
     }
   }
 
+  function onPointerCancel(e) {
+    // Always release capture
+    if (canvas.hasPointerCapture(e.pointerId)) {
+      canvas.releasePointerCapture(e.pointerId);
+    }
+
+    // Clear all pointers — cancel means the gesture is dead
+    pointers.clear();
+
+    // Reset all gesture state
+    isDragging = false;
+    gestureMode = "none";
+    tapStart = null;
+
+    // Allow hover to resume immediately
+    if (e.pointerType === "mouse") {
+      handleHover(e);
+    }
+  }
+
   function handleTap(clientX, clientY) {
     const rect = canvas.getBoundingClientRect();
     const x = clientX - rect.left;
@@ -875,6 +897,10 @@
     if (loadEventsInterval) clearInterval(loadEventsInterval);
     if (ro) ro.disconnect();
   });
+
+  //    on:pointerleave={onPointerCancel}
+  //  on:pointerout={onPointerCancel}
+
 </script>
 <h3 class="timeline-title">Recorded Events</h3>
 <div class="timeline-wrapper">
