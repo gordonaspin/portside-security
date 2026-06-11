@@ -17,6 +17,7 @@ from fractions import Fraction
 from logging import getLogger
 from threading import Event, current_thread
 from typing import override
+from urllib.parse import quote, quote_plus
 
 import cv2
 
@@ -207,15 +208,15 @@ class Recorder:
             "camera": self.camera.config.name,
             "fps": self.final_fps,
             "tags": serializable_tags,
-            "media_filename": self.final_media_filename,
-            "log_filename": self.final_log_filename,
+            "media_filename": quote(self.final_media_filename),
+            "log_filename": quote(self.final_log_filename),
             "start_time": self.final_start_time,
             "end_time": self.final_end_time,
             "duration": self.duration_seconds,
             "duration_fmt": self.formatted_duration,
             "start_fmt": make_readable_ts(self.final_start_time),
             "end_fmt": make_readable_ts(self.final_end_time),
-            "metadata_filename": self.final_metadata_filename,
+            "metadata_filename": quote(self.final_metadata_filename),
             "profile": self.final_profile,
             "tuner_stats": self.final_tuner_stats,
             "recommendations": self.final_tuner_recs,

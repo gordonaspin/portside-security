@@ -19,7 +19,7 @@ class CleanerConfig:
 
 class FileCleaner():
     do_not_delete_set: ThreadSafeSet = ThreadSafeSet()
-    min_sleep_seconds = 60
+    min_sleep_seconds = 5
     cleaner_config: dict[CleanerConfig] = {}
     stop_event: Event = None
     thread: Thread = None
@@ -30,7 +30,7 @@ class FileCleaner():
         logger.debug(f"adding cleaner folder={folder}, filespec={filespec}, age={age}, period={period}")
         FileCleaner.cleaner_config[str(folder)+filespec] = config
         FileCleaner.min_sleep_seconds = min(FileCleaner.min_sleep_seconds, period.total_seconds())
-        if FileCleaner.thread is None:
+        if FileCleaner.thread is None and FileCleaner.stop_event is not None:
             FileCleaner.start()
 
     @staticmethod
@@ -46,9 +46,7 @@ class FileCleaner():
         """
         current_thread().name = "file cleaner"
 
-        while True:
-            if FileCleaner.stop_event is not None and FileCleaner.stop_event.is_set():
-                break
+        while not FileCleaner.stop_event.is_set():
 
             now = time.time()
             for config in FileCleaner.cleaner_config.values():
@@ -65,4 +63,5 @@ class FileCleaner():
                             except Exception:
                                 pass                # file could have disappeared or been renamed
                     config.last_cleanup_time = now
+            logger.debug(f"FileCleaner sleeping")
             time.sleep(FileCleaner.min_sleep_seconds)

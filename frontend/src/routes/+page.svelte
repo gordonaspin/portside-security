@@ -24,17 +24,15 @@
     log("Selected video: ", selectedEvent)
   }
 
-  async function handleLogMedia(metadata_url) {
+  async function handleLogMedia(metadata_filename) {
     // Remove leading slash
-    const clean = metadata_url.startsWith("/") ? metadata_url.slice(1) : metadata_url;
+    const clean = metadata_filename.startsWith("/") ? metadata_filename.slice(1) : metadata_filename;
 
-    const res = await safeFetch(metadata_url, { credentials: "include" });
+    const res = await safeFetch(metadata_filename, { credentials: "include" });
     const data = await res.json();
   
     selectedEvent = {
       ...data,
-      media_url: "/" + data.media_filename.split("/").map(encodeURIComponent).join("/"),
-      metadata_url: "/" + data.metadata_filename.split("/").map(encodeURIComponent).join("/"),
     };
     log("Selected video: ", selectedEvent)
   }

@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 from logging import getLogger
 
 from aiortc import RTCPeerConnection, RTCSessionDescription
-from fastapi import FastAPI, Request, Depends, HTTPException, Response, Cookie
+from fastapi import FastAPI, Request, Depends, HTTPException, Query, Response, Cookie
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, EventSourceResponse
@@ -190,28 +190,63 @@ def create_app(config: dict, nvr: NVR):
     def get_mosaic_dimensions(user=Depends(require_user)):
         return config["mosaic"]
 
+
     @app.get("/api/events")
     def api_events(
+        start: float | None = Query(None),
+        end: float | None = Query(None),
         mobile: bool = False,
-        since: float | None = None,
         user = Depends(require_user)
     ):
+        """
+        Returns events for the requested time window.
+
+        Modes:
+        • mobile=true → last 4 hours (unchanged)
+        • start/end provided → return only events overlapping [start, end]
+        • no params → return all events (fallback)
+        """
+
+        # nvr.recordings MUST be sorted by start_time ascending
         events = list(nvr.recordings)
 
-        # --- MOBILE FILTER (your existing logic) ---
+        # ------------------------------------------------------------
+        # MOBILE MODE: last 4 hours (your existing behavior)
+        # ------------------------------------------------------------
         if mobile:
-            cutoff_time = datetime.now() - timedelta(hours=4)
-            end_times = [obj["end_time"] for obj in events]
-            index = bisect.bisect_left(end_times, cutoff_time.timestamp())
-            events = events[index:]
+            cutoff = datetime.now().timestamp() - 4 * 3600
+            end_times = [ev["end_time"] for ev in events]
+            idx = bisect.bisect_left(end_times, cutoff)
+            return {"events": events[idx:]}
 
-        # --- NEW: RETURN ONLY EVENTS NEWER THAN "since" ---
-        if since is not None:
-            start_times = [obj["start_time"] for obj in events]
-            index = bisect.bisect_right(start_times, since)
-            events = events[index:]
+        # ------------------------------------------------------------
+        # DESKTOP MODE: window-based filtering
+        # ------------------------------------------------------------
+        if start is not None and end is not None:
+            # 1. Find first event whose end_time >= start
+            end_times = [ev["end_time"] for ev in events]
+            left = bisect.bisect_left(end_times, start)
 
+            # 2. Find last event whose start_time <= end
+            start_times = [ev["start_time"] for ev in events]
+            right = bisect.bisect_right(start_times, end)
+
+            # 3. Slice and return only overlapping events
+            window_events = events[left:right]
+
+            # 4. Final overlap check (safety)
+            window_events = [
+                ev for ev in window_events
+                if ev["end_time"] >= start and ev["start_time"] <= end
+            ]
+
+            return {"events": window_events}
+
+        # ------------------------------------------------------------
+        # FALLBACK: return everything
+        # ------------------------------------------------------------
         return {"events": events}
+
 
     @app.get("/api/logs")
     def get_logs(

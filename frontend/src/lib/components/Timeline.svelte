@@ -1,41 +1,62 @@
 <script lang="ts">
   import { onMount, onDestroy, tick } from "svelte";
   import { debug, log, error } from "$lib/stores/logging";
-  import { safeFetch } from '$lib/network/safeFetch';
+  import { safeFetch } from "$lib/network/safeFetch";
   import { eventStore, addEvent } from "$lib/stores/events";
 
   export let onSelectEvent = () => {};
 
   const TICK_HEIGHT = 20;
   const ROW_HEIGHT = 40;
-  const HEADER_HEIGHT = TICK_HEIGHT + 36;  // extra band for date header
+  const HEADER_HEIGHT = TICK_HEIGHT + 36;
   const LEGEND_HEIGHT = 24;
   const HOUR = 3600;
-  const DAY = 24 * HOUR;
   const isMobile =
     typeof window !== "undefined" &&
     /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-  const MIN_ZOOM = 1/60
+  const MIN_ZOOM = 1 / 60;
   const MAX_ZOOM = isMobile ? 4 : 24;
 
   let cameras = [];
-  let events = [];
   let classes = [];
   let classColors = {};
   let selectedClasses = new Set();
-  let canvas;
-  let ctx;
+  let canvas: HTMLCanvasElement;
+  let ctx: CanvasRenderingContext2D | null;
   let initialAligned = false;
-  let zoomHours = 24;          // desktop: 24h window; mobile: overridden to 4h on mount
-  let offsetSeconds = 0;       // desktop: aligned to latest event; mobile: live edge (0)
+  let zoomHours = 24;
+  let offsetSeconds = 0;
   let computedLeftMargin = 140;
   let serverNow = 0;
   let legendItems = [];
-  let selectedEventId = null;
+  let selectedEventId: number | null = null;
+
+  let ro: ResizeObserver;
+  let serverTimeInterval: number;
+
+  // hover / tooltip
+  let hoverEvent = null;
+  let mouseX = 0;
+  let mouseY = 0;
+  let tooltipLeft = 0;
+  let tooltipTop = 0;
+
+  // gestures
+  let gestureMode = "none";
+  let startX = 0;
+  let startY = 0;
+  let pointers = new Map<number, { x: number; y: number }>();
+  let panStartX = 0;
+  let panStartOffset = 0;
+  let isDragging = false;
+  let zoomStartY = 0;
+  let zoomStartHours = 0;
+  let zoomCenterX = 0;
+  let zoomCenterSeconds = 0;
+  let tapStart: { x: number; y: number; time: number } | null = null;
 
   $: drawTimeline(
     $eventStore,
-//    cameras,
     classes,
     selectedClasses,
     zoomHours,
@@ -52,29 +73,28 @@
     await loadClasses();
     await loadCameras();
 
-    await loadEvents();
-    //drawTimeline();
-
     if (isMobile) {
-      zoomHours = 4;   // 4h window
-      offsetSeconds = 0; // live edge at now
+      zoomHours = 4;
+      offsetSeconds = 0;
     }
     zoomHours = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, zoomHours));
 
     computedLeftMargin = computeDynamicLeftMargin();
-    //drawTimeline();
+
+    await fetchEventsForCurrentWindow();
+    drawTimeline();
 
     ro = new ResizeObserver(() => {
       computedLeftMargin = computeDynamicLeftMargin();
-      //drawTimeline();
+      drawTimeline();
     });
     ro.observe(canvas);
 
-    serverTimeInterval = setInterval(async () => {
+    serverTimeInterval = window.setInterval(async () => {
       await loadServerTime();
-      //drawTimeline();
+      await fetchEventsForCurrentWindow();
+      drawTimeline();
     }, 60000);
-
   });
 
   async function loadServerTime() {
@@ -110,38 +130,30 @@
     cameras = await res.json();
   }
 
-  async function loadEvents() {
-
-    const url = `/api/events?mobile=${isMobile ? 1 : 1}`;
+  async function fetchEventsForCurrentWindow() {
+    const { start, end } = getTimelineBounds2();
+    const url = `/api/events?start=${start}&end=${end}&mobile=${isMobile ? 1 : 0}`;
 
     const res = await safeFetch(url, { credentials: "include" });
     const data = await res.json();
 
-    for (const entry of data.events) {
-      addEvent(entry);
-    }
+    eventStore.set(data.events);
   }
 
-  $: if (
-    !initialAligned && 
-    $eventStore.length > 0
-  ) {
-      if (!isMobile) {
+  $: if (!initialAligned && $eventStore.length > 0) {
+    if (!isMobile) {
       const latestEnd = Math.max(...$eventStore.map((e) => e.end_time));
       offsetSeconds = Math.max(0, serverNow - latestEnd);
     } else {
       zoomHours = 4;
       offsetSeconds = 0;
     }
-
     initialAligned = true;
   }
 
   $: if (initialAligned && $eventStore.length > 0) {
-    const latestEnd = Math.max(...$eventStore.map(e => e.end_time));
+    const latestEnd = Math.max(...$eventStore.map((e) => e.end_time));
     const { end } = getTimelineBounds();
-
-    // user is visually at live edge (within 1 second)
     const atLiveEdge = Math.abs(end - latestEnd) < 1;
 
     if (atLiveEdge) {
@@ -152,32 +164,34 @@
   function getTimelineBounds() {
     const latestEnd =
       $eventStore.length > 0
-        ? Math.max(...$eventStore.map(e => e.end_time))
+        ? Math.max(...$eventStore.map((e) => e.end_time))
         : serverNow;
 
-    // live edge is the max of server time and latest event time
     const edge = Math.max(serverNow, latestEnd);
-
     const end = edge - offsetSeconds;
     const start = end - zoomHours * HOUR;
 
     return { start, end };
   }
+
   function getTimelineBounds2() {
     const end = serverNow - offsetSeconds;
     const start = end - zoomHours * HOUR;
     return { start, end };
   }
 
-  function xFor(ts) {
+  function xFor(ts: number) {
     const { start, end } = getTimelineBounds();
     const total = end - start;
-    return computedLeftMargin + ((ts - start) / total) * (canvas.width - computedLeftMargin);
+    return (
+      computedLeftMargin +
+      ((ts - start) / total) * (canvas.width - computedLeftMargin)
+    );
   }
 
   function drawTimeline() {
     if (!ctx) return;
-    const start = Date.now()
+    const start = Date.now();
 
     const w = (canvas.width = canvas.clientWidth);
     const h = (canvas.height = canvas.clientHeight);
@@ -195,9 +209,50 @@
     log("drawTimeline took ms: ", Date.now() - start);
   }
 
-  function drawBackground(w, h) {
+  function drawBackground(w: number, h: number) {
     ctx.fillStyle = "#111";
     ctx.fillRect(0, 0, w, h);
+  }
+
+  function roundRectPath(
+    ctx: CanvasRenderingContext2D,
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+    r: number
+  ) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + w - r, y);
+    ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+    ctx.lineTo(x + w, y + h - r);
+    ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+    ctx.lineTo(x + r, y + h);
+    ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+    ctx.lineTo(x, y + r);
+    ctx.quadraticCurveTo(x, y, x + r, y);
+    ctx.closePath();
+  }
+
+  function handleLegendClick(mx: number, my: number) {
+    for (const item of legendItems) {
+      if (
+        mx >= item.x &&
+        mx <= item.x + item.w &&
+        my >= item.y &&
+        my <= item.y + item.h
+      ) {
+        if (selectedClasses.has(item.cls)) {
+          selectedClasses.delete(item.cls);
+        } else {
+          selectedClasses.add(item.cls);
+        }
+        selectedClasses = new Set(selectedClasses);
+        return true;
+      }
+    }
+    return false;
   }
 
   function drawLegend() {
@@ -222,24 +277,20 @@
       const bx = x;
       const by = y - h / 2;
 
-      // Background (only difference between selected/unselected)
       ctx.fillStyle = isSelected
-        ? "rgba(255,255,255,0.36)"   // selected
-        : "rgba(255,255,255,0.06)";  // unselected
+        ? "rgba(255,255,255,0.36)"
+        : "rgba(255,255,255,0.06)";
       roundRectPath(ctx, bx, by, w, h, r);
       ctx.fill();
 
-      // Single consistent border
-      ctx.strokeStyle = "#aaa";   // light neutral border
+      ctx.strokeStyle = "#aaa";
       ctx.lineWidth = 1.5;
       roundRectPath(ctx, bx, by, w, h, r);
       ctx.stroke();
 
-      // Text
       ctx.fillStyle = classColors[cls];
       ctx.fillText(cls, bx + paddingX, y);
 
-      // Hit-test region
       legendItems.push({
         cls,
         x: bx,
@@ -252,47 +303,12 @@
     });
   }
 
-  function roundRectPath(ctx, x, y, w, h, r) {
-    ctx.beginPath();
-    ctx.moveTo(x + r, y);
-    ctx.lineTo(x + w - r, y);
-    ctx.quadraticCurveTo(x + w, y, x + w, y + r);
-    ctx.lineTo(x + w, y + h - r);
-    ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
-    ctx.lineTo(x + r, y + h);
-    ctx.quadraticCurveTo(x, y + h, x, y + h - r);
-    ctx.lineTo(x, y + r);
-    ctx.quadraticCurveTo(x, y, x + r, y);
-    ctx.closePath();
-  }
+  function drawTimeTicks(w: number) {
+    const DATE_LABEL_Y = 2;
+    const TIME_LABEL_Y = 20;
+    const TICK_TOP_Y = 36;
+    const HEADER_H = 48;
 
-  function handleLegendClick(mx, my) {
-    for (const item of legendItems) {
-      if (
-        mx >= item.x &&
-        mx <= item.x + item.w &&
-        my >= item.y &&
-        my <= item.y + item.h
-      ) {
-        if (selectedClasses.has(item.cls)) {
-          selectedClasses.delete(item.cls);
-        } else {
-          selectedClasses.add(item.cls);
-        }
-        selectedClasses = new Set(selectedClasses);
-        //drawTimeline();
-        return true;
-      }
-    }
-    return false;
-  }
-
-  function drawTimeTicks(w) {
-    const DATE_LABEL_Y = 2;       // day/date
-    const TIME_LABEL_Y = 20;      // HH:MM
-    const TICK_TOP_Y   = 36;      // tick lines start here
-    const HEADER_HEIGHT = 48; // enough room for both label bands
-    
     ctx.fillStyle = "#888";
     ctx.font = "12px sans-serif";
 
@@ -300,9 +316,6 @@
     const usableWidth = w - computedLeftMargin;
     const totalSeconds = end - start;
 
-    //
-    // 1. Draw day/date headers at local midnights
-    //
     const d = new Date(start * 1000);
     d.setHours(0, 0, 0, 0);
     let dayTs = d.getTime() / 1000;
@@ -326,33 +339,29 @@
       dayTs = d.getTime() / 1000;
     }
 
-    //
-    // Determine tickStep dynamically based on pixel spacing
-    //
     const secondsPerPixel = totalSeconds / usableWidth;
     const TARGET_TICK_SPACING_PX = 50;
     const minTickInterval = secondsPerPixel * TARGET_TICK_SPACING_PX;
 
-    // “Nice” intervals in seconds
     const niceIntervals = [
-      60,        // 1 min
-      120,       // 2 min
-      300,       // 5 min
-      600,       // 10 min
-      900,       // 15 min
-      1800,      // 30 min
-      3600,      // 1 hour
-      7200,      // 2 hours
-      14400      // 4 hours
+      60,
+      120,
+      300,
+      600,
+      900,
+      1800,
+      3600,
+      7200,
+      14400
     ];
 
-    // Pick the smallest nice interval >= minTickInterval
-    let tickStep = niceIntervals.find(v => v >= minTickInterval) || niceIntervals[niceIntervals.length - 1];
+    let tickStep =
+      niceIntervals.find((v) => v >= minTickInterval) ||
+      niceIntervals[niceIntervals.length - 1];
 
-    // Labels every tickStep (or every other if needed)
     let labelEvery = tickStep;
 
-    const labelFormat = (ts) => {
+    const labelFormat = (ts: number) => {
       const d = new Date(ts * 1000);
       return (
         d.getHours().toString().padStart(2, "0") +
@@ -361,47 +370,32 @@
       );
     };
 
-    //
-    // 3. Draw hour/minute ticks (label-width aware, overlap-free)
-    //
     let t = Math.ceil(start / tickStep) * tickStep;
-    let k = 0;
 
     ctx.font = "12px sans-serif";
     ctx.fillStyle = "#888";
 
     const pxPerSecond = usableWidth / totalSeconds;
-    const pxPerTick = tickStep * pxPerSecond;
 
-    // Measure a sample label
     const sampleLabel = labelFormat(start);
     const labelWidth = ctx.measureText(sampleLabel).width;
 
-    // Track last drawn label position
     let lastLabelRight = -Infinity;
 
     while (t < end) {
       const x = xFor(t);
+      const isLabelTick = t % labelEvery === 0;
 
-      const isLabelTick = (t % labelEvery === 0);
-
-      //
-      // LABEL DRAWING (no overlap)
-      //
       if (isLabelTick) {
         const label = labelFormat(t);
-        const w = ctx.measureText(label).width;
+        const wLabel = ctx.measureText(label).width;
 
-        // Only draw if it won't overlap previous label
         if (x > lastLabelRight + 8) {
           ctx.fillText(label, x + 4, TIME_LABEL_Y);
-          lastLabelRight = x + 4 + w;
+          lastLabelRight = x + 4 + wLabel;
         }
       }
 
-      //
-      // TICK DRAWING (always allowed)
-      //
       ctx.fillRect(
         x,
         TICK_TOP_Y,
@@ -410,7 +404,6 @@
       );
 
       t += tickStep;
-      k += 1;
     }
   }
 
@@ -428,7 +421,7 @@
     return Math.ceil(maxWidth + 8);
   }
 
-  function drawCameraRows(w) {
+  function drawCameraRows(w: number) {
     ctx.font = "12px sans-serif";
 
     for (let i = 0; i < cameras.length; i++) {
@@ -443,11 +436,11 @@
     }
   }
 
-  function cameraRowIndex(name) {
+  function cameraRowIndex(name: string) {
     return cameras.findIndex((c) => c.name === name);
   }
 
-  function drawEvents(w) {
+  function drawEvents(w: number) {
     const usableWidth = w - computedLeftMargin;
     const timelineHeight = canvas.height - LEGEND_HEIGHT;
     const minWidth = 5;
@@ -456,7 +449,12 @@
 
     ctx.save();
     ctx.beginPath();
-    ctx.rect(computedLeftMargin, HEADER_HEIGHT, usableWidth, timelineHeight - HEADER_HEIGHT);
+    ctx.rect(
+      computedLeftMargin,
+      HEADER_HEIGHT,
+      usableWidth,
+      timelineHeight - HEADER_HEIGHT
+    );
     ctx.clip();
 
     const { start, end } = getTimelineBounds();
@@ -488,7 +486,12 @@
         if (width > minWidth) {
           ctx.lineWidth = 1;
           ctx.strokeStyle = eventBorderStyle;
-          ctx.strokeRect(x1 + 0.5, y + 5 + 0.5, width - 1, (ROW_HEIGHT - 10) - 1);
+          ctx.strokeRect(
+            x1 + 0.5,
+            y + 5 + 0.5,
+            width - 1,
+            ROW_HEIGHT - 10 - 1
+          );
         }
         return;
       }
@@ -497,27 +500,33 @@
 
       evClasses.forEach((cls, i) => {
         ctx.fillStyle = classColors[cls] || "#fff";
-        ctx.fillRect(x1, y + 5 + i * stripeHeight, width, stripeHeight);
+        ctx.fillRect(
+          x1,
+          y + 5 + i * stripeHeight,
+          width,
+          stripeHeight
+        );
       });
 
       if (width > minWidth) {
         ctx.lineWidth = ev.start_time === selectedEventId ? 3 : 1;
-        ctx.strokeStyle = ev.start_time === selectedEventId ? selectedEventBorderStyle : eventBorderStyle;
-        ctx.strokeRect(x1 + 0.5, y + 5 + 0.5, width - 1, (ROW_HEIGHT - 10) - 1);
+        ctx.strokeStyle =
+          ev.start_time === selectedEventId
+            ? selectedEventBorderStyle
+            : eventBorderStyle;
+        ctx.strokeRect(
+          x1 + 0.5,
+          y + 5 + 0.5,
+          width - 1,
+          ROW_HEIGHT - 10 - 1
+        );
       }
     });
 
     ctx.restore();
   }
 
-  // Hover
-  let hoverEvent = null;
-  let mouseX = 0;
-  let mouseY = 0;
-  let tooltipLeft = 0;
-  let tooltipTop = 0;
-
-  function handleHover(e) {
+  function handleHover(e: PointerEvent | MouseEvent) {
     const rect = canvas.getBoundingClientRect();
     mouseX = e.clientX - rect.left;
     mouseY = e.clientY - rect.top;
@@ -528,7 +537,7 @@
   $: if (hoverEvent) updateTooltipPosition();
 
   async function updateTooltipPosition() {
-    await tick(); // ensure tooltip is rendered
+    await tick();
 
     const margin = 12;
 
@@ -536,43 +545,32 @@
     if (!tooltipEl) return;
 
     const tooltipRect = tooltipEl.getBoundingClientRect();
-
     const wrapperEl = document.querySelector(".timeline-wrapper");
     const wrapperRect = wrapperEl.getBoundingClientRect();
-
     const canvasRect = canvas.getBoundingClientRect();
 
-    // Mouse position in wrapper coordinates
     const mouseXInWrapper = mouseX + (canvasRect.left - wrapperRect.left);
     const mouseYInWrapper = mouseY + (canvasRect.top - wrapperRect.top);
 
-    // Default: tooltip to the right of pointer
     let left = mouseXInWrapper + margin;
     let top = mouseYInWrapper + margin;
 
-    // Flip horizontally if overflowing right edge of wrapper
     if (left + tooltipRect.width > wrapperRect.width) {
       left = mouseXInWrapper - tooltipRect.width - margin;
     }
 
-    // Clamp horizontally inside wrapper
-    if (left < margin) {
-      left = margin;
-    }
+    if (left < margin) left = margin;
 
-    // Clamp vertically inside wrapper
     if (top + tooltipRect.height > wrapperRect.height) {
       top = wrapperRect.height - tooltipRect.height - margin;
     }
-    if (top < margin) {
-      top = margin;
-    }
+    if (top < margin) top = margin;
 
     tooltipLeft = left;
     tooltipTop = top;
   }
 
-  function findEventAt(x, y) {
+  function findEventAt(x: number, y: number) {
     const { start, end } = getTimelineBounds();
 
     return $eventStore.find((ev) => {
@@ -595,39 +593,19 @@
     });
   }
 
-  // Pointer / gestures
-  let gestureMode = "none"; // "pending" | "pan-x" | "pan-y"
-  let startX = 0;
-  let startY = 0;
+  async function updateWindowAndFetch() {
+    await fetchEventsForCurrentWindow();
+    drawTimeline();
+  }
 
-  let pointers = new Map();
-  let panStartX = 0;
-  let panStartOffset = 0;
-  let isDragging = false;
-
-  let zoomStartY = 0;
-  let zoomStartHours = 0;
-  let zoomCenterX = 0;
-  let zoomCenterSeconds = 0;
-
-  let tapStart = null;
-
-  function onPointerDown(e) {
-    // Track pointer
+  function onPointerDown(e: PointerEvent) {
     pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
-    // --- MOBILE / TOUCH LOGIC ---
     if (e.pointerType === "touch") {
-      // Start gesture direction detection
       startX = e.clientX;
       startY = e.clientY;
-      gestureMode = "pending";   // "pending" → "pan-x" or "pan-y"
-      // IMPORTANT: do NOT capture yet
-    }
-
-    // --- DESKTOP / MOUSE LOGIC ---
-    else {
-      // Mouse can safely capture immediately
+      gestureMode = "pending";
+    } else {
       canvas.setPointerCapture(e.pointerId);
     }
 
@@ -640,7 +618,7 @@
       handleHover(e);
     }
 
-  if (pointers.size === 2) {
+    if (pointers.size === 2) {
       const pts = [...pointers.values()];
       zoomStartY = (pts[0].y + pts[1].y) / 2;
       zoomStartHours = zoomHours;
@@ -653,12 +631,11 @@
       const pxPerSecond = usableWidth / (zoomHours * HOUR);
 
       zoomCenterSeconds =
-          offsetSeconds + (centerX - computedLeftMargin) / pxPerSecond;
+        offsetSeconds + (centerX - computedLeftMargin) / pxPerSecond;
     }
   }
 
-  function onPointerMove(e) {
-    // --- MOUSE HOVER PATH ---
+  function onPointerMove(e: PointerEvent) {
     if (e.pointerType === "mouse" && e.buttons === 0) {
       handleHover(e);
       return;
@@ -666,35 +643,27 @@
 
     if (!pointers.has(e.pointerId)) return;
 
-    // Update pointer position
     pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
-    // --- TOUCH / MOBILE LOGIC (direction detection) ---
     if (e.pointerType === "touch" && pointers.size === 1) {
       const dx = e.clientX - startX;
       const dy = e.clientY - startY;
 
-      // Determine gesture direction
       if (gestureMode === "pending") {
         if (Math.abs(dx) > 10 && Math.abs(dx) > Math.abs(dy)) {
           gestureMode = "pan-x";
-          canvas.setPointerCapture(e.pointerId);   // capture ONLY now
+          canvas.setPointerCapture(e.pointerId);
         } else if (Math.abs(dy) > 10) {
-          gestureMode = "pan-y";   // allow browser scroll
+          gestureMode = "pan-y";
           return;
         } else {
-          return; // not enough movement yet
+          return;
         }
       }
 
-      // Vertical scroll → let browser handle it
-      if (gestureMode === "pan-y") {
-        return;
-      }
-      // Horizontal pan → fall through to pan logic
+      if (gestureMode === "pan-y") return;
     }
 
-    // --- ONE-FINGER PAN (mouse or touch pan-x) ---
     if (pointers.size === 1) {
       const dx = e.clientX - panStartX;
 
@@ -711,14 +680,12 @@
       const pxPerSecond = usableWidth / (zoomHours * HOUR);
 
       offsetSeconds = panStartOffset + dx / pxPerSecond;
-
       offsetSeconds = Math.max(0, offsetSeconds);
 
-      //requestAnimationFrame(drawTimeline);
+      updateWindowAndFetch();
       return;
     }
 
-    // --- TWO-FINGER ZOOM ---
     if (pointers.size === 2) {
       const pts = [...pointers.values()];
       const centerY = (pts[0].y + pts[1].y) / 2;
@@ -734,36 +701,34 @@
       const pxPerSecondBefore = usableWidth / (zoomHours * HOUR);
 
       const midSeconds =
-        zoomCenterSeconds - (zoomCenterX - computedLeftMargin) / pxPerSecondBefore;
+        zoomCenterSeconds -
+        (zoomCenterX - computedLeftMargin) / pxPerSecondBefore;
 
       zoomHours = newZoom;
 
       const pxPerSecondAfter = usableWidth / (zoomHours * HOUR);
 
       offsetSeconds =
-        midSeconds + (zoomCenterX - computedLeftMargin) / pxPerSecondAfter;
+        midSeconds +
+        (zoomCenterX - computedLeftMargin) / pxPerSecondAfter;
 
       offsetSeconds = Math.max(0, offsetSeconds);
 
-      //requestAnimationFrame(drawTimeline);
+      updateWindowAndFetch();
     }
   }
 
-  function onPointerUp(e) {
-    // Release capture if we had it
+  function onPointerUp(e: PointerEvent) {
     if (canvas.hasPointerCapture(e.pointerId)) {
       canvas.releasePointerCapture(e.pointerId);
     }
 
-    // Remove pointer from active set
     pointers.delete(e.pointerId);
 
-    // --- reset gesture mode for touch ---
     if (e.pointerType === "touch") {
-        gestureMode = "none";
+      gestureMode = "none";
     }
 
-    // Tap detection
     if (!isDragging && tapStart && pointers.size === 0) {
       const dx = Math.abs(e.clientX - tapStart.x);
       const dy = Math.abs(e.clientY - tapStart.y);
@@ -774,34 +739,29 @@
       }
     }
 
-    // Reset drag state
     if (pointers.size === 0) {
       isDragging = false;
       tapStart = null;
     }
   }
 
-  function onPointerCancel(e) {
-    // Always release capture
+  function onPointerCancel(e: PointerEvent) {
     if (canvas.hasPointerCapture(e.pointerId)) {
       canvas.releasePointerCapture(e.pointerId);
     }
 
-    // Clear all pointers — cancel means the gesture is dead
     pointers.clear();
 
-    // Reset all gesture state
     isDragging = false;
     gestureMode = "none";
     tapStart = null;
 
-    // Allow hover to resume immediately
     if (e.pointerType === "mouse") {
       handleHover(e);
     }
   }
 
-  function handleTap(clientX, clientY) {
+  function handleTap(clientX: number, clientY: number) {
     const rect = canvas.getBoundingClientRect();
     const x = clientX - rect.left;
     const y = clientY - rect.top;
@@ -814,18 +774,13 @@
     if (ev) {
       selectedEventId = ev.start_time;
       onSelectEvent(ev);
-      //drawTimeline()
+      drawTimeline();
     }
   }
 
-  function handleWheel(e) {
-    if (isMobile) {
-        return; // ignore scroll
-    }
-
-    if (!e.shiftKey) {
-        return; // ignore scroll
-    }
+  async function handleWheel(e: WheelEvent) {
+    if (isMobile) return;
+    if (!e.shiftKey) return;
 
     e.preventDefault();
 
@@ -852,26 +807,18 @@
     offsetSeconds = Math.max(0, newOffset);
     zoomHours = newZoom;
 
-    //requestAnimationFrame(drawTimeline);
+    await updateWindowAndFetch();
   }
-
-  // Lifecycle
-  let serverTimeInterval;
-  let loadEventsInterval;
-  let ro;
 
   function hasVisibleEvents() {
     const { start, end } = getTimelineBounds();
 
     return $eventStore.some((ev) => {
-      // camera exists?
       const row = cameraRowIndex(ev.camera);
       if (row === -1) return false;
 
-      // time overlap with window?
       if (ev.end_time < start || ev.start_time > end) return false;
 
-      // class filter?
       if (selectedClasses.size > 0) {
         const evClasses = Object.keys(ev.tags || {});
         const matches = evClasses.some((cls) => selectedClasses.has(cls));
@@ -894,14 +841,13 @@
 
   onDestroy(() => {
     if (serverTimeInterval) clearInterval(serverTimeInterval);
-    if (loadEventsInterval) clearInterval(loadEventsInterval);
     if (ro) ro.disconnect();
   });
 
-  //    on:pointerleave={onPointerCancel}
+    //    on:pointerleave={onPointerCancel}
   //  on:pointerout={onPointerCancel}
-
 </script>
+
 <h3 class="timeline-title">Recorded Events</h3>
 <div class="timeline-wrapper">
   <canvas

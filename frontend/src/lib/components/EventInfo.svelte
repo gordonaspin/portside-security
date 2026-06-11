@@ -6,9 +6,9 @@
 
   // Build absolute metadata URL
   $: metadataHref = (() => {
-    if (!event?.metadata_url) return null;
+    if (!event?.metadata_filename) return null;
 
-    const m = event.metadata_url;
+    const m = event.metadata_filename;
 
     // If already absolute, return as-is
     if (m.startsWith("http://") || m.startsWith("https://")) {

@@ -5,18 +5,18 @@
 </script>
 
 <h3 class="media-player-title">Media Player</h3>
-{#if event && event.media_url.endsWith('.mp4')}
+{#if event && event.media_filename.endsWith('.mp4')}
   <video
-    key={event.media_url}
-    src={event.media_url}
+    key={event.media_filename}
+    src={event.media_filename}
     autoplay
     controls
     playsinline
   >
   <track label="English" kind="captions" srclang="en" src="silent.vtt" default>
   </video>
-{:else if event && event.media_url.endsWith('.jpg')}
-  <img src={event.media_url}>
+{:else if event && event.media_filename.endsWith('.jpg')}
+  <img src={event.media_filename}>
 {:else}
   <p class="no-video">No video selected.</p>
 {/if}
