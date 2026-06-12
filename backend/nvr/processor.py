@@ -86,7 +86,7 @@ class FrameProcessor():
 
         current_thread().name = f"{self.camera.config.name} processor"
 
-        while not self.stop_event.is_set() and not self.reader.process.stdout.closed:
+        while not self.stop_event.is_set():
 
             # --- FRAME ACQUISITION ---
             frame_bgr = self.reader.get_frame()

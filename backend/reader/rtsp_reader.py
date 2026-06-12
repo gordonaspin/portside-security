@@ -2,8 +2,6 @@ import os
 import subprocess
 import select
 import time
-from collections import deque
-from datetime import timedelta
 from logging import getLogger
 from queue import Queue, Empty
 from threading import Event, Thread, current_thread
@@ -12,7 +10,6 @@ from typing import override
 import cv2
 import numpy as np
 from numpy.typing import NDArray
-from ultralytics import data
 
 from logger.logger import log_event
 from nvr.camera.camera import Camera
@@ -20,18 +17,22 @@ from utils.utils import RollingAverage
 
 logger = getLogger("pynvr.reader")
 
-class Reader():
+
+class Reader:
     def __init__(self):
         pass
 
-    def start():
+    def start(self):
         pass
 
-    def get_frame():
+    def stop(self):
         pass
+
+    def get_frame(self):
+        pass
+
 
 class RTSPReader(Reader):
-
     def __init__(
         self,
         camera: Camera,
@@ -48,10 +49,10 @@ class RTSPReader(Reader):
         self.process: subprocess.Popen | None = None
         self.yolo_pipe: None | object = None  # file object for YOLO pipe
         self.yolo_fd_write: int | None = None
-        self.log_filename: str = None
-        self.log_file: object = None
+        self.log_filename: str | None = None
+        self.log_file: object | None = None
 
-        self.thread: Thread = None
+        self.thread: Thread | None = None
         self.frame_queue: Queue[NDArray[np.uint8]] = Queue(maxsize=1)
 
         self.total_frames: int = 0
@@ -64,65 +65,115 @@ class RTSPReader(Reader):
         self._prev_full_mean: float = 0.0
         self._prev_full_frame: NDArray[np.uint8] | None = None
 
-
-
     @override
     def start(self):
-        self._open_stream()
-        self.thread = Thread(target=self._frame_reader, daemon=True)
+        """
+        Start autonomous reader thread.
+        """
+        if self.thread and self.thread.is_alive():
+            return
+
+        self.thread = Thread(target=self._run, daemon=True)
         self.thread.start()
 
-    def restart(self):
+    def _run(self):
         """
-        Stop and start unless we are shutting down
+        Autonomous lifecycle:
+        - open stream
+        - read frames
+        - on stall/error → stop and reopen
+        - loop until stop_event is set
         """
-        if not self.stop_event.is_set():
-            log_event(message="restarting RTSP reader", level="warn", camera=self.camera)
-            self.stop()
-            self.start()
+        current_thread().name = f"{self.camera.config.name} RTSPReader"
 
-    def stop(self):
+        while not self.stop_event.is_set():
+            try:
+                self._open_stream()
+            except Exception as e:
+                log_event(
+                    message=f"failed to open stream: {e}",
+                    level="error",
+                    camera=self.camera,
+                )
+                self._cleanup_process()
+                time.sleep(2.0)
+                continue
+
+            # Reader loop: runs until stall, EOF, or stop_event
+            self._frame_reader_loop()
+
+            # Clean up process and pipes before next attempt
+            self._cleanup_process()
+
+            # Small backoff to avoid tight restart loops
+            if not self.stop_event.is_set():
+                time.sleep(1.0)
+
+        logger.info(f"{self.camera.config.name} RTSPReader main loop exiting")
+
+    def _cleanup_process(self):
         """
-        Stops the background ffmpeg process for the camera, closes pipes and resets the camera
+        Internal cleanup: terminate FFmpeg, close pipes/logs, reset camera state.
         """
         if self.process is not None:
             ret = self.process.poll()
-            log_event(message=f"stopping RTSP reader with ret {ret}", level="info", camera=self.camera)
+            log_event(
+                message=f"stopping RTSP reader with ret {ret}",
+                level="info",
+                camera=self.camera,
+            )
 
             try:
                 self.process.terminate()
                 self.process.wait(timeout=2)
             except subprocess.TimeoutExpired:
                 self.process.kill()
-    
+
             if self.process.stdout:
-                self.process.stdout.close()
-            if self.yolo_pipe is not None:
+                try:
+                    self.process.stdout.close()
+                except Exception:
+                    pass
+
+        if self.yolo_pipe is not None:
+            try:
                 self.yolo_pipe.close()
-            if self.log_file is not None:
+            except Exception:
+                pass
+
+        if self.log_file is not None:
+            try:
                 self.log_file.close()
+            except Exception:
+                pass
 
-            self.process = None
-            self.yolo_pipe = None
-            self.yolo_fd_write = None
-            self.camera.first_frame = True
+        self.process = None
+        self.yolo_pipe = None
+        self.yolo_fd_write = None
+        self.log_file = None
+        self.camera.first_frame = True
 
+    @override
+    def stop(self):
+        """
+        Public stop: signal thread and clean up process.
+        """
+        self.stop_event.set()
+        self._cleanup_process()
 
     @override
     def get_frame(self) -> NDArray[np.uint8] | None:
         """
         Retrieve the latest frame from the camera queue.
-        This preserves the original behavior:
         - latest-frame-wins
         - drop frames if queue is full
         - timeout every 0.5s so thread can exit cleanly
         """
         try:
             frame: NDArray[np.uint8] = self.frame_queue.get(timeout=0.5)
-            return frame.copy()  # always work on a copy
+            return frame.copy()
         except Empty:
             return None
-
 
     def _open_stream(self):
         if self.stop_event.is_set():
@@ -158,25 +209,26 @@ class RTSPReader(Reader):
             yolo_fd=yolo_fd_write,
         )
 
-        # ------------------------------------------------------------
-        # START FFMPEG PROCESS
-        # ------------------------------------------------------------
-        self.log_filename = os.path.join(self.camera.config.logs_dir, f"{self.camera.config.name}_ffmpeg.log")
+        self.log_filename = os.path.join(
+            self.camera.config.logs_dir,
+            f"{self.camera.config.name}_ffmpeg.log",
+        )
         self.log_file = open(self.log_filename, "a")
         for item in ffmpeg_cmd:
-            if item.startswith('-'):
+            if item.startswith("-"):
                 self.log_file.write("\n")
             self.log_file.write(f"{item} ")
-        self.log_file.write(f"\n--- Starting FFmpeg for {self.camera.config.name} {time.strftime('%Y-%m-%d %H:%M:%S')} ---\n")
+        self.log_file.write(
+            f"\n--- Starting FFmpeg for {self.camera.config.name} "
+            f"{time.strftime('%Y-%m-%d %H:%M:%S')} ---\n"
+        )
         self.log_file.flush()
 
-        if self.camera.config.name == "Entry":
-            pass
         if need_yolo_pipe:
             log_event(
                 message="starting dual-pipe RTSP reader",
                 level="info",
-                camera=self.camera
+                camera=self.camera,
             )
 
             process = subprocess.Popen(
@@ -194,12 +246,11 @@ class RTSPReader(Reader):
 
             # Open read-end for Python
             self.yolo_pipe = os.fdopen(yolo_fd_read, "rb", buffering=0)
-
         else:
             log_event(
                 message="starting single-pipe RTSP reader",
                 level="info",
-                camera=self.camera
+                camera=self.camera,
             )
 
             process = subprocess.Popen(
@@ -214,13 +265,16 @@ class RTSPReader(Reader):
 
         self.process = process
 
-
-    def _frame_reader(self):
+    def _frame_reader_loop(self):
         """
-        Reads frames from FFmpeg. Supports:
-        - single-pipe mode (full-res == yolo-res)
-        - dual-pipe mode (full-res on stdout, yolo-res on self.yolo_pipe)
+        Reads frames from FFmpeg until:
+        - stall (repeated timeouts)
+        - EOF / process exit
+        - stop_event set
+        Then returns to let _run() restart.
         """
+        if self.process is None or self.process.stdout is None:
+            return
 
         current_thread().name = f"{self.camera.config.name} frame reader"
 
@@ -239,7 +293,8 @@ class RTSPReader(Reader):
             raw_full = self._read_exact(
                 self.process.stdout.fileno(),
                 self.camera.buffers.read_view_full,
-                self.camera.buffers.full_frame_size)
+                self.camera.buffers.full_frame_size,
+            )
 
             if raw_full is None:
                 # Soft failure: timeout or short read
@@ -250,7 +305,7 @@ class RTSPReader(Reader):
                     log_event(
                         message="ffmpeg exited, breaking reader loop",
                         level="warn",
-                        camera=self.camera
+                        camera=self.camera,
                     )
                     break
 
@@ -259,12 +314,10 @@ class RTSPReader(Reader):
                     log_event(
                         message="full-res reader stalled, restarting after repeated timeouts",
                         level="warn",
-                        camera=self.camera
+                        camera=self.camera,
                     )
-                    self.restart()
-                    return  # exit this reader thread
+                    break
 
-                # Otherwise just skip this iteration and try again
                 continue
 
             # Got a good frame → reset failure counter
@@ -286,9 +339,9 @@ class RTSPReader(Reader):
                 and self.camera.buffers.read_view_yolo is not None
             ):
                 raw_yolo = self._read_exact(
-                        self.yolo_pipe.fileno(),
-                        self.camera.buffers.read_view_yolo,
-                        self.camera.buffers.yolo_frame_size
+                    self.yolo_pipe.fileno(),
+                    self.camera.buffers.read_view_yolo,
+                    self.camera.buffers.yolo_frame_size,
                 )
 
                 if raw_yolo is None:
@@ -298,9 +351,9 @@ class RTSPReader(Reader):
                     # If FFmpeg actually died, bail out and let restart logic handle it
                     if self.process.poll() is not None:
                         log_event(
-                            message="ffmpeg exited, breaking reader loop",
+                            message="ffmpeg exited, breaking YOLO reader loop",
                             level="warn",
-                            camera=self.camera
+                            camera=self.camera,
                         )
                         break
 
@@ -309,12 +362,10 @@ class RTSPReader(Reader):
                         log_event(
                             message="yolo reader stalled, restarting after repeated timeouts",
                             level="warn",
-                            camera=self.camera
+                            camera=self.camera,
                         )
-                        self.restart()
-                        return  # exit this reader thread
+                        break
 
-                    # Otherwise just skip this iteration and try again
                     continue
 
                 # Got a good frame → reset failure counter
@@ -322,7 +373,6 @@ class RTSPReader(Reader):
 
                 self.camera.buffers.yolo_frame_bytes[:] = raw_yolo
                 self.camera.buffers.yolo_frame = self.camera.buffers.yolo_frame
-
             else:
                 # Single-pipe mode: YOLO frame == full frame
                 self.camera.buffers.yolo_frame = full_frame
@@ -336,7 +386,6 @@ class RTSPReader(Reader):
                 if 0.02 < dt < 0.2:
                     self.dt.update(dt)
                     self.fps.update(1.0 / self.dt.value())
-
             self.last_frame_time = now
 
             # ------------------------------------------------------------
@@ -346,15 +395,14 @@ class RTSPReader(Reader):
                 try:
                     self.frame_queue.get_nowait()
                     self.total_drops += 1
-                except:
+                except Exception:
                     pass
 
             self.frame_queue.put(full_frame)
             self.total_frames += 1
             self.drop_rate = self.total_drops / self.total_frames
 
-        logger.info(f"{self.camera.config.name} RTSPReader thread exiting")
-
+        logger.info(f"{self.camera.config.name} RTSPReader loop exiting")
 
     def _read_exact(self, fd, view, size, timeout=2.0):
         """
@@ -368,7 +416,6 @@ class RTSPReader(Reader):
         deadline = time.time() + timeout
 
         while total < size:
-
             if time.time() > deadline:
                 return None
 
@@ -385,7 +432,7 @@ class RTSPReader(Reader):
                 return None
 
             n = len(chunk)
-            view[total:total+n] = chunk
+            view[total : total + n] = chunk
             total += n
 
         return view[:size]
@@ -399,7 +446,9 @@ class RTSPReader(Reader):
 
         # All-black or all-white frames are suspicious
         if mean < 1.0 or mean > 254.0:
-            logger.warning(f"{self.camera.config.name} mean={mean:.2f} - Detected corrupted frame, dropping")
+            logger.warning(
+                f"{self.camera.config.name} mean={mean:.2f} - Detected corrupted frame, dropping"
+            )
             return True
 
         # Exposure jump / I-frame jump
@@ -407,25 +456,28 @@ class RTSPReader(Reader):
             logger.warning(f"{self.camera.config.name} exposure jump > 80 - Detected exposure jump, dropping")
             return True
 
-        if hasattr(self, '_prev_frame') and self._prev_frame is not None:
+        if hasattr(self, "_prev_frame") and self._prev_frame is not None:
             diff = cv2.absdiff(frame, self._prev_frame)
             if diff.mean() > 120.0:
-                logger.warning(f"{self.camera.config.name} diff.mean={diff.mean():.2f} - Detected corrupted frame, dropping")
+                logger.warning(
+                    f"{self.camera.config.name} diff.mean={diff.mean():.2f} - Detected corrupted frame, dropping"
+                )
                 return True
-            
-            # Optional: first row continuity
+
+            if not hasattr(self, "_diff_buf_row"):
+                self._diff_buf_row = np.zeros((frame.shape[1], 3), dtype=np.uint8)
+
             cv2.absdiff(frame[0], self._prev_frame[0], dst=self._diff_buf_row)
             continuity_diff = self._diff_buf_row.mean()
-            if continuity_diff.mean() > 150:
-                logger.warning(f"{self.camera.config.name} continuity_diff.mean={continuity_diff.mean():.2f} - Detected corrupted frame, dropping")
+            if continuity_diff > 150:
+                logger.warning(
+                    f"{self.camera.config.name} continuity_diff.mean={continuity_diff:.2f} - Detected corrupted frame, dropping"
+                )
                 return True
 
         self._prev_mean = mean
         self._prev_frame = frame.copy()
-        if not hasattr(self, '_diff_buf_row'):
-            self._diff_buf_row = np.zeros((frame.shape[0], 3), dtype=np.uint8)
         return False
-
 
     def build_ffmpeg_cmd(
         self,
@@ -433,116 +485,100 @@ class RTSPReader(Reader):
         filespec: str | None,
         segment_mode: bool,
         yolo_fd: int | None,
-    ) -> tuple[list[str], bool]:
+    ) -> list[str]:
+        actual_w = self.camera.width
+        actual_h = self.camera.height
+        yolo_w = self.model_width
+        yolo_h = self.model_height
 
-        # ------------------------------------------------------------
-        # RESOLUTION SOURCES
-        # ------------------------------------------------------------
-        actual_w  = self.camera.width
-        actual_h  = self.camera.height
-        config_w  = self.camera.config.width
-        config_h  = self.camera.config.height
-        yolo_w    = self.model_width
-        yolo_h    = self.model_height
-
-        # ------------------------------------------------------------
-        # OUTPUT RULES
-        # ------------------------------------------------------------
         need_yolo_pipe = not (actual_w == yolo_w and actual_h == yolo_h)
 
         if need_yolo_pipe and yolo_fd is None:
             raise ValueError("yolo_fd must be provided when YOLO pipe is required")
 
-        # ------------------------------------------------------------
-        # BLOCK SIZES
-        # ------------------------------------------------------------
         full_block = actual_w * actual_h * 3
         yolo_block = yolo_w * yolo_h * 3
 
-        # ------------------------------------------------------------
-        # BASE COMMAND
-        # ------------------------------------------------------------
         base = [
             "ffmpeg",
-            "-rtsp_transport", "tcp",
-            "-fflags", "nobuffer+genpts+discardcorrupt",
-            "-flags", "low_delay",
-            "-avioflags", "direct",
-            "-i", url,
+            "-rtsp_transport",
+            "tcp",
+            "-fflags",
+            "nobuffer+genpts+discardcorrupt",
+            "-flags",
+            "low_delay",
+            "-avioflags",
+            "direct",
+            "-i",
+            url,
             "-hide_banner",
-            "-loglevel", "error",
+            "-loglevel",
+            "error",
             "-nostats",
         ]
 
-        # ------------------------------------------------------------
-        # FILTER GRAPH
-        # ------------------------------------------------------------
         filters = []
+        filters.append("[0:v]format=bgr24[full]")
 
-        # stdout always gets actual resolution
-        filters.append(f"[0:v]format=bgr24[full]")
-
-        # YOLO pipe only if needed
         if need_yolo_pipe:
             if actual_w == yolo_w and actual_h == yolo_h:
-                filters.append(f"[0:v]format=bgr24[yolo]")
+                filters.append("[0:v]format=bgr24[yolo]")
             else:
                 filters.append(f"[0:v]scale={yolo_w}:{yolo_h},format=bgr24[yolo]")
 
         filter_graph = ";".join(filters)
 
-        # ------------------------------------------------------------
-        # BUILD COMMAND
-        # ------------------------------------------------------------
         cmd = base + [
-            "-filter_complex", filter_graph,
-
-            # stdout → actual resolution
-            "-map", "[full]",
-            "-f", "rawvideo",
-            "-blocksize", str(full_block),
+            "-filter_complex",
+            filter_graph,
+            "-map",
+            "[full]",
+            "-f",
+            "rawvideo",
+            "-blocksize",
+            str(full_block),
             "pipe:1",
         ]
 
-        # ------------------------------------------------------------
-        # SEGMENT FILE OUTPUT (NO FILTERING → LOSSLESS)
-        # ------------------------------------------------------------
         if filespec is not None:
             cmd += [
-                "-map", "0:v",          # <‑‑ direct from camera, NOT filtered
-                "-c:v", "copy",         # <‑‑ lossless
-                "-f", "segment",
-                "-segment_time", "1",
-                "-reset_timestamps", "0",
-                "-strftime", "1",
-                "-segment_format", "mpegts",
+                "-map",
+                "0:v",
+                "-c:v",
+                "copy",
+                "-f",
+                "segment",
+                "-segment_time",
+                "1",
+                "-reset_timestamps",
+                "0",
+                "-strftime",
+                "1",
+                "-segment_format",
+                "mpegts",
                 filespec,
             ]
 
-        # ------------------------------------------------------------
-        # YOLO PIPE OUTPUT
-        # ------------------------------------------------------------
         if need_yolo_pipe:
             cmd += [
-                "-map", "[yolo]",
-                "-f", "rawvideo",
-                "-blocksize", str(yolo_block),
+                "-map",
+                "[yolo]",
+                "-f",
+                "rawvideo",
+                "-blocksize",
+                str(yolo_block),
                 f"pipe:{yolo_fd}",
             ]
 
         return cmd
 
-
-
     def _needs_yolo_pipe(self) -> bool:
         return not (
-            self.camera.width  == self.model_width and
-            self.camera.height == self.model_height
+            self.camera.width == self.model_width
+            and self.camera.height == self.model_height
         )
 
-
     def _make_yolo_pipe(self) -> tuple[int, int]:
-        """Create a pipe for YOLO frames and return (read_fd, write_fd)."""
         read_fd, write_fd = os.pipe()
         logger.debug(
             f"{self.camera.config.name} created YOLO pipe "

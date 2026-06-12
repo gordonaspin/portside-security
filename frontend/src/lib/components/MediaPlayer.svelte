@@ -39,9 +39,43 @@
     isPlaying.set(false);
     currentEvent.set(null);
   }
+
+  // Skip button: jump to the most recent queued event
+  function skipToLatest() {
+    const q = $playQueue;
+
+    if (q.length === 0) {
+      // nothing to skip to
+      currentEvent.set(null);
+      isPlaying.set(false);
+      return;
+    }
+
+    // Take the LAST event in the queue
+    const latest = q[q.length - 1];
+
+    // Clear queue
+    playQueue.set([]);
+
+    // Force playback of the latest event
+    currentEvent.set(latest);
+    isPlaying.set(true);
+
+    // Load video after DOM updates
+    tick().then(() => {
+      if (videoEl && latest.media_filename) {
+        log("skipping to latest ", latest.media_filename);
+        videoEl.src = latest.media_filename;
+        videoEl.play();
+      }
+    });
+  }
 </script>
 
-<h3 class="media-player-title">Media Player</h3>
+<h3 class="media-player-title">
+  Media Player
+  <button class="skip-btn" on:click={skipToLatest}>⏩ Skip to Latest</button>
+</h3>
 
 {#if $currentEvent}
   <video
@@ -64,6 +98,23 @@
     font-size: 1rem;
     font-weight: bold;
     color: #eee;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .skip-btn {
+    background: #444;
+    color: #eee;
+    border: 1px solid #666;
+    padding: 2px 8px;
+    font-size: 0.8rem;
+    border-radius: 4px;
+    cursor: pointer;
+  }
+
+  .skip-btn:hover {
+    background: #666;
   }
 
   video {
