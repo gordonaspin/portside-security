@@ -8,9 +8,9 @@
   import { debug, log, error } from "$lib/stores/logging";
   import { onMount } from 'svelte';
   import { safeFetch } from '$lib/network/safeFetch';
+  import { enqueueUser } from '$lib/stores/playQueue';
 
   let system_name = ""
-  let selectedEvent = null;
 
   onMount(async () => {
       const res = await safeFetch('/api/system_name', { credentials: "include" });
@@ -19,16 +19,11 @@
     }
   )
 
-  function handleSelectEvent(e) {
-    selectedEvent = e;
-    log("Selected video: ", selectedEvent)
-  }
-
-  async function handleLogMedia(metadata_filename) {
+  async function fetchAndEnqueue(metadata_filename) {
     const res = await safeFetch(metadata_filename, { credentials: "include" });
     const data = await res.json();
   
-    handleSelectEvent(data)
+    enqueueUser(data)
   }
 
 </script>
@@ -48,23 +43,23 @@
   <!-- FLEX ROW THAT BECOMES A COLUMN ON MOBILE -->
   <div class="timeline-player-row">
     <div class="panel timeline-panel">
-      <Timeline onSelectEvent={handleSelectEvent} />
+      <Timeline onSelectEvent={(e) => enqueueUser(e)} />
     </div>
 
     <div class="panel player-panel">
-      <MediaPlayer event={selectedEvent} />
+      <MediaPlayer />
     </div>
   </div>
 
   <div class="log-info-row">
     <div class="panel log-panel">
       <div class="event-log-content">
-        <EventLog on:selectMedia={(e) => handleLogMedia(e.detail)}/>
+        <EventLog on:selectMedia={(e) => fetchAndEnqueue(e.detail)}/>
       </div>
     </div>
 
     <div class="panel info-panel">
-      <EventInfo event={selectedEvent} />
+      <EventInfo />
     </div>
   </div>
 

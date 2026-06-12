@@ -1,22 +1,58 @@
 <script lang="ts">
-  import { debug, log, error } from "$lib/stores/logging";
+  import { playQueue, isPlaying, currentEvent } from "$lib/stores/playQueue";
+  import { log } from "$lib/stores/logging";
+  import { tick } from "svelte";
 
-  export let event = null;
+  let videoEl;
+
+  // Reactive trigger
+  $: if (!$isPlaying && $playQueue.length > 0) {
+    startNextVideo();   // call async function (allowed)
+  }
+
+  async function startNextVideo() {
+    const ev = $playQueue[0];
+    if (!ev) return;
+
+    // Set the new current event
+    currentEvent.set(ev);
+
+    // Remove it from the queue
+    playQueue.update(q => q.slice(1));
+
+    // Mark as playing
+    isPlaying.set(true);
+
+    // Wait for <video> to mount
+    await tick();
+
+    // Load video
+    if (videoEl && ev.media_filename) {
+      log("video playing ", ev.media_filename);
+      videoEl.src = ev.media_filename;
+      videoEl.play();
+    }
+  }
+
+  function onEnded() {
+    log("video ended");
+    isPlaying.set(false);
+    currentEvent.set(null);
+  }
 </script>
 
 <h3 class="media-player-title">Media Player</h3>
-{#if event && event.media_filename.endsWith('.mp4')}
+
+{#if $currentEvent}
   <video
-    key={event.media_filename}
-    src={event.media_filename}
+    bind:this={videoEl}
+    on:ended={onEnded}
     autoplay
     controls
     playsinline
   >
-  <track label="English" kind="captions" srclang="en" src="silent.vtt" default>
+    <track label="English" kind="captions" srclang="en" src="silent.vtt" default>
   </video>
-{:else if event && event.media_filename.endsWith('.jpg')}
-  <img src={event.media_filename}>
 {:else}
   <p class="no-video">No video selected.</p>
 {/if}
@@ -28,10 +64,8 @@
     font-size: 1rem;
     font-weight: bold;
     color: #eee;
-    font-family: inherit;
   }
 
-  /* Video element styling */
   video {
     width: 100%;
     border-radius: 4px;

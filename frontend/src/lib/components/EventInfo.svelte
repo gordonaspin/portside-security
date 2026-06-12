@@ -1,8 +1,11 @@
 <script lang="ts">
   import { page } from '$app/stores';
+  import { currentEvent } from '$lib/stores/playQueue';
   import { debug, log, error } from "$lib/stores/logging";
   
-  export let event = null;
+  let event = null;
+
+  $: event = $currentEvent
 
   // Build absolute metadata URL
   $: metadataHref = (() => {

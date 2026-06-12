@@ -7,6 +7,7 @@
   import { addEvent } from "$lib/stores/events";
   import { addLog } from "$lib/stores/logs";
   import { serverOffline } from '$lib/stores/connection';
+  import { enqueueAuto } from '$lib/stores/playQueue.js';
 
   let es: EventSource | null = null;
   let interval: ReturnType<typeof setInterval>;
@@ -38,7 +39,9 @@
     });
 
     source.addEventListener("newEvent", (ev) => {
+      const event = JSON.parse(ev.data).data;
       addEvent(JSON.parse(ev.data).data);
+      enqueueAuto(event)
     });
 
     source.addEventListener("logLine", (ev) => {
