@@ -25,16 +25,10 @@
   }
 
   async function handleLogMedia(metadata_filename) {
-    // Remove leading slash
-    const clean = metadata_filename.startsWith("/") ? metadata_filename.slice(1) : metadata_filename;
-
     const res = await safeFetch(metadata_filename, { credentials: "include" });
     const data = await res.json();
   
-    selectedEvent = {
-      ...data,
-    };
-    log("Selected video: ", selectedEvent)
+    handleSelectEvent(data)
   }
 
 </script>

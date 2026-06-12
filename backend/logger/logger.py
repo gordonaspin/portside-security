@@ -46,9 +46,6 @@ event_log = deque(maxlen=constants.MAX_LOG_LINES)
 def log_event(message, level="info", camera=None, file_path=None):
     timestamp = make_readable_hms()
 
-    colors = {"info":"#00c853","debug": "#AA0088", "warn":"#ffd600","error":"#ff5252","record":"#17e8ff"}
-
-    #print(f"[{timestamp}] {camera:<8} {message}")
     fstr = camera.config.name + " " if camera else ""
     fstr += message
     fstr += " " + file_path if file_path else ""
@@ -63,16 +60,13 @@ def log_event(message, level="info", camera=None, file_path=None):
     path = None
     if file_path:
         path = Path(file_path)
-        #if path.is_file():
-        #    message += f' <a href="/{file_path}" target="_blank">{path.parent.name}/{path.name}</a>'
 
-    #entry = f'<div class="log-{level}">[{timestamp}] ' + (f"{camera.config.name:<8} " if camera else "") + f"{message}</div>"
     entry = {
         "timestamp": time.time(),
         "level": level,
         "camera": camera.config.name if camera else "",
         "message": message,
-        "file_path": f"/{file_path}",
+        "file_path": file_path if file_path else "",
         "anchor": f"{path.parent.name}/{path.name}" if path else "" 
     }
     event_log.append(entry)
