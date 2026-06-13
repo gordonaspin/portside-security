@@ -8,38 +8,7 @@
 `pynvr` is a server process that does not need a client to attach. The GUI implementation is svelte components and Javascript. The `pynvr` GUI has controls to adjust motion-detection thresholds per camera. The GUI presents a mosaic of all enabled cameras, in the dimensions defined in nvr.json. If there are less cameras than rows * colums, black frames will be inserted. Clicking on a frame in the mosaic will zoom in to that camera, and clicking on a zoomed in camera will return to the mosaic.
 
 The GUI presents a clickable timeline of events. Clicking the event will display the recorded video and associated metadata. The timeline can be panned back in history as far as the oldest event. The timeline can also be zoomed by holding the Shift-key and mouse-scroll. On mobile, the pand and zoom is performed by one finger and two-finger scroll, respectively.
-## Architecture / Design
-`pynvr` implements an efficient, robust pipeline per camera for motion and object detection and recording file creation. The pipeline is as follows:
-```code
-                         +---------------------------------------+
-                         |     ffmpeg reader sub-process         +
-                         | writes to mpeg segment files          +
-                         | writes raw downsized frames to stdout +
-                         +---------------------------------------+
-                                            |
-                                            v
-                         +---------------------------------------+
-                         |         frame reader thread           +
-                         | reads frames from stdout              +
-                         | enqueues frame, lastest frame wins    +
-                         +---------------------------------------+
-                                            |
-                                            v
-                         +---------------------------------------+      +--------------------------------------+
-                         |       frame processor thread          +      +        Svelte UI and WebRTC GUI      +
-                         | gets frame from queue                 + <--- +        uses frame from memory        +
-                         | detects motion and objects.           +      +        renders frame to GUI          +
-                         +---------------------------------------+      +--------------------------------------+
-                                            |
-                                            v
-                         +---------------------------------------+
-                         |              recorders.               +
-                         | asynchronously merges mpeg segment    +
-                         | files or frames and creates MP4       +
-                         | recording, creates metadata           +
-                         +---------------------------------------+
 
-```
 ## Installation
 Clone the repo
 ```bash
@@ -63,6 +32,10 @@ Build the frontend GUI application
 ```bash
 npm run build
 ```
+Install external dependencies
+```
+ffmpeg
+```
 ## Usage - Command line options
 
 #### -c | --nvr-config filename.json
@@ -78,7 +51,7 @@ python backend/app.py -u rtsp-username -p rtsp-password
 Configuration is provided in a nvr.json file. "model.resolution" specifies the [x, y] dimensions in pixels to resize frames to for YOLO processing and rendering on the GUI. "model.name" specifies the name of the YOLO model to use. "model.classes" is an array of coco names of object classes to detect in the image processing. Each camera is named and specifies the RTSP URL and per-camera resolution, motion detection parameters, enabled and debug flags and which recorder type to use.
 ```json
 {
-    "system_name": "Portside Cameras",
+    "system_name": "Security Cameras",
     "recordings_directory": "recordings",
     "keep_recordings_timedelta": {
         "days": 7
@@ -105,7 +78,7 @@ Configuration is provided in a nvr.json file. "model.resolution" specifies the [
     "cameras": {
         "B1": {
             "enabled": true,
-            "url": "rtsp://username:password@portsideb3.noip.me:554/cam/realmonitor?channel=3&subtype=1",
+            "url": "rtsp://username:password@hostname.noip.me:554/cam/realmonitor?channel=3&subtype=1",
             "resolution": {
                 "width": 704,
                 "height": 480
@@ -126,7 +99,7 @@ Configuration is provided in a nvr.json file. "model.resolution" specifies the [
         },
         "B2": {
             "enabled": true,
-            "url": "rtsp://username:password@portsideb3.noip.me:554/cam/realmonitor?channel=4&subtype=1",
+            "url": "rtsp://username:password@hostname.noip.me:554/cam/realmonitor?channel=4&subtype=1",
             "resolution": {
                 "width": 704,
                 "height": 480
@@ -141,7 +114,7 @@ Configuration is provided in a nvr.json file. "model.resolution" specifies the [
         },
         "B3": {
             "enabled": true,
-            "url": "rtsp://username:password@portsideb3.noip.me:554/cam/realmonitor?channel=5&subtype=1",
+            "url": "rtsp://username:password@hostname.noip.me:554/cam/realmonitor?channel=5&subtype=1",
             "resolution": {
                 "width": 704,
                 "height": 480
@@ -187,3 +160,46 @@ FFmpegFrame or OpenCVFrame or AVFFmpegFrame are functionally equivalent, just di
 
 ### Logging
 `pynvr` uses python logging to write to log files, configured by the logging-config.json file. Passwords passed in on the command line or fetch from the keyring are filtered from logs. `pynvr` also produces log files per camera attached to each of the ffmpeg sub-processes and a log file per recording merge.
+
+## Architecture / Design
+`pynvr` implements an efficient, robust pipeline per camera for motion and object detection and recording file creation. The pipeline is as follows:
+```code
+                         +---------------------------------------+
+                         |     ffmpeg reader sub-process         +
+                         | writes to mpeg segment files          +
+                         | writes raw downsized frames to stdout +
+                         +---------------------------------------+
+                                            |
+                                            v
+                         +---------------------------------------+
+                         |         frame reader thread           +
+                         | reads frames from stdout              +
+                         | enqueues frame, lastest frame wins    +
+                         +---------------------------------------+
+                                            |
+                                            v
+                         +---------------------------------------+      +--------------------------------------+
+                         |       frame processor thread          +      + Svelte UI and WebRTC GUI uses frame  +
+                         | gets frame from queue                 + <--- + from memory and renders frame to GUI +
+                         | detects motion and objects.           +      + receives realtime events from server +
+                         +---------------------------------------+      +--------------------------------------+
+                                            |
+                                            v
+                         +---------------------------------------+
+                         |              recorders.               +
+                         | asynchronously merge mpeg segment     +
+                         | files or frames and create MP4        +
+                         | recording, create metadata            +
+                         +---------------------------------------+
+
+```
+### Technologies used
+`python` is used to create the backend server and all the video processing with the exception of ffmpeg.
+`FastAPI and uvicorn` is used as the API to the server, by default it listens on port 7860.
+`ffmpeg` is used to connect to IP cameras using the url configured for the camera in nvr.json. `ffprobe` is used to detect the native resolution of the stream if possible, and that resolution will be used to stream video to the user-interface and make recordings. If the native resolution of the camera cannot be determined by ffprobe, the fallback is the configured resolution. If the resolution is different from the YOLO resolution, then a second rawvideo is output from ffmpeg at the configured resolution will be used for object detection.
+`YOLO` is used for object detection and classification. The expected model is yolo8n, and can be changed in the configuration file
+`OpenCV` is used for frame manipulation, blurring, grayscaling etc. as needed to detect and measure motion
+`PyAV` is used (with ffmpeg under the covers) to make recordings from frames.
+`Svelte` (typescript/javascript) is used to create the user interface with Javascript, HTML markup and CSS
+`WebRTC` is used to stream video content to the Mosaic.svelte component in the browser.
+`SSE or Server Side Events` is used to push updates to the browser. It is used for camera status displayed as a <div> overlay on the camera image in the Mosaic.svelte component. It is also used to push server logs to the browser EventLog.svelte component and recording event metadata to the browser that are subsequently fed to the EventInfo.svelte component and the MediaPlayer component.
