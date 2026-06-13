@@ -4,16 +4,17 @@ version = "1.0.0"
 description = "pynvr is a NVR used to record events from cameras"
 authors = [{ name = "Gordon Aspin", email = "gordon.aspin@gmail.com" }]
 dependencies = [
-    "click",
-    "opencv-python",
-    "scikit-image",
-    "ultralytics",
-    "aiortc",
-    "fastapi",
+    "click==8.4.1",
+    "opencv-contrib-python-headless==4.13.0.92",
+    "scikit-image==0.26.0",
+    "ultralytics==8.4.66",
+    "ultralytics-thop==2.0.20",
+    "aiortc==1.14.0",
+    "fastapi==0.136.3",
     "bcrypt==4.3.0",
-    "passlib",
-    "uvicorn",
-    "keyring"
+    "passlib==1.7.4",
+    "uvicorn==0.49.0",
+    "keyring==25.7.0",
 ]
 requires-python = "==3.12.13"
 readme = "README.md"
@@ -45,3 +46,6 @@ disable = [
     "broad-exception-caught",
 ]
 [tool.setuptools]
+
+[tool.setuptools.packages.find]
+exclude = ["logs*", "recordings*", "frontend*"]
