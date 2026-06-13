@@ -126,7 +126,7 @@ class RTSPReader(Reader):
             try:
                 self.process.terminate()
                 self.process.wait(timeout=2)
-            except subprocess.TimeoutExpired:
+            except Exception:
                 self.process.kill()
 
             if self.process.stdout:
@@ -159,7 +159,7 @@ class RTSPReader(Reader):
         Public stop: signal thread and clean up process.
         """
         self.stop_event.set()
-        self._cleanup_process()
+        self.thread.join()
 
     @override
     def get_frame(self) -> NDArray[np.uint8] | None:
@@ -503,6 +503,7 @@ class RTSPReader(Reader):
             "ffmpeg",
             "-rtsp_transport",
             "tcp",
+            "-max_delay", "0",
             "-fflags",
             "nobuffer+genpts+discardcorrupt",
             "-flags",

@@ -356,12 +356,19 @@ def create_app(config: dict, nvr: NVR):
         return {"epoch": time.time()}
     
 
-    async def event_generator():
+    async def event_generator(request: Request):
         last_log_time = time.time()
         last_recording_time = time.time()
 
         try:
-            while not nvr.stop_event.is_set():
+            while True:
+            
+                if nvr.stop_event.is_set():
+                    break;
+
+                if await request.is_disconnected():
+                    logger.debug("SSE request is disconnected")
+                    break;
 
                 # CAMERA STATUS
                 for processor in nvr.frame_processors.values():
@@ -420,10 +427,12 @@ def create_app(config: dict, nvr: NVR):
             log_event("Client disconnected from SSE stream.")
             raise
 
+        pass
+
     @app.get("/api/stream")
-    async def stream(user=Depends(require_user)):
+    async def stream(request: Request, user=Depends(require_user)):
         return EventSourceResponse(
-            event_generator()
+            event_generator(request)
         )
 
 

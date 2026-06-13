@@ -63,5 +63,4 @@ class FileCleaner():
                             except Exception:
                                 pass                # file could have disappeared or been renamed
                     config.last_cleanup_time = now
-            logger.debug(f"FileCleaner sleeping")
             time.sleep(FileCleaner.min_sleep_seconds)

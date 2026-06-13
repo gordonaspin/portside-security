@@ -55,7 +55,7 @@
       ]
     },
     "uvicorn.error": {
-      "level": "INFO",
+      "level": "CRITICAL",
       "handlers": [
         "stderr",
         "file"

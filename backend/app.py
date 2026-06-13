@@ -1,3 +1,4 @@
+from asyncio import CancelledError
 import json
 import logging
 import signal
@@ -18,6 +19,7 @@ _NVR = None
 
 def shutdown(signum, frame):
     _NVR.stop_event.set()
+    logger.info(f"caught {signum}, stop event is set")
     _NVR.stop()
 
 signal.signal(signal.SIGINT, shutdown)
@@ -103,7 +105,11 @@ def main(username, password, gui_username, gui_password,
     app = create_app(config, nvr)
 
     nvr.start()
-    uvicorn.run(app, host=config["bind_address"], port=config["port"], log_config=logging_config_json, access_log=False)
+    try:
+        uvicorn.run(app, host=config["bind_address"], port=config["port"], log_config=logging_config_json, timeout_graceful_shutdown=0, access_log=False)
+    except CancelledError:
+        logger.debug("uvicorn server stopped")
+        pass
 
     logger.info("waiting on NVR threads to finish...")
     for thread in nvr.threads():

@@ -8,6 +8,7 @@
   import { addLog } from "$lib/stores/logs";
   import { serverOffline } from '$lib/stores/connection';
   import { enqueueAuto } from '$lib/stores/playQueue.js';
+  import { log } from '$lib/stores/logging.js'
 
   let es: EventSource | null = null;
   let interval: ReturnType<typeof setInterval>;
@@ -24,12 +25,14 @@
   function startEventStream() {
     const source = new EventSource('/api/stream', { withCredentials: true });
     es = source;
+    log("started EventStream")
 
     source.onopen = () => serverOffline.set(false);
 
     source.onerror = () => {
       serverOffline.set(true);
       source.close();
+      log("stopped EventStream")
       es = null;
     };
 
