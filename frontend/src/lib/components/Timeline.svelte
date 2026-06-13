@@ -191,7 +191,6 @@
 
   function drawTimeline() {
     if (!ctx) return;
-    const start = Date.now();
 
     const w = (canvas.width = canvas.clientWidth);
     const h = (canvas.height = canvas.clientHeight);
@@ -206,7 +205,6 @@
     if (!hasVisibleEvents()) {
       drawNoEventsMessage();
     }
-    log("drawTimeline took ms: ", Date.now() - start);
   }
 
   function drawBackground(w: number, h: number) {

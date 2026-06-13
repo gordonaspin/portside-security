@@ -51,13 +51,11 @@
   function setVideoDimensions(settings) {
     videoWidth = settings.width;
     videoHeight = settings.height;
-    log("settings: ", settings);
   }
   // ------------------------------------------------------
   // MOSAIC STREAM
   // ------------------------------------------------------
   async function startMosaic() {
-    log("Starting mosaic…");
     mosaicTitle = "All Cameras";
 
     if (focusPC) {
@@ -74,7 +72,6 @@
     pc.addTransceiver("video", { direction: "recvonly" });
 
     pc.ontrack = (event) => {
-      log("Mosaic track received");
       const track = event.track;
       track.onunmute = () => {
         const settings = track.getSettings();
@@ -100,14 +97,12 @@
     const answer = await res.json();
     await pc.setRemoteDescription(answer);
 
-    log("Mosaic WebRTC connected");
   }
 
   // ------------------------------------------------------
   // FOCUSED CAMERA STREAM
   // ------------------------------------------------------
   async function startFocusedCamera(name) {
-    log(`Starting focused camera ${name}`);
     mosaicTitle = name;
 
     if (mosaicPC) {
@@ -124,7 +119,6 @@
     pc.addTransceiver("video", { direction: "recvonly" });
 
     pc.ontrack = (event) => {
-      log("Focused track received");
       const track = event.track;
       track.onunmute = () => {
         const settings = track.getSettings();
@@ -151,7 +145,6 @@
     const answer = await res.json();
     await pc.setRemoteDescription(answer);
 
-    log(`Focused camera ${name} WebRTC connected`);
   }
 
   // ------------------------------------------------------
@@ -162,7 +155,6 @@
 
     // If already focused → return to mosaic
     if (isFocusMode) {
-      log("Returning to mosaic mode");
       isFocusMode = false;
       currentCamera = null;
       startMosaic();
@@ -186,12 +178,10 @@
     const index = row * cols + col;
 
     if (index < 0 || index >= cameras.length) {
-      log("Clicked outside camera range");
       return;
     }
 
     const cameraName = cameras[index].name;
-    log("Selected camera:", cameraName);
 
     isFocusMode = true;
     currentCamera = cameraName;
@@ -202,7 +192,6 @@
   // LIFECYCLE
   // ------------------------------------------------------
   onMount(async () => {
-    log("Mosaic.svelte mounted");
     await loadMosaicDimensions()
     await loadCameras();
     
@@ -210,7 +199,6 @@
     mosaicVideo.onloadedmetadata = () => {
       videoWidth = mosaicVideo.videoWidth;
       videoHeight = mosaicVideo.videoHeight;
-      log("video metadata:", videoWidth, videoHeight);
     };
   });
 

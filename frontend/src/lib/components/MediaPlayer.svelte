@@ -28,14 +28,12 @@
 
     // Load video
     if (videoEl && ev.media_filename) {
-      log("video playing ", ev.media_filename);
       videoEl.src = ev.media_filename;
       videoEl.play();
     }
   }
 
   function onEnded() {
-    log("video ended");
     isPlaying.set(false);
     currentEvent.set(null);
   }
@@ -64,7 +62,6 @@
     // Load video after DOM updates
     tick().then(() => {
       if (videoEl && latest.media_filename) {
-        log("skipping to latest ", latest.media_filename);
         videoEl.src = latest.media_filename;
         videoEl.play();
       }
@@ -81,6 +78,7 @@
   <video
     bind:this={videoEl}
     on:ended={onEnded}
+    muted
     autoplay
     controls
     playsinline

@@ -25,14 +25,12 @@
   function startEventStream() {
     const source = new EventSource('/api/stream', { withCredentials: true });
     es = source;
-    log("started EventStream")
 
     source.onopen = () => serverOffline.set(false);
 
     source.onerror = () => {
       serverOffline.set(true);
       source.close();
-      log("stopped EventStream")
       es = null;
     };
 
