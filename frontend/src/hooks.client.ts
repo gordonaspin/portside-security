@@ -1,4 +1,3 @@
-// src/hooks.client.ts
 import { serverOffline } from '$lib/stores/connection';
 
 export function handleError({ error, event }) {

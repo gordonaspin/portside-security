@@ -14,8 +14,8 @@
 
   let mosaicVideo; // bind:this
   let mosaicTitle = "";
-  let mosaicRows = 0
-  let mosaicCols = 0
+  let mosaicRows = 0;
+  let mosaicCols = 0;
   let videoWidth = 3840;
   let videoHeight = 1046;
 
@@ -52,9 +52,7 @@
     videoWidth = settings.width;
     videoHeight = settings.height;
   }
-  // ------------------------------------------------------
-  // MOSAIC STREAM
-  // ------------------------------------------------------
+
   async function startMosaic() {
     mosaicTitle = "All Cameras";
 
@@ -99,9 +97,6 @@
 
   }
 
-  // ------------------------------------------------------
-  // FOCUSED CAMERA STREAM
-  // ------------------------------------------------------
   async function startFocusedCamera(name) {
     mosaicTitle = name;
 
@@ -122,7 +117,7 @@
       const track = event.track;
       track.onunmute = () => {
         const settings = track.getSettings();
-        setVideoDimensions(settings)
+        setVideoDimensions(settings);
       };
       attachVideoTrack(mosaicVideo, event.streams[0]);
     };
@@ -147,9 +142,6 @@
 
   }
 
-  // ------------------------------------------------------
-  // CLICK HANDLER
-  // ------------------------------------------------------
   function handleMosaicClick(event) {
     if (!mosaicVideo) return;
 
@@ -188,11 +180,8 @@
     startFocusedCamera(cameraName);
   }
 
-  // ------------------------------------------------------
-  // LIFECYCLE
-  // ------------------------------------------------------
   onMount(async () => {
-    await loadMosaicDimensions()
+    await loadMosaicDimensions();
     await loadCameras();
     
     startMosaic();

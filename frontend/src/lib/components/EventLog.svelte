@@ -1,35 +1,51 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
-  import { createEventDispatcher } from "svelte";
-  import { debug, log, error } from "$lib/stores/logging";
+  import { onMount } from 'svelte'
   import { logStore, addLog } from "$lib/stores/logs"
-  import { safeFetch } from "$lib/network/safeFetch";
-
-  const dispatch = createEventDispatcher();
+  import { safeFetch } from "$lib/network/safeFetch"
+  import { currentEvent } from "$lib/stores/playQueue"
+  import { tick } from 'svelte'
 
   let container;
+  let selectedUrl = null;
 
   onMount(async () => {
     const res = await safeFetch('/api/logs', { credentials: "include" });
     const data = await res.json();
 
-    // Initial load: newest at top
+    // Backend returns oldest → newest
+    // We want newest at top, same as SSE
     for (const log of data.logs) {
       addLog(log);
     }
-  });
+  })
 
   function handleClick(e) {
     const link = e.target.closest("a");
     if (!link) return;
 
     e.preventDefault();
-    dispatch("selectMedia", link.getAttribute("href"));
+    selectedUrl = link.getAttribute("href");   // <-- sync only
+  }
+
+  $: if (selectedUrl) {
+    loadSelectedEvent(selectedUrl);
+  }
+
+  async function loadSelectedEvent(url) {
+    await tick(); // ensure DOM stable
+
+    // Fetch metadata for the clicked log entry
+    const res = await safeFetch(url, { credentials: "include"});
+    const meta = await res.json();
+
+    currentEvent.set(meta);
+
   }
 
   function fmt(ts) {
     return new Date(ts * 1000).toLocaleTimeString();
   }
+
 </script>
 
 <h3 class="event-log-title">Event Log</h3>

@@ -3,9 +3,10 @@
   import { debug, log, error } from "$lib/stores/logging";
   import { safeFetch } from "$lib/network/safeFetch";
   import { eventStore, addEvent } from "$lib/stores/events";
+  import { currentEvent } from "$lib/stores/playQueue"
 
-  export let onSelectEvent = () => {};
-
+  let selectedEvent = null;
+  
   const TICK_HEIGHT = 20;
   const ROW_HEIGHT = 40;
   const HEADER_HEIGHT = TICK_HEIGHT + 36;
@@ -54,6 +55,10 @@
   let zoomCenterX = 0;
   let zoomCenterSeconds = 0;
   let tapStart: { x: number; y: number; time: number } | null = null;
+
+  $: if (selectedEvent) {
+    currentEvent.set(selectedEvent);
+  }
 
   $: drawTimeline(
     $eventStore,
@@ -771,7 +776,7 @@
     const ev = findEventAt(x, y);
     if (ev) {
       selectedEventId = ev.start_time;
-      onSelectEvent(ev);
+      selectedEvent = ev;
       drawTimeline();
     }
   }
@@ -842,8 +847,6 @@
     if (ro) ro.disconnect();
   });
 
-    //    on:pointerleave={onPointerCancel}
-  //  on:pointerout={onPointerCancel}
 </script>
 
 <h3 class="timeline-title">Recorded Events</h3>

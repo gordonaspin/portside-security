@@ -1,72 +1,68 @@
 <script lang="ts">
-  import { playQueue, isPlaying, currentEvent } from "$lib/stores/playQueue";
-  import { log } from "$lib/stores/logging";
+  import { playQueue, currentEvent } from "$lib/stores/playQueue";
   import { tick } from "svelte";
 
   let videoEl;
 
-  // Reactive trigger
-  $: if (!$isPlaying && $playQueue.length > 0) {
-    startNextVideo();   // call async function (allowed)
+  // Reactive rule: if no current event, pull from queue
+  $: if (!$currentEvent && $playQueue.length > 0) {
+    const ev = $playQueue[0];
+    playQueue.update(q => q.slice(1));
+    currentEvent.set(ev);
   }
 
-  async function startNextVideo() {
-    const ev = $playQueue[0];
+  // Reactive rule: whenever currentEvent changes → play it
+  $: if ($currentEvent) {
+    playRecording($currentEvent);
+  }
+
+
+  // Main playback function
+  async function playRecording(ev) {
     if (!ev) return;
 
-    // Set the new current event
-    currentEvent.set(ev);
+    if (!videoEl) await tick();
+    if (!videoEl) return;
 
-    // Remove it from the queue
-    playQueue.update(q => q.slice(1));
+    // Stop current playback
+    videoEl.pause();
+    videoEl.src = "";
+    videoEl.load();
 
-    // Mark as playing
-    isPlaying.set(true);
-
-    // Wait for <video> to mount
     await tick();
 
-    // Load video
-    if (videoEl && ev.media_filename) {
-      videoEl.src = ev.media_filename;
-      videoEl.play();
+    // Load and play new video
+    videoEl.src = ev.media_filename;
+
+    const p = videoEl.play();
+    if (p) {
+      p.catch(err => {
+        if (err.name === "NotAllowedError") {
+          const handler = () => {
+            videoEl.play();
+            window.removeEventListener("click", handler);
+          };
+          window.addEventListener("click", handler);
+        }
+      });
     }
   }
 
+  // When video ends, clear currentEvent
   function onEnded() {
-    isPlaying.set(false);
     currentEvent.set(null);
   }
 
-  // Skip button: jump to the most recent queued event
+  // Skip button: jump to most recent queued event
   function skipToLatest() {
     const q = $playQueue;
+    if (q.length === 0) return;
 
-    if (q.length === 0) {
-      // nothing to skip to
-      currentEvent.set(null);
-      isPlaying.set(false);
-      return;
-    }
-
-    // Take the LAST event in the queue
     const latest = q[q.length - 1];
-
-    // Clear queue
     playQueue.set([]);
-
-    // Force playback of the latest event
     currentEvent.set(latest);
-    isPlaying.set(true);
-
-    // Load video after DOM updates
-    tick().then(() => {
-      if (videoEl && latest.media_filename) {
-        videoEl.src = latest.media_filename;
-        videoEl.play();
-      }
-    });
   }
+
 </script>
 
 <h3 class="media-player-title">

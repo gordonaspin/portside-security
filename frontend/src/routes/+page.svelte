@@ -8,7 +8,6 @@
   import { debug, log, error } from "$lib/stores/logging";
   import { onMount } from 'svelte';
   import { safeFetch } from '$lib/network/safeFetch';
-  import { enqueueUser } from '$lib/stores/playQueue';
 
   let system_name = ""
 
@@ -19,12 +18,6 @@
     }
   )
 
-  async function fetchAndEnqueue(metadata_filename) {
-    const res = await safeFetch(metadata_filename, { credentials: "include" });
-    const data = await res.json();
-  
-    enqueueUser(data)
-  }
 
 </script>
 <div class="page">
@@ -43,7 +36,7 @@
   <!-- FLEX ROW THAT BECOMES A COLUMN ON MOBILE -->
   <div class="timeline-player-row">
     <div class="panel timeline-panel">
-      <Timeline onSelectEvent={(e) => enqueueUser(e)} />
+      <Timeline />
     </div>
 
     <div class="panel player-panel">
@@ -54,7 +47,7 @@
   <div class="log-info-row">
     <div class="panel log-panel">
       <div class="event-log-content">
-        <EventLog on:selectMedia={(e) => fetchAndEnqueue(e.detail)}/>
+        <EventLog />
       </div>
     </div>
 

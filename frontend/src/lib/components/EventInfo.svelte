@@ -1,26 +1,10 @@
 <script lang="ts">
-  import { page } from '$app/stores';
   import { currentEvent } from '$lib/stores/playQueue';
   import { debug, log, error } from "$lib/stores/logging";
   
   let event = null;
 
-  $: event = $currentEvent
-
-  // Build absolute metadata URL
-  $: metadataHref = (() => {
-    if (!event?.metadata_filename) return null;
-
-    const m = event.metadata_filename;
-
-    // If already absolute, return as-is
-    if (m.startsWith("http://") || m.startsWith("https://")) {
-      return m;
-    }
-
-    // Otherwise prepend correct origin
-    return `${$page.url.origin}/${m.replace(/^\//, "")}`;
-  })();
+  $: event = $currentEvent;
 
 </script>
 
@@ -40,7 +24,7 @@
       </span>
     </div>
     <div class="row"><span class="label"><b>Recorder:</b></span><span class="value">{event.recorder_type}</span></div>
-    <div class="row"><b>Metadata:</b><a href="{metadataHref}" target="_blank">click to open</a></div>
+    <div class="row"><b>Metadata:</b><a href="{event.metadata_filename}" target="_blank">click to open</a></div>
   {:else}
     <p>No event selected.</p>
   {/if}
