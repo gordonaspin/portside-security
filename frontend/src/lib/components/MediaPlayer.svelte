@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { log } from "$lib/stores/logging";
   import { playQueue, currentEvent } from "$lib/stores/playQueue";
   import { tick } from "svelte";
 
@@ -15,7 +16,6 @@
   $: if ($currentEvent) {
     playRecording($currentEvent);
   }
-
 
   // Main playback function
   async function playRecording(ev) {
@@ -45,12 +45,17 @@
           window.addEventListener("click", handler);
         }
       });
-    }
+    } 
   }
 
   // When video ends, clear currentEvent
   function onEnded() {
-    currentEvent.set(null);
+    const ev  = $currentEvent;
+    if (!ev) return;
+
+    if (videoEl.src.includes(ev.media_filename)) {
+      currentEvent.set(null);
+    }
   }
 
   // Skip button: jump to most recent queued event
