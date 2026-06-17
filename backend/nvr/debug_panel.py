@@ -22,7 +22,11 @@ def begin_pillow_draw(frame):
     draw = ImageDraw.Draw(pil_img)
     return pil_img, draw
 
-def draw_text(draw, text, x, y, font, color, bg=None):
+def end_pillow_draw(frame, pil_img):
+    bgr = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
+    frame[:,:,:] = bgr
+
+def draw_text(draw, text, x, y, font, color="yellow", bg=None):
     """Draw text with optional background box."""
     bbox = draw.textbbox((x, y), "|"+text[:-1], font=font) # trick to get full height box
     tw = bbox[2] - bbox[0]
@@ -34,48 +38,6 @@ def draw_text(draw, text, x, y, font, color, bg=None):
 
     draw.text((x + padding, y), text, font=font, fill=color)
     return th + padding*2
-
-def end_pillow_draw(frame, pil_img):
-    bgr = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
-    frame[:,:,:] = bgr
-
-def draw_status_text(frame, status_text, objects_text, is_recording):
-    layout = TextLayout(panel_h=frame.shape[0], panel_w=frame.shape[1])
-    font = layout.font(layout.title_fs)
-
-    # Convert once
-    pil_img, draw = begin_pillow_draw(frame)
-
-    x = 0
-    y = 0
-
-    # First line
-    h1 = draw_text(
-        draw,
-        status_text,
-        x=x,
-        y=y,
-        font=font,
-        color="red" if is_recording else "lime",
-        bg=(32,32,32)
-    )
-
-    # Second line
-    if objects_text:
-        y += h1
-        h2 = draw_text(
-            draw,
-            objects_text,
-            x=x,
-            y=y,
-            font=font,
-            color="white",
-            bg=(32,32,32)
-        )
-
-    # Convert back once
-    end_pillow_draw(frame, pil_img)
-
 
 class TextLayout:
     def __init__(self, panel_h, panel_w):
@@ -116,10 +78,7 @@ def draw_debug_panels(
     frame_count,
     frame_bgr,
     result,
-    status_text,
-    objects_text,
-    is_recording,
-    krs, kcs, dsrs, dscs, dars, dacs
+    motion_boxes
 ):
     h, w = frame_bgr.shape[:2]
 
@@ -138,17 +97,11 @@ def draw_debug_panels(
     diff_panel = cv2.cvtColor(camera.buffers.diff_filtered_buf, cv2.COLOR_GRAY2BGR)
     thresh_panel = cv2.cvtColor(camera.buffers.thresh_buf, cv2.COLOR_GRAY2BGR)
 
-    CV2_GREEN = (0,255,0)
-    CV2_WHITE = (255,255,255)
-    CV2_YELLOW = (255,255,0)
-    CV2_RED = (0,0,255)
+    BGR_GREEN = (0,255,0)
+    BGR_WHITE = (255,255,255)
     # Draw rectangles BEFORE resizing (shapes scale fine)
-    for (x1, y1, x2, y2) in krs:
-        cv2.rectangle(thresh_panel, (x1, y1), (x2, y2), CV2_GREEN, 2)
-
-    for cnt in kcs:
-        x, y, w0, h0 = cv2.boundingRect(cnt)
-        cv2.rectangle(thresh_panel, (x, y), (x+w0, y+h0), CV2_GREEN, 2)
+    for (x1, y1, x2, y2) in motion_boxes:
+        cv2.rectangle(thresh_panel, (x1, y1), (x2, y2), BGR_GREEN, 2)
 
     if result is not None:
         for box in result.boxes:
@@ -156,7 +109,7 @@ def draw_debug_panels(
 
             # YOLO's own color for this class
             cls_id = int(box.cls[0])
-            color = result.names.get(cls_id, (255, 255, 255))
+            color = result.names.get(cls_id, BGR_WHITE)
 
             # Ultralytics stores colors as RGB floats 0–255
             if hasattr(result, "plot"):
@@ -170,7 +123,7 @@ def draw_debug_panels(
             if isinstance(color, (list, tuple)) and len(color) == 3:
                 bgr = (int(color[2]), int(color[1]), int(color[0]))
             else:
-                bgr = (255, 255, 255)
+                bgr = BGR_WHITE
 
             cv2.rectangle(thresh_panel, (x1, y1), (x2, y2), bgr, 2)
 
@@ -221,14 +174,6 @@ def draw_debug_panels(
     scale_x = half_w / w
     scale_y = half_h / h
 
-    for cnt in kcs:
-        x, y, w0, h0 = cv2.boundingRect(cnt)
-        xs = int(x * scale_x)
-        ys = int(y * scale_y)
-        text = f"S:{cv2.contourArea(cnt)/max(1,cv2.contourArea(cv2.convexHull(cnt))):.2f}"
-        draw_text(draw, text, xs, ys - layout.py(0.005),
-                  font_label, "green")
-
     # YOLO labels
     if result is not None:
         for box in result.boxes:
@@ -258,50 +203,46 @@ def draw_combined_debug_layout_scaled(camera, panel, frame_count, layout):
     x = layout.px(0.01)
     y = layout.py(0.01)
 
-    def dbg(text, x, y, color="yellow"):
-        draw_text(draw, text, x, y, font_dbg, color)
-        return y + layout.dbg_spacing
-
     # LEFT COLUMN
-    y = dbg(f"frames={frame_count}", x, y)
-    y = dbg(f"recording={camera.recording_state.recording}", x, y)
-    y = dbg(f"should_record={camera.recording_state.should_record}", x, y)
-    y = dbg(f"should_continue={camera.recording_state.should_continue}", x, y)
-    y = dbg(f"motion_confidence={camera.motion.motion_confidence:.2f}/"
-            f"{camera.motion.profile.min_motion_confidence.value:.2f}", x, y)
-    y = dbg(f"score={camera.motion.score}/"
-            f"{camera.motion.profile.motion_threshold_pixels:.2f}", x, y)
-    y = dbg(f"pixel_score={camera.motion.pixel_score:.2f}", x, y)
-    y = dbg(f"box_score={camera.motion.box_score:.2f}", x, y)
-    y = dbg(f"persist_score={camera.motion.persist_score:.2f}", x, y)
-    y = dbg(f"has_moving_object={camera.motion.has_moving_object}", x, y)
-    y = dbg(f"motion_boxes={len(camera.motion.motion_boxes_list)}", x, y)
-    y = dbg(f"motion_persistence={camera.motion.motion_persistence:.2f}/"
-            f"{camera.motion.profile.min_motion_frames.value}", x, y)
-    y = dbg(f"since_last_motion={time.time() - camera.motion.last_motion_time:.2f}s", x, y)
-    y = dbg(f"stop_conf={max(0.10, camera.motion.profile.min_motion_confidence.value * 0.30):.2f}", x, y)
-    y = dbg(f"objects={tags_to_str(camera.motion.active_objects_dict)}", x, y)
+    y += draw_text(draw, f"frames={frame_count}", x, y, font_dbg)
+    y += draw_text(draw, f"recording={camera.recording_state.recording}", x, y, font_dbg)
+    y += draw_text(draw, f"should_record={camera.recording_state.should_record}", x, y, font_dbg)
+    y += draw_text(draw, f"should_continue={camera.recording_state.should_continue}", x, y, font_dbg)
+    y += draw_text(draw, f"motion_confidence={camera.motion.motion_confidence:.2f}/"
+            f"{camera.motion.profile.min_motion_confidence.value:.2f}", x, y, font_dbg)
+    y += draw_text(draw, f"score={camera.motion.score}/"
+            f"{camera.motion.profile.motion_threshold_pixels:.2f}", x, y, font_dbg)
+    y += draw_text(draw, f"pixel_score={camera.motion.pixel_score:.2f}", x, y, font_dbg)
+    y += draw_text(draw, f"box_score={camera.motion.box_score:.2f}", x, y, font_dbg)
+    y += draw_text(draw, f"persist_score={camera.motion.persist_score:.2f}", x, y, font_dbg)
+    y += draw_text(draw, f"has_moving_object={camera.motion.has_moving_object}", x, y, font_dbg)
+    y += draw_text(draw, f"motion_boxes={len(camera.motion.motion_boxes_list)}", x, y, font_dbg)
+    y += draw_text(draw, f"motion_persistence={camera.motion.motion_persistence:.2f}/"
+            f"{camera.motion.profile.min_motion_frames.value}", x, y, font_dbg)
+    y += draw_text(draw, f"since_last_motion={time.time() - camera.motion.last_motion_time:.2f}s", x, y, font_dbg)
+    y += draw_text(draw, f"stop_conf={max(0.10, camera.motion.profile.min_motion_confidence.value * 0.30):.2f}", x, y, font_dbg)
+    y += draw_text(draw, f"objects={tags_to_str(camera.motion.active_objects_dict)}", x, y, font_dbg)
 
     # RIGHT COLUMN
     x = layout.px(0.50)
     y = layout.py(0.01)
 
-    y = dbg("Auto-Tuner Dashboard", x, y)
+    y += draw_text(draw, "Auto-Tuner Dashboard", x, y, font_dbg)
     tuner = camera.tuner.tuner
     stats = tuner.summarize()
     recs = tuner.recommend_adjustments()
 
-    y = dbg("Rule Hits:", x, y)
+    y += draw_text(draw, "Rule Hits:", x, y, font_dbg)
     for rule, count in sorted(stats.items(), key=lambda x: -x[1])[:6]:
         color = "green" if "accepted" in rule else "tomato"
-        y = dbg(f"{rule}: {count}", x + layout.px(0.04), y, color)
+        y += draw_text(draw, f"{rule}: {count}", x + layout.px(0.04), y, font_dbg, color)
 
-    y = dbg("Recommendations:", x, y)
+    y += draw_text(draw, "Recommendations:", x, y, font_dbg)
     if not recs:
-        y = dbg("No adjustments needed.", x + layout.px(0.04), y, color="green")
+        y += draw_text(draw, "No adjustments needed.", x + layout.px(0.04), y, font_dbg,  color="green")
     else:
         for k, v in recs.items():
-            y = dbg(f"{k} -> {v}", x + layout.px(0.04), y, color="yellow")
+            y += draw_text(draw, f"{k} -> {v}", x + layout.px(0.04), y, font_dbg, color="yellow")
 
     end_pillow_draw(panel, pil_img)
     return panel

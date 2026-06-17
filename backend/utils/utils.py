@@ -63,7 +63,7 @@ def tags_to_str(tags: defaultdict[set]):
     return "_".join(parts)
 
 def get_camera_resolution(url: str):
-    ffprobe_cmd = f"ffprobe -v error -select_streams v:0 -show_entries stream=width,height -of csv=p=0 '{url}'"
+    ffprobe_cmd = f"ffprobe -v error -rtsp_transport tcp -analyzeduration 0 -probesize 32 -select_streams v:0 -show_entries stream=width,height -of csv=p=0 '{url}'"
     try:
         output = subprocess.check_output(ffprobe_cmd, shell=True).decode().strip()
         width, height = map(int, output.split(","))

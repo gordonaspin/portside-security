@@ -8,6 +8,7 @@
   import { addLog } from "$lib/stores/logs";
   import { serverOffline } from '$lib/stores/connection';
   import { enqueueAuto } from '$lib/stores/playQueue.js';
+  import { RecordingEvent } from '$lib/stores/events';
   import { log } from '$lib/stores/logging.js'
 
   let es: EventSource | null = null;
@@ -40,8 +41,8 @@
     });
 
     source.addEventListener("newEvent", (ev) => {
-      const event = JSON.parse(ev.data).data;
-      addEvent(JSON.parse(ev.data).data);
+      const event: RecordingEvent = JSON.parse(ev.data).data;
+      addEvent(event);
       enqueueAuto(event)
     });
 

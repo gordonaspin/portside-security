@@ -3,7 +3,7 @@
   import { playQueue, currentEvent } from "$lib/stores/playQueue";
   import { tick } from "svelte";
 
-  let videoEl;
+  let videoEl: HTMLVideoElement;
 
   // Reactive rule: if no current event, pull from queue
   $: if (!$currentEvent && $playQueue.length > 0) {

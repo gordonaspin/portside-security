@@ -2,10 +2,11 @@
   import { onMount, onDestroy, tick } from "svelte";
   import { debug, log, error } from "$lib/stores/logging";
   import { safeFetch } from "$lib/network/safeFetch";
-  import { eventStore, addEvent } from "$lib/stores/events";
+  import { eventStore } from "$lib/stores/events";
   import { currentEvent } from "$lib/stores/playQueue"
+  import { RecordingEvent } from "$lib/stores/events";
 
-  let selectedEvent = null;
+  let selectedEvent: RecordingEvent | null = null;
   
   const TICK_HEIGHT = 20;
   const ROW_HEIGHT = 40;

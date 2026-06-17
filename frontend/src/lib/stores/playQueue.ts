@@ -1,8 +1,9 @@
 import { writable } from "svelte/store";
+import { RecordingEvent } from "./events";
 
-export const playQueue = writable([]);   // array of event objects
-export const currentEvent = writable(null);
+export const playQueue = writable<RecordingEvent[]>([]);
+export const currentEvent: RecordingEvent = writable(null);
 
-export function enqueueAuto(ev) {
+export function enqueueAuto(ev: RecordingEvent) {
   playQueue.update(q => [...q, ev]);   // SSE events → back
 }

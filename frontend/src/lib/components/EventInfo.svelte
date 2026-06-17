@@ -1,8 +1,9 @@
 <script lang="ts">
   import { currentEvent } from '$lib/stores/playQueue';
+  import { RecordingEvent } from '$lib/stores/events';
   import { debug, log, error } from "$lib/stores/logging";
   
-  let event = null;
+  let event: RecordingEvent | null = null;
 
   $: event = $currentEvent;
 

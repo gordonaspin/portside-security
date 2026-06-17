@@ -14,7 +14,7 @@ from ultralytics.engine.results import Results
 
 import constants
 from logger.logger import log_event
-from nvr.debug_panel import draw_status_text, draw_debug_panels
+from nvr.debug_panel import draw_debug_panels
 from nvr.camera.camera import Camera
 from nvr.camera.motion_tuner import MotionDecision
 from reader.rtsp_reader import Reader
@@ -764,11 +764,7 @@ class FrameProcessor():
             self.frame_count,
             frame_bgr,
             yolo_result,
-            self.status_text,
-            self.objects_text,
-            self.camera.recording_state.recording,
-            self.camera.motion.motion_boxes_list,
-            [], [], [], [], []  # placeholders for krs/kcs/dsrs/dscs/dars/dacs
+            self.camera.motion.motion_boxes_list
         )
 
         if self.camera.recording_state.recording:
@@ -811,16 +807,7 @@ class FrameProcessor():
 
         # Select final frame (debug mosaic > YOLO overlay > raw)
         final_frame, is_debug_frame = self._select_frame(frame_bgr, yolo_result)
-        # Draw status text on the ORIGINAL frame
 
-        #if not is_debug_frame:
-        #    draw_status_text(
-        #        final_frame,
-        #        self.status_text,
-        #        self.objects_text,
-        #        self.camera.recording_state.recording,
-        #    )
-        # Update GUI-visible frame
         self.camera.latest_frame = final_frame
 
     def _apply_yolo_overlay(

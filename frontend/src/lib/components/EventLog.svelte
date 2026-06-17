@@ -3,6 +3,7 @@
   import { logStore, addLog } from "$lib/stores/logs"
   import { safeFetch } from "$lib/network/safeFetch"
   import { currentEvent } from "$lib/stores/playQueue"
+  import { RecordingEvent } from '$lib/stores/events'
   import { tick } from 'svelte'
 
   let container;
@@ -36,7 +37,7 @@
 
     // Fetch metadata for the clicked log entry
     const res = await safeFetch(url, { credentials: "include"});
-    const meta = await res.json();
+    const meta: RecordingEvent = await res.json();
 
     currentEvent.set(meta);
 
