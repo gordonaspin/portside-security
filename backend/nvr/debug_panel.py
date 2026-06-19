@@ -9,8 +9,7 @@ from numpy.typing import NDArray
 from PIL import Image, ImageDraw, ImageFont
 from ultralytics.engine.results import Results
 
-from nvr.camera.camera import Camera
-from utils.utils import tags_to_str
+from backend.utils.utils import tags_to_str
 
 logger = getLogger("pynvr")
 

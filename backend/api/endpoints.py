@@ -14,9 +14,9 @@ from fastapi.responses import FileResponse, EventSourceResponse
 from passlib.context import CryptContext
 from pydantic import BaseModel
 
-from nvr.nvr import NVR
-from logger.logger import log_event, event_log
-from webrtc.webrtc import CameraTrack, MosaicTrack
+from backend.nvr.nvr import NVR
+from backend.logger.logger import log_event, event_log
+from backend.webrtc.webrtc import CameraTrack, MosaicTrack
 
 logger = getLogger("pynvr")
 

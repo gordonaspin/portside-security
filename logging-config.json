@@ -18,7 +18,7 @@
   },
   "filters": {
     "KeywordFilter": {
-      "()": "logger.logger.KeywordFilter"
+      "()": "backend.logger.logger.KeywordFilter"
     }
   },
   "handlers": {

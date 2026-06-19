@@ -12,15 +12,15 @@ import cv2
 import numpy as np
 from numpy.typing import NDArray
 
-from nvr.camera.camera import Camera
-from logger.logger import log_event
-from nvr.file_cleaner import FileCleaner
-from nvr.processor import FrameProcessor
-from reader.rtsp_reader import Reader, RTSPReader
-from recorder.factory import FrameRecorderFactory
-from utils.thread_safe import ThreadSafeList
-from utils.utils import make_readable_ts, make_ts_string_precise
-from utils.utils import get_camera_resolution
+from backend.nvr.camera.camera import Camera
+from backend.logger.logger import log_event
+from backend.nvr.file_cleaner import FileCleaner
+from backend.nvr.processor import FrameProcessor
+from backend.reader.rtsp_reader import Reader, RTSPReader
+from backend.recorder.factory import FrameRecorderFactory
+from backend.utils.thread_safe import ThreadSafeList
+from backend.utils.utils import make_readable_ts, make_ts_string_precise
+from backend.utils.utils import get_camera_resolution
 
 logger = getLogger("pynvr")
 

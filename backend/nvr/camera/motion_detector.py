@@ -3,8 +3,8 @@ from collections import defaultdict
 from dataclasses import dataclass
 from typing import Any
 
-from nvr.camera.motion_profiles import DayMotionProfile, NightMotionProfile
-from utils.utils import make_readable_ts
+from backend.nvr.camera.motion_profiles import DayMotionProfile, NightMotionProfile
+from backend.utils.utils import make_readable_ts
 
 @dataclass
 class MotionResult:

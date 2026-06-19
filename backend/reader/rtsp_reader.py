@@ -11,9 +11,9 @@ import cv2
 import numpy as np
 from numpy.typing import NDArray
 
-from logger.logger import log_event
-from nvr.camera.camera import Camera
-from utils.utils import RollingAverage
+from backend.logger.logger import log_event
+from backend.nvr.camera.camera import Camera
+from backend.utils.utils import RollingAverage
 
 logger = getLogger("pynvr.reader")
 

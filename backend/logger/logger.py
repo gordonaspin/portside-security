@@ -33,8 +33,8 @@ from pathlib import Path
 from types import TracebackType
 from typing import Any, Type, override
 
-from utils.utils import make_readable_hms
-import constants as constants
+from backend.utils.utils import make_readable_hms
+import backend.constants as constants
 
 logger = getLogger("pynvr")
 

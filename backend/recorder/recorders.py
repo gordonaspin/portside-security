@@ -3,6 +3,7 @@ from turtle import fd
 import av
 import json
 import os
+import shutil
 import subprocess
 import tempfile
 import threading
@@ -21,13 +22,13 @@ from urllib.parse import quote, quote_plus
 
 import cv2
 
-from constants import PRE_RECORD_DURATION, TS_FILE_RING_SECONDS, MINIMUM_RECORDING_DURATION
+from backend.constants import PRE_RECORD_DURATION, TS_FILE_RING_SECONDS, MINIMUM_RECORDING_DURATION
 
-from logger.logger import log_event
-from nvr.camera.camera import Camera
-from nvr.file_cleaner import FileCleaner
-from utils.thread_safe import ThreadSafeList
-from utils.utils import make_readable_ts, make_ts_string, tags_to_str, make_ts_string_precise, RollingAverage
+from backend.logger.logger import log_event
+from backend.nvr.camera.camera import Camera
+from backend.nvr.file_cleaner import FileCleaner
+from backend.utils.thread_safe import ThreadSafeList
+from backend.utils.utils import make_readable_ts, make_ts_string, tags_to_str, make_ts_string_precise, RollingAverage
 
 logger = getLogger("pynvr.recorder")
 
@@ -195,10 +196,10 @@ class Recorder:
         log_event(message=f"recording available {self.formatted_duration}", level="record", camera=self.camera, file_path=self.final_metadata_filename)
 
     def _finalize_media_file(self):
-        os.rename(self.temporary_media_filename, self.final_media_filename)
+        shutil.move(self.temporary_media_filename, self.final_media_filename)
 
     def _finalize_log_file(self):
-        os.rename(self.temporary_log_filename, self.final_log_filename)
+        shutil.move(self.temporary_log_filename, self.final_log_filename)
 
     def _create_metadata(self):
         # Convert to a standard dict and sets to lists

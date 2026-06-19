@@ -6,10 +6,10 @@ import numpy as np
 from numpy.typing import NDArray
 from ultralytics import YOLO
 
-from nvr.camera.auto_tuner_wrapper import AutoTunerWrapper
-from nvr.camera.frame_buffers import FrameBuffers
-from nvr.camera.motion_detector import MotionDetector
-from nvr.camera.recording_state import RecordingState
+from backend.nvr.camera.auto_tuner_wrapper import AutoTunerWrapper
+from backend.nvr.camera.frame_buffers import FrameBuffers
+from backend.nvr.camera.motion_detector import MotionDetector
+from backend.nvr.camera.recording_state import RecordingState
 
 class CameraConfig:
     def __init__(self, config: dict,

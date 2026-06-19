@@ -10,10 +10,10 @@ import uvicorn
 from click import version_option
 from passlib.context import CryptContext
 
-import constants as constants
-from api.endpoints import create_app
-from logger.logger import setup_logging, KeywordFilter
-from nvr.nvr import NVR
+from backend import constants
+from backend.api.endpoints import create_app
+from backend.logger.logger import setup_logging, KeywordFilter
+from backend.nvr.nvr import NVR
 
 _NVR = None
 
@@ -66,7 +66,8 @@ def main(username, password, gui_username, gui_password,
     
     if password.startswith("password://"):
         password = keyring.get_password(password, username)
-        logger.debug(f"got password for {username} from keyring")
+        if password is not None:
+            logger.debug(f"got password for {username} from keyring")
 
     if password is None:
         logger.error("password not set")

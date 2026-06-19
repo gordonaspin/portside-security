@@ -12,16 +12,16 @@ from numpy.typing import NDArray
 from ultralytics import YOLO
 from ultralytics.engine.results import Results
 
-import constants
-from logger.logger import log_event
-from nvr.debug_panel import draw_debug_panels
-from nvr.camera.camera import Camera
-from nvr.camera.motion_tuner import MotionDecision
-from reader.rtsp_reader import Reader
-from recorder.factory import FrameRecorderFactory
-from recorder.recorders import Recorder
-from utils.thread_safe import ThreadSafeList
-from utils.utils import (
+import backend.constants as constants
+from backend.logger.logger import log_event
+from backend.nvr.debug_panel import draw_debug_panels
+from backend.nvr.camera.camera import Camera
+from backend.nvr.camera.motion_tuner import MotionDecision
+from backend.reader.rtsp_reader import Reader
+from backend.recorder.factory import FrameRecorderFactory
+from backend.recorder.recorders import Recorder
+from backend.utils.thread_safe import ThreadSafeList
+from backend.utils.utils import (
     make_readable_ts,
     tags_to_str,
     boxes_overlap,

@@ -3,6 +3,10 @@ name = "pynvr"
 version = "1.0.0"
 description = "pynvr is a NVR used to record events from cameras"
 authors = [{ name = "Gordon Aspin", email = "gordon.aspin@gmail.com" }]
+requires-python = ">=3.12"
+readme = "README.md"
+license = "MIT"
+
 dependencies = [
     "click==8.4.1",
     "opencv-contrib-python-headless==4.13.0.92",
@@ -16,24 +20,22 @@ dependencies = [
     "uvicorn==0.49.0",
     "keyring==25.7.0",
 ]
-requires-python = "==3.12.13"
-readme = "README.md"
-license = "MIT"
-maintainers = [{ name = "Gordon Aspin", email="gordon.aspin@gmail.com" }]
-classifiers=[
-        "Intended Audience :: Developers",
-        "Operating System :: OS Independent",
-        "Programming Language :: Python",
-        "Programming Language :: Python :: 3",
-]
+
 [project.scripts]
 pynvr = "backend.app:main"
 
 [project.urls]
 Repository = "https://github.com/gordonaspin/pynvr"
 
+[tool.setuptools]
+# Ensures top-level modules like constants.py are included
+py-modules = ["constants"]
+
+[tool.setuptools.packages.find]
+include = ["backend*"]
+exclude = ["logs*", "recordings*", "frontend*"]
+
 [tool.pylint]
-# Disable specific messages by their symbolic name or ID.
 disable = [
     "import-error",
     "no-member",
@@ -45,7 +47,4 @@ disable = [
     "too-few-public-methods",
     "broad-exception-caught",
 ]
-[tool.setuptools]
 
-[tool.setuptools.packages.find]
-exclude = ["logs*", "recordings*", "frontend*"]

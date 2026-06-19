@@ -2,9 +2,9 @@ from collections.abc import Callable
 from logging import getLogger
 from threading import Event
 
-from constants import PRE_RECORD_DURATION
-from nvr.camera.camera import Camera
-from recorder.recorders import OpenCVFrameRecorder, AVFFmpegFrameRecorder, FFmpegFrameRecorder, FFmpegSegmentRecorder
+from backend.constants import PRE_RECORD_DURATION
+from backend.nvr.camera.camera import Camera
+from backend.recorder.recorders import OpenCVFrameRecorder, AVFFmpegFrameRecorder, FFmpegFrameRecorder, FFmpegSegmentRecorder
 
 logger = getLogger("pynvr.recorder")
 
