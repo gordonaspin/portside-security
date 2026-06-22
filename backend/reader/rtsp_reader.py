@@ -96,7 +96,7 @@ class RTSPReader(Reader):
                     camera=self.camera,
                 )
                 self._cleanup_process()
-                time.sleep(2.0)
+                time.sleep(30.0)
                 continue
 
             # Reader loop: runs until stall, EOF, or stop_event
@@ -107,7 +107,7 @@ class RTSPReader(Reader):
 
             # Small backoff to avoid tight restart loops
             if not self.stop_event.is_set():
-                time.sleep(1.0)
+                time.sleep(30.0)
 
         logger.info(f"{self.camera.config.name} RTSPReader main loop exiting")
 

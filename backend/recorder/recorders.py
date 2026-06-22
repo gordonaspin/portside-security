@@ -1,5 +1,3 @@
-from turtle import fd
-
 import av
 import json
 import os

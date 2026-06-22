@@ -437,6 +437,7 @@ def create_app(config: dict, nvr: NVR):
 
 
     app.mount("/recordings", AuthStaticFiles(directory=config["recordings_directory"], check_dir=True), name="recordings")
+    app.mount("/logs", AuthStaticFiles(directory=config["logs_directory"], check_dir=True), name="recordings")
     app.mount("/", AuthStaticFiles(directory="backend/frontend_dist", html=True), name="frontend")
 
     @app.get("/{path:path}")

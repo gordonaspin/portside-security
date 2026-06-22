@@ -50,7 +50,7 @@ class NVR:
             if actual_width is None or actual_height is None:
                 actual_width = config["cameras"][name]["resolution"]["width"]
                 actual_height = config["cameras"][name]["resolution"]["height"]
-                log_event(message=f"could not get resolution, falling back to configured resolution {actual_width}x{actual_height}", level="warn", camera=name)
+                log_event(message=f"{name} could not get resolution, falling back to configured resolution {actual_width}x{actual_height}", level="warn")
             self.cameras[name] = Camera(name=name,
                                         width=actual_width,
                                         height=actual_height,
