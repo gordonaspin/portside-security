@@ -39,7 +39,7 @@ COPY requirements.txt .
 # FIX: Use download.pytorch.org/whl/cpu to target the exact CPU repository
 # FIX: Explicitly target download.pytorch.org/whl/cpu
 RUN --mount=type=cache,target=/root/.cache/pip \
-    pip install --no-cache-dir torch torchvision --index-url https://download.pytorch.org/whl/cpu && \
+    pip install --no-cache-dir --ignore-installed torch torchvision --index-url https://download.pytorch.org/whl/cpu && \
     pip install --no-cache-dir -r requirements.txt --index-url https://download.pytorch.org/whl/cpu --extra-index-url https://pypi.org/simple && \
     pip install *.whl && \
     rm -rf /tmp/*

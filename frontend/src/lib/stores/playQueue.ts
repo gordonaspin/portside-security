@@ -1,5 +1,5 @@
 import { writable } from "svelte/store";
-import { RecordingEvent } from "./events";
+import type { RecordingEvent } from "./events";
 
 export const playQueue = writable<RecordingEvent[]>([]);
 export const currentEvent: RecordingEvent = writable(null);

@@ -3,7 +3,7 @@
   import { logStore, addLog } from "$lib/stores/logs"
   import { safeFetch } from "$lib/network/safeFetch"
   import { currentEvent } from "$lib/stores/playQueue"
-  import { RecordingEvent } from '$lib/stores/events'
+  import type { RecordingEvent } from '$lib/stores/events'
   import { tick } from 'svelte'
 
   let container;

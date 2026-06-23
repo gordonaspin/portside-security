@@ -8,7 +8,7 @@
   import { addLog } from "$lib/stores/logs";
   import { serverOffline } from '$lib/stores/connection';
   import { enqueueAuto } from '$lib/stores/playQueue.js';
-  import { RecordingEvent } from '$lib/stores/events';
+  import type { RecordingEvent } from '$lib/stores/events';
   import { log } from '$lib/stores/logging.js'
 
   let es: EventSource | null = null;
