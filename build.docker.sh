@@ -1,6 +1,11 @@
 #!/bin/bash
 set -euo pipefail
 
+cd frontend
+npm run build
+cd ..
+python -m build
+
 OWNER="gordonaspin"
 PROJECT=$(basename $(pwd))
 VERSION="$(cat pyproject.toml | grep version | cut -d'"' -f 2)"

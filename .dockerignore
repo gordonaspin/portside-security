@@ -1,0 +1,6 @@
+# .dockerignore
+**/node_modules
+**/.git
+**/__pycache__
+*.mp4
+*.avi

@@ -32,6 +32,7 @@
   let serverNow = 0;
   let legendItems = [];
   let selectedEventId: number | null = null;
+  let atLiveEdge = true;
 
   let ro: ResizeObserver;
   let serverTimeInterval: number;
@@ -69,7 +70,8 @@
     offsetSeconds,
     serverNow,
     computedLeftMargin,
-    selectedEventId
+    selectedEventId,
+    atLiveEdge
   );
 
   onMount(async () => {
@@ -137,7 +139,7 @@
   }
 
   async function fetchEventsForCurrentWindow() {
-    const { start, end } = getTimelineBounds2();
+    const { start, end } = getTimelineBounds();
     const url = `/api/events?start=${start}&end=${end}&mobile=${isMobile ? 1 : 0}`;
 
     const res = await safeFetch(url, { credentials: "include" });
@@ -160,7 +162,7 @@
   $: if (initialAligned && $eventStore.length > 0) {
     const latestEnd = Math.max(...$eventStore.map((e) => e.end_time));
     const { end } = getTimelineBounds();
-    const atLiveEdge = Math.abs(end - latestEnd) < 1;
+    atLiveEdge = Math.abs(end - latestEnd) < 1;
 
     if (atLiveEdge) {
       offsetSeconds = Math.max(0, serverNow - latestEnd);
@@ -180,10 +182,20 @@
     return { start, end };
   }
 
-  function getTimelineBounds2() {
-    const end = serverNow - offsetSeconds;
-    const start = end - zoomHours * HOUR;
-    return { start, end };
+  function jumpToLiveEdge() {
+      if (!events || events.length === 0) return;
+
+      const latest = Math.max(...events.map(e => e.end_time));
+      const windowWidth = zoom; // ms visible at current zoom level
+
+      offset = latest - windowWidth;
+
+      // Clamp so we never scroll before earliest event
+      const earliest = Math.min(...events.map(e => e.start_time));
+      offset = Math.max(offset, earliest);
+
+      // Mark that the user is now at live-edge
+      atLiveEdge = true;
   }
 
   function xFor(ts: number) {
@@ -677,6 +689,7 @@
           return;
         }
         isDragging = true;
+        atLiveEdge = false;
       }
 
       const w = canvas.clientWidth;
@@ -698,6 +711,7 @@
       const zoomFactor = 1 - dy / 300;
       let newZoom = zoomStartHours * zoomFactor;
 
+      atLiveEdge = false;
       newZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, newZoom));
 
       const w = canvas.clientWidth;
@@ -786,6 +800,8 @@
     if (isMobile) return;
     if (!e.shiftKey) return;
 
+    atLiveEdge = false;
+
     e.preventDefault();
 
     const rect = canvas.getBoundingClientRect();
@@ -850,7 +866,9 @@
 
 </script>
 
-<h3 class="timeline-title">Recorded Events</h3>
+<h3 class="timeline-title">Recorded Events
+    <button class="live-edge-btn" on:click={jumpToLiveEdge}>⏩ Live Edge</button>
+</h3>
 <div class="timeline-wrapper">
   <canvas
     bind:this={canvas}
@@ -905,7 +923,15 @@
     overflow: visible;
     z-index: 1;
   }
-
+  .live-edge-btn {
+    background: #444;
+    color: #eee;
+    border: 1px solid #666;
+    padding: 2px 8px;
+    font-size: 0.8rem;
+    border-radius: 4px;
+    cursor: pointer;
+  }
   .tooltip {
     position: absolute;
     background: #111;
@@ -956,6 +982,8 @@
     font-size: 1rem;
     font-weight: bold;
     color: #eee;
-    font-family: inherit;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
   }
 </style>
