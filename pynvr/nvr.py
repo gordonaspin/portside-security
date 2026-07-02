@@ -1,7 +1,6 @@
 import glob
 import json
 import os
-import queue
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
@@ -12,15 +11,14 @@ import cv2
 import numpy as np
 from numpy.typing import NDArray
 
-from backend.nvr.camera.camera import Camera
-from backend.logger.logger import log_event
-from backend.nvr.file_cleaner import FileCleaner
-from backend.nvr.processor import FrameProcessor
-from backend.reader.rtsp_reader import Reader, RTSPReader
-from backend.recorder.factory import FrameRecorderFactory
-from backend.utils.thread_safe import ThreadSafeList
-from backend.utils.utils import make_readable_ts, make_ts_string_precise
-from backend.utils.utils import get_camera_resolution
+from .camera import Camera
+from .logger import log_event
+from .file_cleaner import FileCleaner
+from .processor import FrameProcessor
+from .rtsp_reader import Reader, RTSPReader
+from .recorder import FrameRecorderFactory
+from .thread_safe import ThreadSafeList
+from .utils import get_camera_resolution
 
 logger = getLogger("pynvr")
 
@@ -34,7 +32,6 @@ class NVR:
         self.logs_dir: str = config["logs_directory"]
         self.debug: bool = config["debug"]
         self.stop_event: Event = Event()
-        self.thread: Thread = None
 
         self.cameras: dict[str, Camera] = {}
         self.frame_readers: dict[str, Reader] = {}
@@ -51,7 +48,7 @@ class NVR:
                 actual_width = config["cameras"][name]["resolution"]["width"]
                 actual_height = config["cameras"][name]["resolution"]["height"]
                 log_event(message=f"{name} could not get resolution, falling back to configured resolution {actual_width}x{actual_height}", level="warn")
-            self.cameras[name] = Camera(name=name,
+            camera = self.cameras[name] = Camera(name=name,
                                         width=actual_width,
                                         height=actual_height,
                                         config=config,
@@ -59,18 +56,24 @@ class NVR:
                                         recordings_dir=self.recordings_dir,
                                         )
     
-            self.frame_readers[name] = RTSPReader(
-                self.cameras[name],
-                config["model"]["resolution"],
-                config["cameras"][name]["recorder"] == "FFmpegSegment",
-                self.stop_event)
+            reader = self.frame_readers[name] = RTSPReader(
+                camera=camera,
+                model_config=config["model"]["resolution"],
+                produce_segments=config["cameras"][name]["recorder"] == "FFmpegSegment",
+                stop_event=self.stop_event)
             self.frame_processors[name] = FrameProcessor(
-                camera=self.cameras[name],
-                reader=self.frame_readers[name],
-                recorder_factory=FrameRecorderFactory.create(self.cameras[name], config["cameras"][name]["recorder"]),
+                config=config["processor"],
+                camera=camera,
+                reader=reader,
+                recorder=FrameRecorderFactory.create(
+                    camera=camera, 
+                    recorder_name=config["cameras"][name]["recorder"],
+                    stop_event=self.stop_event,
+                    add_recording_callback=self.add_recording,
+                    recording_config=config["processor"]["recording"],
+                ),
                 model_cfg=config["model"],
                 stop_event=self.stop_event,
-                recordings=self.add_recording
                 )
         FileCleaner.stop_event = self.stop_event
         FileCleaner.add(self.recordings_dir, "*.mp4", timedelta(**config["keep_recordings_timedelta"]), timedelta(minutes=5))
@@ -94,8 +97,6 @@ class NVR:
                     self.frame_readers[camera.config.name].start()
                     self.frame_processors[camera.config.name].start()
 
-            self.thread = Thread(target=self._watch_cameras_and_load_events,daemon=True)
-            self.thread.start()
 
     def stop(self):
         """
@@ -121,24 +122,8 @@ class NVR:
                 threads.append(self.frame_processors[name].recorder.thread)
         if FileCleaner.thread is not None:
             threads.append(FileCleaner.thread)
-        if self.thread is not None:
-            threads.append(self.thread)
+
         return threads
-
-    def _watch_cameras_and_load_events(self):
-        """
-        load events into recordings list and check each ffmpeg process
-        every 5 seconds and restart if necessary
-        """
-        current_thread().name = "event loader"
-
-        while not self.stop_event.is_set():
-            time.sleep(5)
-            for reader in self.frame_readers.values():
-                if reader.process and reader.process.poll() is not None:
-                    log_event("reader process ended", "error", camera=reader.camera)
-                    reader.restart()
-            pass
 
     def add_recording(self, metadata_file: str):
         self.recordings.append(self._load_event(metadata_file=metadata_file))
@@ -176,7 +161,9 @@ class NVR:
             if camera.config.enabled:
                 for f in glob.glob(f"{camera.config.metadata_dir}/*.json"):
                     try:
-                        events.append(self._load_event(f))
+                        event = self._load_event(f)
+                        if event:
+                            events.append(event)
 
                     except FileNotFoundError:
                         pass # it's possible a clean-up job whacked the file

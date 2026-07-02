@@ -14,9 +14,10 @@ from fastapi.responses import FileResponse, EventSourceResponse
 from passlib.context import CryptContext
 from pydantic import BaseModel
 
-from backend.nvr.nvr import NVR
-from backend.logger.logger import log_event, event_log
-from backend.webrtc.webrtc import CameraTrack, MosaicTrack
+from .config_value import ConfigValue
+from .logger import log_event, event_log
+from .nvr import NVR
+from .webrtc import CameraTrack, MosaicTrack
 
 logger = getLogger("pynvr")
 
@@ -116,7 +117,7 @@ def create_app(config: dict, nvr: NVR):
     # -------------------------
     @app.get("/login")
     async def login_page():
-        return FileResponse("backend/frontend_dist/index.html")
+        return FileResponse("pynvr/frontend_dist/index.html")
     
     @app.post("/login")
     async def login(payload: LoginForm, response: Response):
@@ -198,7 +199,8 @@ def create_app(config: dict, nvr: NVR):
         mobile: bool = False,
         user = Depends(require_user)
     ):
-        """
+        """import os
+
         Returns events for the requested time window.
 
         Modes:
@@ -268,39 +270,13 @@ def create_app(config: dict, nvr: NVR):
         camera = nvr.cameras[camera_name]
 
         settings = {}
+        for attr, value in vars(camera.config).items():
+            if isinstance(value, ConfigValue):
+                settings[attr] = vars(value)
 
-        settings = {
-            "yolo_confidence_threshold": { 
-                "value": camera.motion.profile.yolo_confidence_threshold.value,
-                "min": camera.motion.profile.yolo_confidence_threshold.min,
-                "max": camera.motion.profile.yolo_confidence_threshold.max,
-                "step": camera.motion.profile.yolo_confidence_threshold.step
-            },
-            "motion_threshold": {
-                "value": camera.motion.profile.motion_threshold.value,
-                "min": camera.motion.profile.motion_threshold.min,
-                "max": camera.motion.profile.motion_threshold.max,
-                "step": camera.motion.profile.motion_threshold.step
-            },
-            "min_motion_confidence": {
-                "value": camera.motion.profile.min_motion_confidence.value,
-                "min": camera.motion.profile.min_motion_confidence.min,
-                "max": camera.motion.profile.min_motion_confidence.max,
-                "step": camera.motion.profile.min_motion_confidence.step
-            },
-            "min_motion_frames": {
-                "value": camera.motion.profile.min_motion_frames.value,
-                "min": camera.motion.profile.min_motion_frames.min,
-                "max": camera.motion.profile.min_motion_frames.max,
-                "step": camera.motion.profile.min_motion_frames.step
-            },
-            "min_sum_box_area": {
-                "value": camera.motion.profile.min_sum_box_area.value,
-                "min": camera.motion.profile.min_sum_box_area.min,
-                "max": camera.motion.profile.min_sum_box_area.max,
-                "step": camera.motion.profile.min_sum_box_area.step
-            }
-        }
+        for attr, value in vars(camera.motion).items():
+            if isinstance(value, ConfigValue):
+                settings[attr] = vars(value)
 
         return settings
 
@@ -308,13 +284,13 @@ def create_app(config: dict, nvr: NVR):
     def update_camera_setting(camera_name: str, setting: str, payload: SettingValue):
 
         camera = nvr.cameras[camera_name]
-        profile = camera.motion.profile
-
-        # Update the camera object directly
-        attr = getattr(profile, setting)
-        log_event(f"{setting} {attr.value:.2f} -> {payload.value:.2f}", camera=camera)
+        if setting == "yolo_confidence":
+            attr = getattr(camera.config, setting)
+        else:
+            attr = getattr(camera.motion, setting)
 
         attr.value = payload.value
+        log_event(f"{setting} {attr.value:.2f} -> {payload.value:.2f}", camera=camera)
 
         return {
             "status": "ok",
@@ -334,7 +310,7 @@ def create_app(config: dict, nvr: NVR):
         }
 
     @app.post("/api/settings/debug/{camera_name}")
-    async def set_camera_debug(camera_name: str, payload: SettingValue, user=Depends(require_user)):
+    def set_camera_debug(camera_name: str, payload: SettingValue, user=Depends(require_user)):
         camera = nvr.cameras.get(camera_name)
         log_event(f"debug {payload.value}", camera=camera)
         camera.config.debug = payload.value
@@ -342,20 +318,19 @@ def create_app(config: dict, nvr: NVR):
     
     # Verbose debug
     @app.get("/api/settings/debug")
-    async def get_debug(user=Depends(require_user)):
+    def get_debug(user=Depends(require_user)):
         return {"value": nvr.debug}
     
     @app.post("/api/settings/debug")
-    async def set_debug(payload: SettingValue, user=Depends(require_user)):
+    def set_debug(payload: SettingValue, user=Depends(require_user)):
         log_event(f"verbose logging {payload.value}")
         nvr.debug = payload.value
         return {"status": "ok", "value": payload.value}
 
     @app.get("/api/server_time")
-    async def server_time(user=Depends(require_user)):
+    def server_time(user=Depends(require_user)):
         return {"epoch": time.time()}
     
-
     async def event_generator(request: Request):
         last_log_time = time.time()
         last_recording_time = time.time()
@@ -435,13 +410,12 @@ def create_app(config: dict, nvr: NVR):
             event_generator(request)
         )
 
-
     app.mount("/recordings", AuthStaticFiles(directory=config["recordings_directory"], check_dir=True), name="recordings")
     app.mount("/logs", AuthStaticFiles(directory=config["logs_directory"], check_dir=True), name="recordings")
-    app.mount("/", AuthStaticFiles(directory="backend/frontend_dist", html=True), name="frontend")
+    app.mount("/", AuthStaticFiles(directory="pynvr/frontend_dist", html=True), name="frontend")
 
     @app.get("/{path:path}")
     async def spa_fallback(path: str, user=Depends(require_user)):
-        return FileResponse("backend/frontend_dist/index.html")
+        return FileResponse("pynvr/frontend_dist/index.html")
 
     return app

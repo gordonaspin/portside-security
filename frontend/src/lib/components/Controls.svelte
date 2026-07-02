@@ -1,93 +1,86 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { safeFetch } from '$lib/network/safeFetch';
-  import { debug, log, error } from "$lib/stores/logging";
+  import { safeFetch } from "$lib/network/safeFetch";
+  import { log } from "$lib/stores/logging";
 
-  let yoloConfidence = { value: 0.5, min: 0.1, max: 0.9, step: 0.01};
-  let motionThreshold = { value: 0.4, min: 0.1, max: 0.9, step: 0.01};
-  let minMotionConfidence = { value: 0.4, min: 0.1, max: 0.9, step: 0.01};
-  let minMotionFrames = { value: 8, min: 5, max: 20, step: 1};
-  let minSumBoxArea = { value: 0.7, min: 0.1, max: 1.5, step: 0.05};
-
-  let verboseDebug = false;
   let cameras = [];
   let selectedCamera = null;
-  let cameraDebug = {};
 
-  // NEW: slider fade + shimmer state
+  // All settings live here
+  let settings = {};
+  let cameraDebug = {};
+  let verboseDebug = false;
+
   let loading = false;
 
+  // -----------------------------
+  // Load camera list + first camera
+  // -----------------------------
   onMount(async () => {
     cameras = await (await safeFetch("/api/cameras", { credentials: "include" })).json();
+
+    cameras.forEach(c => cameraDebug[c.name] = c.debug);
 
     if (cameras.length > 0) {
       selectedCamera = cameras[0].name;
       await loadCameraSettings(selectedCamera);
     }
-
-    cameras.forEach(camera => {
-      cameraDebug[camera.name] = camera.debug;
-    });
   });
 
-  // Load settings for a specific camera
-  async function loadCameraSettings(camera) {
-    loading = true;   // start shimmer + fade-out
+  // -----------------------------
+  // Load settings for a camera
+  // -----------------------------
+  async function loadCameraSettings(name) {
+    loading = true;
 
-    const res = await safeFetch(`/api/cameras/${camera}/settings`);
+    const res = await safeFetch(`/api/cameras/${name}/settings`);
     const s = await res.json();
 
-    applyProfileValue(yoloConfidence, s.yolo_confidence_threshold);
-    yoloConfidence = { ...yoloConfidence };
+    // Replace entire settings object → guaranteed reactivity
+    settings = { ...s };
 
-    applyProfileValue(motionThreshold, s.motion_threshold);
-    motionThreshold = { ...motionThreshold };
-
-    applyProfileValue(minMotionConfidence, s.min_motion_confidence);
-    minMotionConfidence = { ...minMotionConfidence };
-
-    applyProfileValue(minMotionFrames, s.min_motion_frames);
-    minMotionFrames = { ...minMotionFrames };
-
-    applyProfileValue(minSumBoxArea, s.min_sum_box_area);
-    minSumBoxArea = { ...minSumBoxArea };
-
-    // small delay to let shimmer animate
     setTimeout(() => loading = false, 150);
   }
 
-  function applyProfileValue(target, src) {
-    target.value = src.value;
-    target.min   = src.min;
-    target.max   = src.max;
-    target.step  = src.step;
-
-    // force reactivity
-    target = { ...target };
-  }
-
-  // Update a setting for the selected camera
-  async function update(setting, value) {
+  // -----------------------------
+  // Update a single setting
+  // -----------------------------
+  async function updateSetting(key, value) {
     if (!selectedCamera) return;
 
-    await safeFetch(`/api/cameras/${selectedCamera}/settings/${setting}`, {
+    // Update local state (reactive)
+    settings = {
+      ...settings,
+      [key]: {
+        ...settings[key],
+        value
+      }
+    };
+
+    // Send to backend
+    await safeFetch(`/api/cameras/${selectedCamera}/settings/${key}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ value })
     });
   }
 
-  // Handle clicking a pill
-  function selectCamera(cam) {
-    selectedCamera = cam;
-    loadCameraSettings(cam);
+  // -----------------------------
+  // Switch camera
+  // -----------------------------
+  function selectCamera(name) {
+    selectedCamera = name;
+    loadCameraSettings(name);
   }
 
+  // -----------------------------
+  // Debug toggles
+  // -----------------------------
   async function updateDebug() {
-    await safeFetch('/api/settings/debug', {
+    await safeFetch("/api/settings/debug", {
       credentials: "include",
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ value: Boolean(verboseDebug) })
     });
   }
@@ -106,6 +99,7 @@
     collapsed = !collapsed;
   }
 </script>
+
 
 <div class="controls-wrapper {collapsed ? '' : 'expanded'}">
   <div class="controls-header" on:click={toggle}>
@@ -141,62 +135,62 @@
 
           <!-- YOLO confidence -->
           <div class="slider-block shimmer-item">
-            <label for="yolo_confidence">YOLO Confidence: {yoloConfidence.value.toFixed(2)}</label>
+            <label for="yolo_confidence">YOLO Confidence: {settings.yolo_confidence.value.toFixed(2)}</label>
             <input type="range"
               id="yolo_confidence"
-              min={yoloConfidence.min}
-              max={yoloConfidence.max}
-              step={yoloConfidence.step}
-              bind:value={yoloConfidence.value}
-              on:change={() => update("yolo_confidence_threshold", yoloConfidence.value)} />
+              min={settings.yolo_confidence.min}
+              max={settings.yolo_confidence.max}
+              step={settings.yolo_confidence.step}
+              bind:value={settings.yolo_confidence.value}
+              on:change={() => updateSetting("yolo_confidence", settings.yolo_confidence.value)} />
           </div>
 
-          <!-- motion_threshold -->
+          <!-- track_threshold -->
           <div class="slider-block shimmer-item">
-            <label for="motion_threshold">Motion Threshold: {motionThreshold.value.toFixed(2)}</label>
+            <label for="track_threshold">Track Threshold: {settings.track_threshold.value.toFixed(2)}</label>
             <input type="range"
-              id="motion_threshold"
-              min={motionThreshold.min}
-              max={motionThreshold.max}
-              step={motionThreshold.step}
-              bind:value={motionThreshold.value}
-              on:change={() => update("motion_threshold", motionThreshold.value)} />
+              id="track_threshold"
+              min={settings.track_threshold.min}
+              max={settings.track_threshold.max}
+              step={settings.track_threshold.step}
+              bind:value={settings.track_threshold.value}
+              on:change={() => updateSetting("track_threshold", settings.track_threshold.value)} />
           </div>
 
-          <!-- min_motion_confidence -->
+          <!-- match_threshold -->
           <div class="slider-block shimmer-item">
-            <label for="min_motion_confidence">Min Motion Confidence: {minMotionConfidence.value.toFixed(2)}</label>
+            <label for="match_threshold">Match Threshold: {settings.match_threshold.value.toFixed(2)}</label>
             <input type="range"
-              id="min_motion_confidence"
-              min={minMotionConfidence.min}
-              max={minMotionConfidence.max}
-              step={minMotionConfidence.step}
-              bind:value={minMotionConfidence.value}
-              on:change={() => update("min_motion_confidence", minMotionConfidence.value)} />
+              id="match_threshold"
+              min={settings.match_threshold.min}
+              max={settings.match_threshold.max}
+              step={settings.match_threshold.step}
+              bind:value={settings.match_threshold.value}
+              on:change={() => updateSetting("match_threshold", settings.match_threshold.value)} />
           </div>
 
-          <!-- min_motion_frames -->
+          <!-- track_buffer -->
           <div class="slider-block shimmer-item">
-            <label for="min_motion_frames">Min Motion Frames: {minMotionFrames.value}</label>
+            <label for="track_buffer">Track Buffer: {settings.track_buffer.value}</label>
             <input type="range"
-              id="min_motion_frames"
-              min={minMotionFrames.min}
-              max={minMotionFrames.max}
-              step={minMotionFrames.step}
-              bind:value={minMotionFrames.value}
-              on:change={() => update("min_motion_frames", minMotionFrames.value)} />
+              id="track_buffer"
+              min={settings.track_buffer.min}
+              max={settings.track_buffer.max}
+              step={settings.track_buffer.step}
+              bind:value={settings.track_buffer.value}
+              on:change={() => updateSetting("track_buffer", settings.track_buffer.value)} />
           </div>
 
-          <!-- min_sum_box_area -->
+          <!-- minimum_relative_motion -->
           <div class="slider-block shimmer-item">
-            <label for="min_sum_box_area">Min Sum Box Area: {minSumBoxArea.value.toFixed(2)}</label>
+            <label for="minimum_relative_motion">Min Relative Motion: {settings.minimum_relative_motion.value}</label>
             <input type="range"
-              id="min_sum_box_area"
-              min={minSumBoxArea.min}
-              max={minSumBoxArea.max}
-              step={minSumBoxArea.step}
-              bind:value={minSumBoxArea.value}
-              on:change={() => update("min_sum_box_area", minSumBoxArea.value)} />
+              id="minimum_relative_motion"
+              min={settings.minimum_relative_motion.min}
+              max={settings.minimum_relative_motion.max}
+              step={settings.minimum_relative_motion.step}
+              bind:value={settings.minimum_relative_motion.value}
+              on:change={() => updateSetting("minimum_relative_motion", settings.minimum_relative_motion.value)} />
           </div>
 
         </div>

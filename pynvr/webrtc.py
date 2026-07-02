@@ -8,7 +8,7 @@ import numpy as np
 from aiortc.mediastreams import VideoStreamTrack
 from av import VideoFrame
 
-from backend.nvr.camera.camera import Camera
+from pynvr.camera import Camera
 
 logger = getLogger("pynvr.webrtc")
 

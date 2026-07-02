@@ -10,10 +10,9 @@ import uvicorn
 from click import version_option
 from passlib.context import CryptContext
 
-from backend import constants
-from backend.api.endpoints import create_app
-from backend.logger.logger import setup_logging, KeywordFilter
-from backend.nvr.nvr import NVR
+from .endpoints import create_app
+from .logger import setup_logging, KeywordFilter
+from .nvr import NVR
 
 _NVR = None
 
@@ -107,7 +106,16 @@ def main(username, password, gui_username, gui_password,
 
     nvr.start()
     try:
-        uvicorn.run(app, host=config["bind_address"], port=config["port"], log_config=logging_config_json, timeout_graceful_shutdown=0, access_log=False)
+        uvicorn.run(
+            app,
+            host=config["bind_address"],
+            port=config["port"],
+            log_config=logging_config_json,
+            timeout_graceful_shutdown=0,
+            access_log=False,
+            workers=1,
+            reload=False
+            )
     except CancelledError:
         logger.debug("uvicorn server stopped")
         pass

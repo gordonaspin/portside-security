@@ -1,6 +1,9 @@
-FROM python:3.12-slim AS base
+# ==========================================
+# STAGE 1: BUILDER (Heavy lifting, highly cached)
+# ==========================================
+FROM python:3.12-slim AS builder
 
-# 1. Combine system updates and clean up apt cache
+# 1. Install system tools and dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     tzdata \
     bash \
@@ -10,50 +13,66 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
-# 2. CACHE MOUNT 1: Speed up core pip tool upgrades
+# 2. Set up a global virtual environment
+ENV VIRTUAL_ENV=/opt/venv
+RUN python -m venv $VIRTUAL_ENV
+ENV PATH="$VIRTUAL_ENV/bin:$PATH"
+
+# 3. Upgrade foundational pip tools
 RUN --mount=type=cache,target=/root/.cache/pip \
-    python -m pip install --upgrade pip setuptools build
+    pip install --upgrade pip setuptools build virtualenv
 
-# 3. Handle Timezone settings natively
-ARG TZ="America/New_York"
-ENV TZ=${TZ}
+# 4. Install stable dependencies (Crucial: Copy ONLY requirements)
+WORKDIR /build
+COPY requirements.txt .
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install -r requirements.txt
 
-# 4. Create the docker user and group immediately
+
+# ==========================================
+# STAGE 2: RUNNER (Fast execution, changes every build)
+# ==========================================
+FROM python:3.12-slim AS runner
+
+# 1. Install runtime-only OS dependencies (like FFmpeg)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+
+# 2. Re-create your production user account
 ARG GROUP_NAME=docker
 ARG USER_NAME=docker
 ARG USER_UID=1000
 ARG GROUP_GID=1000
-
 RUN groupadd --gid ${GROUP_GID} ${GROUP_NAME} \
     && useradd --uid ${USER_UID} --gid ${GROUP_GID} --create-home --home-dir /home/${USER_NAME} ${USER_NAME}
 
-# 5. CACHE MOUNT 2: Mount pip cache during dependency installation.
-WORKDIR /tmp
-COPY dist/*.whl .
-COPY requirements.txt .
+# 3. COPY the pre-built virtual environment from Stage 1
+COPY --from=builder --chown=docker:docker /opt/venv /opt/venv
 
-# FIX: Force pip to look ONLY at the PyTorch CPU mirror for everything.
-# 1. We install torch/torchvision strictly from the CPU index.
-# 2. We use --index-url (NOT --extra-index-url) for requirements.txt to prevent pip 
-#    from checking standard PyPI for torch-adjacent sub-packages.
-# FIX: Use download.pytorch.org/whl/cpu to target the exact CPU repository
-# FIX: Explicitly target download.pytorch.org/whl/cpu
-RUN --mount=type=cache,target=/root/.cache/pip \
-    pip install --no-cache-dir --ignore-installed torch torchvision --index-url https://download.pytorch.org/whl/cpu && \
-    pip install --no-cache-dir -r requirements.txt --index-url https://download.pytorch.org/whl/cpu --extra-index-url https://pypi.org/simple && \
-    pip install *.whl && \
-    rm -rf /tmp/*
+# 4. Set environment paths to point to the copied venv
+ENV VIRTUAL_ENV=/opt/venv
+ENV PATH="$VIRTUAL_ENV/bin:$PATH"
+ENV YOLO_CONFIG_DIR="/home/docker/.config/Ultralytics"
+ENV TORCHINDUCTOR_CACHE_DIR="/home/docker/.cache/torchinductor"
+ENV TORCH_HOME="/home/docker/.cache/torch"
+ARG TZ="America/New_York"
+ENV TZ=${TZ}
 
-# 6. Set up the application home directory
+# 5. Copy and install your rapidly changing wheel file
 WORKDIR /home/docker
+COPY dist/*.whl ./dist/
+RUN pip install dist/*.whl && \
+    rm -rf dist
 
-# 7. Copy assets directly with correct ownership (no layer duplication)
-COPY --chown=docker:docker logging-config.json .
-COPY --chown=docker:docker nvr.json .
-COPY --chown=docker:docker backend/model/yolov8n.pt ./backend/model/yolov8n.pt
-COPY --chown=docker:docker backend/frontend_dist ./backend/frontend_dist
+# 6. Copy frontend and model assets with correct permissions
+COPY --chown=docker:docker pynvr/model/*.pt ./pynvr/model/
+COPY --chown=docker:docker pynvr/frontend_dist ./pynvr/frontend_dist
+
+# 7. Give ownership of the virtual environment to your runtime user
 
 USER docker
 EXPOSE 7860
+
 ENTRYPOINT [ "pynvr" ]
 

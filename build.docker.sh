@@ -4,6 +4,7 @@ set -euo pipefail
 cd frontend
 npm run build
 cd ..
+rm -f dist/*
 python -m build
 
 OWNER="gordonaspin"

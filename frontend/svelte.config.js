@@ -6,8 +6,8 @@ export default {
 
   kit: {
     adapter: adapter({
-      pages: '../backend/frontend_dist',
-      assets: '../backend/frontend_dist',
+      pages: '../pynvr/frontend_dist',
+      assets: '../pynvr/frontend_dist',
       fallback: 'index.html'
     })
   }

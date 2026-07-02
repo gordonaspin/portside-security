@@ -11,9 +11,9 @@ import cv2
 import numpy as np
 from numpy.typing import NDArray
 
-from backend.logger.logger import log_event
-from backend.nvr.camera.camera import Camera
-from backend.utils.utils import RollingAverage
+from .logger import log_event
+from .camera import Camera
+from .utils import RollingAverage
 
 logger = getLogger("pynvr.reader")
 
@@ -36,13 +36,13 @@ class RTSPReader(Reader):
     def __init__(
         self,
         camera: Camera,
-        model_resolution: dict[str, int],
+        model_config: dict[str, int],
         produce_segments: bool,
         stop_event: Event,
     ):
         self.camera: Camera = camera
-        self.model_width = model_resolution["width"]
-        self.model_height = model_resolution["height"]
+        self.model_width = model_config["width"]
+        self.model_height = model_config["height"]
         self.produce_segments = produce_segments
         self.stop_event: Event = stop_event
 
@@ -151,7 +151,6 @@ class RTSPReader(Reader):
         self.yolo_pipe = None
         self.yolo_fd_write = None
         self.log_file = None
-        self.camera.first_frame = True
 
     @override
     def stop(self):
@@ -501,77 +500,71 @@ class RTSPReader(Reader):
 
         base = [
             "ffmpeg",
-            "-rtsp_transport",
-            "tcp",
+            "-rtsp_transport", "tcp",
             "-max_delay", "0",
-            "-fflags",
-            "nobuffer+genpts+discardcorrupt",
-            "-flags",
-            "low_delay",
-            "-avioflags",
-            "direct",
-            "-i",
-            url,
+            "-fflags", "nobuffer+genpts+discardcorrupt",
+            "-flags", "low_delay",
+            "-avioflags", "direct",
+            "-i", url,
             "-hide_banner",
-            "-loglevel",
-            "error",
+            "-loglevel", "error",
             "-nostats",
         ]
 
         filters = []
-        filters.append("[0:v]format=bgr24[full]")
 
+        # Split the input so FFmpeg does NOT merge filter chains incorrectly
+        filters.append("[0:v]split[full_in][yolo_in]")
+
+        # Full-resolution branch (no scaling)
+        filters.append("[full_in]format=bgr24[full]")
+
+        # YOLO branch
         if need_yolo_pipe:
             if actual_w == yolo_w and actual_h == yolo_h:
-                filters.append("[0:v]format=bgr24[yolo]")
+                filters.append("[yolo_in]format=bgr24[yolo]")
             else:
-                filters.append(f"[0:v]scale={yolo_w}:{yolo_h},format=bgr24[yolo]")
+                # Proper YOLO letterbox: preserve AR → scale → pad → BGR24
+                filters.append(
+                    "[yolo_in]"
+                    f"scale={yolo_w}:-1:force_original_aspect_ratio=decrease,"
+                    f"pad={yolo_w}:{yolo_h}:({yolo_w}-iw)/2:({yolo_h}-ih)/2:"
+                    "color=#727272,"
+                    "format=bgr24[yolo]"
+                )
 
         filter_graph = ";".join(filters)
 
         cmd = base + [
-            "-filter_complex",
-            filter_graph,
-            "-map",
-            "[full]",
-            "-f",
-            "rawvideo",
-            "-blocksize",
-            str(full_block),
+            "-filter_complex", filter_graph,
+            "-map", "[full]",
+            "-f", "rawvideo",
+            "-blocksize", str(full_block),
             "pipe:1",
         ]
 
         if filespec is not None:
             cmd += [
-                "-map",
-                "0:v",
-                "-c:v",
-                "copy",
-                "-f",
-                "segment",
-                "-segment_time",
-                "1",
-                "-reset_timestamps",
-                "0",
-                "-strftime",
-                "1",
-                "-segment_format",
-                "mpegts",
+                "-map", "0:v",
+                "-c:v", "copy",
+                "-f", "segment",
+                "-segment_time", "1",
+                "-reset_timestamps", "0",
+                "-strftime", "1",
+                "-segment_format", "mpegts",
                 filespec,
             ]
 
         if need_yolo_pipe:
             cmd += [
-                "-map",
-                "[yolo]",
-                "-f",
-                "rawvideo",
-                "-blocksize",
-                str(yolo_block),
+                "-map", "[yolo]",
+                "-f", "rawvideo",
+                "-blocksize", str(yolo_block),
                 f"pipe:{yolo_fd}",
             ]
 
         return cmd
+
 
     def _needs_yolo_pipe(self) -> bool:
         return not (

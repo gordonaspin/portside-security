@@ -130,6 +130,7 @@
     overflow: hidden;
 
     /* ~10 lines tall */
+    min-height: 0; /* ⭐ critical fix */
     line-height: 0.9rem;
     max-height: calc(0.9rem * 10 + 1rem); /* padding allowance */
   }

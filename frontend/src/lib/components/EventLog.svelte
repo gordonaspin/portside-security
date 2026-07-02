@@ -5,6 +5,7 @@
   import { currentEvent } from "$lib/stores/playQueue"
   import type { RecordingEvent } from '$lib/stores/events'
   import { tick } from 'svelte'
+  import { log } from '$lib/stores/logging'
 
   let container;
   let selectedUrl = null;
@@ -24,8 +25,16 @@
     const link = e.target.closest("a");
     if (!link) return;
 
+    log("clicked event object:", e);
+    log("object identity:", e, "id:", e.id);
+
     e.preventDefault();
-    selectedUrl = link.getAttribute("href");   // <-- sync only
+    const url = link.getAttribute("href");   // <-- sync only
+      // Force reactive block to fire
+    selectedUrl = null;
+    tick().then(() => {
+      selectedUrl = url;
+    });
   }
 
   $: if (selectedUrl) {
@@ -38,8 +47,9 @@
     // Fetch metadata for the clicked log entry
     const res = await safeFetch(url, { credentials: "include"});
     const meta: RecordingEvent = await res.json();
-
-    currentEvent.set(meta);
+    currentEvent.set(null)
+    await tick();
+    currentEvent.set({ ...meta });
 
   }
 

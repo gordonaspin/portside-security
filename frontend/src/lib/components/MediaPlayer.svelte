@@ -5,15 +5,19 @@
 
   let videoEl: HTMLVideoElement;
 
+  $: log("currentEvent changed:", $currentEvent);
+
   // Reactive rule: if no current event, pull from queue
   $: if (!$currentEvent && $playQueue.length > 0) {
     const ev = $playQueue[0];
+    log("playing Queued event:", ev, "queue length", $playQueue.length);
     playQueue.update(q => q.slice(1));
     currentEvent.set(ev);
   }
 
   // Reactive rule: whenever currentEvent changes → play it
   $: if ($currentEvent) {
+    log("playRecording reactive fired with:", $currentEvent);
     playRecording($currentEvent);
   }
 
@@ -32,7 +36,7 @@
     await tick();
 
     // Load and play new video
-    videoEl.src = ev.media_filename;
+    videoEl.src = ev.media_filename + `?t=${Date.now()}`;
 
     const p = videoEl.play();
     if (p) {

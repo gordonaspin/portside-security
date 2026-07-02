@@ -1,6 +1,6 @@
 [project]
 name = "pynvr"
-version = "1.0.0"
+version = "2.0.0"
 description = "pynvr is a NVR used to record events from cameras"
 authors = [{ name = "Gordon Aspin", email = "gordon.aspin@gmail.com" }]
 requires-python = ">=3.12"
@@ -22,7 +22,7 @@ dependencies = [
 ]
 
 [project.scripts]
-pynvr = "backend.app:main"
+pynvr = "pynvr.app:main"
 
 [project.urls]
 Repository = "https://github.com/gordonaspin/pynvr"
@@ -32,7 +32,7 @@ Repository = "https://github.com/gordonaspin/pynvr"
 py-modules = ["constants"]
 
 [tool.setuptools.packages.find]
-include = ["backend*"]
+include = ["pynvr*"]
 exclude = ["logs*", "recordings*", "frontend*"]
 
 [tool.pylint]

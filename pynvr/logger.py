@@ -33,12 +33,12 @@ from pathlib import Path
 from types import TracebackType
 from typing import Any, Type, override
 
-from backend.utils.utils import make_readable_hms
-import backend.constants as constants
+from .constants import ExitCode, MAX_LOG_LINES
+from .utils import make_readable_hms
 
 logger = getLogger("pynvr")
 
-event_log = deque(maxlen=constants.MAX_LOG_LINES)
+event_log = deque(maxlen=MAX_LOG_LINES)
 
 # =========================
 # LOGGING
@@ -88,7 +88,7 @@ def setup_logging(config_path: Path) -> Path:
             json_config: dict[str, Any] = json.load(f_in)
     except FileNotFoundError:
         print(f"logging config file {config_path} not found")
-        sys.exit(constants.ExitCode.EXIT_FAILED_CLICK_USAGE.value)
+        sys.exit(ExitCode.EXIT_FAILED_CLICK_USAGE.value)
 
     folder_path: Path = Path()
     for handler in json_config['handlers'].values():
@@ -101,7 +101,7 @@ def setup_logging(config_path: Path) -> Path:
         config.dictConfig(json_config)
     except (PermissionError, ValueError) as e:
         print(f"error {e} in creating/writing to {file}, is the path writable ?")
-        sys.exit(constants.ExitCode.EXIT_FAILED_CLICK_USAGE.value)
+        sys.exit(ExitCode.EXIT_FAILED_CLICK_USAGE.value)
 
     queue_handler: Handler = getHandlerByName("queue_handler")
     if queue_handler is not None:

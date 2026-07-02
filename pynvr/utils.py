@@ -63,7 +63,7 @@ def tags_to_str(tags: defaultdict[set]):
     return "_".join(parts)
 
 def get_camera_resolution(url: str):
-    ffprobe_cmd = f"ffprobe -v error -rtsp_transport tcp -analyzeduration 0 -probesize 32 -select_streams v:0 -show_entries stream=width,height -of csv=p=0 '{url}'"
+    ffprobe_cmd = f"timeout 5s ffprobe -v error -rtsp_transport tcp -analyzeduration 0 -probesize 32 -select_streams v:0 -show_entries stream=width,height -of csv=p=0 '{url}'"
     try:
         output = subprocess.check_output(ffprobe_cmd, shell=True).decode().strip()
         width, height = map(int, output.split(","))
@@ -220,3 +220,23 @@ def classify_color_lab(lab_color):
             best = name
 
     return best
+
+
+def tlbr_to_tlwh(box):
+    """
+    Convert [x1,y1,x2,y2] → [x,y,w,h].
+    """
+    x1, y1, x2, y2 = box
+    return np.array([x1, y1, x2 - x1, y2 - y1], dtype=np.float32)
+
+
+def tlwh_to_xyah(tlwh):
+    """
+    Convert [x,y,w,h] → [cx,cy,area,ratio].
+    """
+    x, y, w, h = tlwh
+    cx = x + w / 2
+    cy = y + h / 2
+    area = w * h
+    ratio = w / max(1e-6, h)
+    return np.array([cx, cy, area, ratio], dtype=np.float32)

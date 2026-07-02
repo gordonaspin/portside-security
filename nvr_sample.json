@@ -15,7 +15,7 @@
     },
     "yolo": {
         "classes": ["person", "car", "truck", "bus", "cat", "dog", "bicycle", "motorcycle"],
-        "model": "backend/model/yolov8n.pt"
+        "model": "pynvr/model/yolov8n.pt"
     },
     "cameras": {
         "B1": {

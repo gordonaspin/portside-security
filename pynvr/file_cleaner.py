@@ -4,8 +4,8 @@ from logging import getLogger
 from pathlib import Path
 from threading import Event, Thread, current_thread
 
-from backend.utils.thread_safe import ThreadSafeSet
-from backend.utils.utils import make_readable_ts
+from .thread_safe import ThreadSafeSet
+from .utils import make_readable_ts
 
 logger = getLogger("pynvr.cleaner")
 

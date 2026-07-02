@@ -18,20 +18,20 @@
   },
   "filters": {
     "KeywordFilter": {
-      "()": "backend.logger.logger.KeywordFilter"
+      "()": "pynvr.logger.KeywordFilter"
     }
   },
   "handlers": {
     "stderr": {
       "class": "logging.StreamHandler",
-      "level": "DEBUG",
+      "level": "INFO",
       "formatter": "production",
       "stream": "ext://sys.stderr",
       "filters": ["KeywordFilter"]
     },
     "file": {
       "class": "logging.handlers.RotatingFileHandler",
-      "level": "DEBUG",
+      "level": "INFO",
       "formatter": "thread detailed",
       "filename": "logs/nvr.log",
       "maxBytes": 10000000,
@@ -41,14 +41,14 @@
   },
   "loggers": {
     "unhandled": {
-      "level": "DEBUG",
+      "level": "INFO",
       "handlers": [
         "stderr",
         "file"
       ]
     },
     "root": {
-      "level": "DEBUG",
+      "level": "INFO",
       "handlers": [
         "stderr", 
         "file"
@@ -71,7 +71,7 @@
       "propagate": false
     },
     "pynvr": {
-      "level": "DEBUG",
+      "level": "INFO",
       "handlers": [
         "stderr",
         "file"
@@ -79,7 +79,7 @@
       "propagate": false
     },
     "pynvr.cleaner": {
-      "level": "DEBUG",
+      "level": "INFO",
       "handlers": [
         "stderr",
         "file"
@@ -87,7 +87,7 @@
       "propagate": false
     },
     "pynvr.reader": {
-      "level": "DEBUG",
+      "level": "INFO",
       "handlers": [
         "stderr",
         "file"
@@ -95,7 +95,7 @@
       "propagate": false
     },
     "pynvr.recorder": {
-      "level": "DEBUG",
+      "level": "INFO",
       "handlers": [
         "stderr",
         "file"
@@ -103,7 +103,7 @@
       "propagate": false
     },
     "pynvr.processor": {
-      "level": "DEBUG",
+      "level": "INFO",
       "handlers": [
         "stderr",
         "file"
@@ -111,7 +111,7 @@
       "propagate": false
     },
     "pynvr.webrtc": {
-      "level": "DEBUG",
+      "level": "INFO",
       "handlers": [
         "stderr",
         "file"

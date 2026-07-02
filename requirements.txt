@@ -1,20 +1,11 @@
-# Tell pip to search the official CPU wheel mirror alongside PyPI
---extra-index-url https://download.pytorch.org/whl/cpu
-
-# Core dependencies
 click==8.4.1
 opencv-contrib-python-headless==4.13.0.92
 scikit-image==0.26.0
 ultralytics==8.4.66
-ultralytics-thop==2.0.20
+#ultralytics-thop==2.0.20
 aiortc==1.14.0
 fastapi==0.136.3
 bcrypt==4.3.0
 passlib==1.7.4
 uvicorn==0.49.0
 keyring==25.7.0
-
-# Force PyTorch and Torchvision to resolve onto the CPU repository path
-torch
-torchvision
-

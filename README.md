@@ -45,7 +45,7 @@ If supplied `pynvr` will apply those credentials to the RTSP urls specified in y
 #### --gui-username username --gui_password password
 If supplied `pynvr` will apply these credentials to the GUI and will present a login challenge that accepts these credentials only. If not supplied `pynvr` uses the same credentials as username/password.
 ```bash
-python backend/app.py -u rtsp-username -p rtsp-password
+python pynvr/app.py -u rtsp-username -p rtsp-password
 ```
 ## Config
 Configuration is provided in a nvr.json file. "model.resolution" specifies the [x, y] dimensions in pixels to resize frames to for YOLO processing and rendering on the GUI. "model.name" specifies the name of the YOLO model to use. "model.classes" is an array of coco names of object classes to detect in the image processing. Each camera is named and specifies the RTSP URL and per-camera resolution, motion detection parameters, enabled and debug flags and which recorder type to use.
@@ -73,7 +73,7 @@ Configuration is provided in a nvr.json file. "model.resolution" specifies the [
             "height": 480
         },
         "classes": ["person", "car", "truck", "bus", "cat", "dog", "bicycle", "motorcycle"],
-        "name": "backend/model/yolov8n.pt"
+        "name": "pynvr/model/yolov8n.pt"
     },
     "cameras": {
         "B1": {
