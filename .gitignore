@@ -207,17 +207,14 @@ __marimo__/
 
 .gitignore
 .DS_Store
-.vscode
+.*/
 recordings
 .python-version
 *.pt
 logs
 nvr.json
-backend/frontend_dist/
-frontend/.npmrc
-frontend/README.md
+frontend_dist/
 nohup.out
-frontend/.svelte-kit/
-frontend/node_modules/
 restart.sh
 stop.sh
+node_modules/
