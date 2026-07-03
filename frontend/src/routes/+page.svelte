@@ -114,8 +114,7 @@
   /* ============================================================
     LEFT PANELS (Timeline + EventLog)
     ============================================================ */
-  .timeline-panel,
-  .log-panel {
+  .timeline-panel {
     flex: 1; /* same width */
     display: flex;
     flex-direction: column;
@@ -137,7 +136,6 @@
 
   /* The actual scrollable content */
   .log-panel :global(.event-log-content) {
-    flex: 1;              /* fill the panel height */
     overflow-y: auto;     /* scroll only here */
   }
   /* ============================================================

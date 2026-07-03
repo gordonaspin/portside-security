@@ -2,7 +2,7 @@ import numpy as np
 
 from .kalman_filter import KalmanFilter
 from .matching import iou_distance, linear_assignment
-from .utils import tlbr_to_tlwh, tlwh_to_xyah
+from ..utils import tlbr_to_tlwh, tlwh_to_xyah
 
 
 class Track:

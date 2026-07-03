@@ -28,8 +28,6 @@ pynvr = "pynvr.app:main"
 Repository = "https://github.com/gordonaspin/pynvr"
 
 [tool.setuptools]
-# Ensures top-level modules like constants.py are included
-py-modules = ["constants"]
 
 [tool.setuptools.packages.find]
 include = ["pynvr*"]

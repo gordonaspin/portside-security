@@ -10,7 +10,7 @@ import uvicorn
 from click import version_option
 from passlib.context import CryptContext
 
-from .endpoints import create_app
+from .api.endpoints import create_app
 from .logger import setup_logging, KeywordFilter
 from .nvr import NVR
 

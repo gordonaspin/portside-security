@@ -7,6 +7,14 @@ from math import sqrt
 import cv2
 import numpy as np
 
+class ConfigValue:
+    def __init__(self, default, min, max, step):
+        self.default = default
+        self.min = min
+        self.value = default
+        self.max = max
+        self.step = step
+
 class RollingAverage:
     def __init__(self, window_size=20):
         self.window = deque(maxlen=window_size)
@@ -70,13 +78,6 @@ def get_camera_resolution(url: str):
         return width, height
     except Exception as e:
         return None, None
-
-def boxes_overlap(a, b) -> bool:
-    """Return True if two boxes (x1,y1,x2,y2) overlap."""
-    ax1, ay1, ax2, ay2 = a
-    bx1, by1, bx2, by2 = b
-    return not (ax2 < bx1 or bx2 < ax1 or ay2 < by1 or by2 < ay1)
-
 
 def detect_object_color(roi_bgr, is_night: bool):
     """

@@ -19,8 +19,8 @@ from urllib.parse import quote, quote_plus
 
 import cv2
 
-from .camera import Camera
-from .constants import PRE_RECORD_DURATION, TS_FILE_RING_SECONDS, MINIMUM_RECORDING_DURATION
+from .camera.camera import Camera
+from .constants import TS_FILE_RING_SECONDS
 from .file_cleaner import FileCleaner
 from .logger import log_event
 from .utils import make_readable_ts, make_ts_string, tags_to_str, RollingAverage
@@ -30,28 +30,27 @@ from threading import Event
 
 class FrameRecorderFactory:
     @staticmethod
-    def create(camera: Camera, recorder_name: str, stop_event: Event, add_recording_callback: Callable, recording_config: dict):
-        pre_record_duration: int = recording_config["pre_duration"]
+    def create(camera: Camera, recorder_name: str, stop_event: Event, add_recording_callback: Callable, recorder_config: dict):
         match recorder_name:
             case "OpenCVFrame":
-                return OpenCVFrameRecorder(camera=camera, stop_event=stop_event, add_recording_callback=add_recording_callback, pre_record_duration=pre_record_duration)
+                return OpenCVFrameRecorder(camera=camera, stop_event=stop_event, add_recording_callback=add_recording_callback, recorder_config=recorder_config)
             case "AVFFmpegFrame":
-                return AVFFmpegFrameRecorder(camera=camera, stop_event=stop_event, add_recording_callback=add_recording_callback, pre_record_duration=pre_record_duration)
+                return AVFFmpegFrameRecorder(camera=camera, stop_event=stop_event, add_recording_callback=add_recording_callback, recorder_config=recorder_config)
             case "FFmpegFrame":
-                return FFmpegFrameRecorder(camera=camera, stop_event=stop_event, add_recording_callback=add_recording_callback, pre_record_duration=pre_record_duration)
+                return FFmpegFrameRecorder(camera=camera, stop_event=stop_event, add_recording_callback=add_recording_callback, recorder_config=recorder_config)
             case "FFmpegSegment":
-                return FFmpegSegmentRecorder(camera=camera, stop_event=stop_event, add_recording_callback=add_recording_callback, pre_record_duration=pre_record_duration)
+                return FFmpegSegmentRecorder(camera=camera, stop_event=stop_event, add_recording_callback=add_recording_callback, recorder_config=recorder_config)
             case _:
                 logger.warning(f"Unknown recorder factory '{recorder_name}', defaulting to AVFFmpegFrameRecorderFactory")
-                return AVFFmpegFrameRecorder(camera=camera, stop_event=stop_event, add_recording_callback=add_recording_callback, pre_record_duration=pre_record_duration)
+                return AVFFmpegFrameRecorder(camera=camera, stop_event=stop_event, add_recording_callback=add_recording_callback, recorder_config=recorder_config)
 
 class Recorder:
-    def __init__(self, camera: Camera, stop_event: Event, add_recording_callback: Callable, pre_record_duration=PRE_RECORD_DURATION):
+    def __init__(self, camera: Camera, stop_event: Event, add_recording_callback: Callable, recorder_config: dict):
         self.camera: Camera = camera
         self.stop_event = stop_event
         self.add_recording_callback: Callable = add_recording_callback
-        self.pre_record_duration: float = pre_record_duration
-        self.max_pre_frames: int = int(20 * pre_record_duration)
+        self.recorder_config: dict = recorder_config
+        self.max_pre_frames: int = int(20 * recorder_config["pre_duration"])
         self.uuid: str = str(uuid.uuid4())
         # Rolling buffer (automatically discards frames past the time limit)
         self.rolling_buffer: deque = deque(maxlen=self.max_pre_frames)
@@ -122,7 +121,7 @@ class Recorder:
             return
 
         """ gather metadata and setup for recording, then spawn the recording thread """
-        self.final_start_time = self.camera.recording_state.recording_start_time - self.pre_record_duration
+        self.final_start_time = self.camera.recording_state.recording_start_time - self.recorder_config["pre_duration"]
         timestamp_str = make_ts_string(self.final_start_time)
         self.final_fps = self.fps.as_int()
         self.final_tags = deepcopy(self.camera.motion.active_objects_dict)
@@ -191,7 +190,7 @@ class Recorder:
 
         metadata = self._create_metadata()
 
-        if self.duration_seconds < MINIMUM_RECORDING_DURATION:
+        if self.duration_seconds < self.recorder_config["pre_duration"] + self.recorder_config["post_duration"]:
             log_event(message=f"auto-deleted recording with duration {self.duration_seconds:.2f} {self.final_media_filename}", level="info", camera=self.camera)
         else:
             with open(self.final_metadata_filename, "w") as f:
@@ -236,9 +235,9 @@ class Recorder:
 
 
 class OpenCVFrameRecorder(Recorder):
-    def __init__(self, camera: Camera, stop_event: Event, add_recording_callback: Callable, pre_record_duration=PRE_RECORD_DURATION):
+    def __init__(self, camera: Camera, stop_event: Event, add_recording_callback: Callable, recorder_config: dict):
         self.name = "OpenCV"
-        super().__init__(camera=camera, stop_event=stop_event, add_recording_callback=add_recording_callback, pre_record_duration=pre_record_duration)
+        super().__init__(camera=camera, stop_event=stop_event, add_recording_callback=add_recording_callback, recorder_config=recorder_config)
 
     def _async_writer_worker(self):
         """Background thread that continuously drains the queue and writes to disk."""
@@ -323,9 +322,9 @@ class OpenCVFrameRecorder(Recorder):
         log_event(message=f"{self.name} recording available {self.formatted_duration}", level="record", camera=self.camera, file_path=self.final_metadata_filename)
 
 class AVFFmpegFrameRecorder(Recorder):
-    def __init__(self, camera: Camera, stop_event: Event, add_recording_callback: Callable, pre_record_duration=PRE_RECORD_DURATION):
+    def __init__(self, camera: Camera, stop_event: Event, add_recording_callback: Callable, recorder_config: dict):
         self.name = "AVFFmpeg"
-        super().__init__(camera=camera, stop_event=stop_event, add_recording_callback=add_recording_callback, pre_record_duration=pre_record_duration)
+        super().__init__(camera=camera, stop_event=stop_event, add_recording_callback=add_recording_callback, recorder_config=recorder_config)
 
     def _async_writer_worker(self):
         current_thread().name = f"{self.name} {self.camera.config.name} recorder"
@@ -404,9 +403,9 @@ class AVFFmpegFrameRecorder(Recorder):
 
 
 class FFmpegFrameRecorder(Recorder):
-    def __init__(self, camera: Camera, stop_event: Event, add_recording_callback: Callable, pre_record_duration=PRE_RECORD_DURATION):
+    def __init__(self, camera: Camera, stop_event: Event, add_recording_callback: Callable, recorder_config: dict):
         self.name = "FFmpeg"
-        super().__init__(camera=camera, stop_event=stop_event, add_recording_callback=add_recording_callback, pre_record_duration=pre_record_duration)
+        super().__init__(camera=camera, stop_event=stop_event, add_recording_callback=add_recording_callback, recorder_config=recorder_config)
 
     def _async_writer_worker(self):
         current_thread().name = f"{self.name} {self.camera.config.name} recorder"
@@ -495,9 +494,9 @@ class FFmpegFrameRecorder(Recorder):
 
 
 class FFmpegSegmentRecorder(Recorder):
-    def __init__(self, camera: Camera, stop_event: Event, add_recording_callback: Callable, pre_record_duration=PRE_RECORD_DURATION):
+    def __init__(self, camera: Camera, stop_event: Event, add_recording_callback: Callable, recorder_config: dict):
         self.name = "Segment"
-        super().__init__(camera=camera, stop_event=stop_event, add_recording_callback=add_recording_callback, pre_record_duration=pre_record_duration)
+        super().__init__(camera=camera, stop_event=stop_event, add_recording_callback=add_recording_callback, recorder_config=recorder_config)
         self.segments: list[str] = []
         FileCleaner.add(self.camera.config.segments_dir, "*.ts", timedelta(seconds=TS_FILE_RING_SECONDS), timedelta(seconds=5))
         FileCleaner.add(self.camera.config.segments_dir, "*.list", timedelta(seconds=TS_FILE_RING_SECONDS), timedelta(seconds=5))

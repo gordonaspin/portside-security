@@ -12,7 +12,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 from .logger import log_event
-from .camera import Camera
+from .camera.camera import Camera
 from .utils import RollingAverage
 
 logger = getLogger("pynvr.reader")

@@ -14,11 +14,11 @@ from numpy.typing import NDArray
 from ultralytics import YOLO
 from ultralytics.engine.results import Results
 
-from .camera import Camera
+from .camera.camera import Camera
 from .debug_panel import draw_debug_panels
 from .logger import log_event
 from .recorder import Recorder
-from .rtsp_reader import Reader
+from .reader import Reader
 from .utils import (
     make_readable_ts,
     tags_to_str,
@@ -133,7 +133,7 @@ class FrameProcessor:
             if (
                 self.recorder.fps.as_int() > 0
                 and self.frame_count
-                > self.config["recording"]["startup_delay"] * self.recorder.fps.as_int()
+                > self.config["recorder"]["startup_delay"] * self.recorder.fps.as_int()
             ):
                 self._update_recording_state(now)
 
@@ -287,7 +287,7 @@ class FrameProcessor:
 
         rec.should_continue = (
             motion.has_moving_object
-            or (now - motion.last_motion_time < self.config["recording"]["post_duration"])
+            or (now - motion.last_motion_time < self.config["recorder"]["post_duration"])
         )
 
         if not rec.recording and rec.should_record:
@@ -311,7 +311,7 @@ class FrameProcessor:
                     camera=recorder.camera,
                     stop_event=recorder.stop_event,
                     add_recording_callback=recorder.add_recording_callback,
-                    pre_record_duration=recorder.pre_record_duration
+                    recorder_config=recorder.recorder_config
                     )
 
             rec.recording = False

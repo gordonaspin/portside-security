@@ -11,11 +11,11 @@ import cv2
 import numpy as np
 from numpy.typing import NDArray
 
-from .camera import Camera
+from .camera.camera import Camera
 from .logger import log_event
 from .file_cleaner import FileCleaner
 from .processor import FrameProcessor
-from .rtsp_reader import Reader, RTSPReader
+from .reader import Reader, RTSPReader
 from .recorder import FrameRecorderFactory
 from .thread_safe import ThreadSafeList
 from .utils import get_camera_resolution
@@ -70,7 +70,7 @@ class NVR:
                     recorder_name=config["cameras"][name]["recorder"],
                     stop_event=self.stop_event,
                     add_recording_callback=self.add_recording,
-                    recording_config=config["processor"]["recording"],
+                    recorder_config=config["processor"]["recorder"],
                 ),
                 model_cfg=config["model"],
                 stop_event=self.stop_event,

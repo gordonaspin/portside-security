@@ -5,8 +5,8 @@ from logging import getLogger
 
 import numpy as np
 
-from .byte_tracker import BYTETracker
-from .config_value import ConfigValue
+from ..byte_track.byte_tracker import BYTETracker
+from ..utils import ConfigValue
 
 logger = getLogger("pynvr")
 

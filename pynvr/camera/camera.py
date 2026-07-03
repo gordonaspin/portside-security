@@ -6,9 +6,9 @@ from queue import Queue
 import numpy as np
 from numpy.typing import NDArray
 
-from .config_value import ConfigValue
 from .frame_buffers import FrameBuffers
 from .motion_detector import MotionDetector
+from ..utils import ConfigValue
 
 
 @dataclass
