@@ -44,15 +44,28 @@ class BYTETracker:
         self.track_thresh = track_thresh
         self.match_thresh = match_thresh
         self.track_buffer = track_buffer
+        self.base_track_thresh = track_thresh
+        self.base_match_thresh = match_thresh
+        self.base_track_buffer = track_buffer
 
         self.kf = KalmanFilter()
         self.tracks = []
         self.next_id = 1
 
-    def update(self, dets, img_info, img_size):
+    def update(self, dets, img_info, img_size, is_night=False):
         """
         dets: Nx6 array [x1,y1,x2,y2,score,cls]
         """
+        # calcuate deltas
+        if is_night:
+            self.track_thresh = self.base_track_thresh * 0.75
+            self.match_thresh = self.base_match_thresh * 0.75
+            self.track_buffer = int(self.base_track_buffer * 1.5)
+        else:
+            self.track_thresh = self.base_track_thresh / 0.75
+            self.match_thresh = self.base_match_thresh / 0.75
+            self.track_buffer = int(self.base_track_buffer / 1.5)
+
         # Convert detections
         detections = [
             Detection(d[:4], d[4], d[5])

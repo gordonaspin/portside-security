@@ -66,7 +66,7 @@ class MotionDetector:
     # ----------------------------------------------------------------------
     # PUBLIC API
     # ----------------------------------------------------------------------
-    def update(self, yolo_dets: np.ndarray, full_w: int, full_h: int, now: float):
+    def update(self, yolo_dets: np.ndarray, now: float, is_night: bool):
         """
         Update motion state using YOLO detections and ByteTrack.
         yolo_dets: Nx6 array [x1, y1, x2, y2, score, cls]
@@ -75,8 +75,7 @@ class MotionDetector:
         # Run ByteTrack
         online_targets = self.tracker.update(
             yolo_dets,
-            img_info=(full_h, full_w),
-            img_size=(full_h, full_w),
+            is_night=is_night
         )
 
         moving = False

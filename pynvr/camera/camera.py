@@ -111,12 +111,6 @@ class Camera:
         self.events: "Queue[dict]" = Queue()
 
     # ----------------------------------------------------------------------
-    # Night/day helpers (FrameProcessor will set is_night)
-    # ----------------------------------------------------------------------
-    def set_night(self, value: bool):
-        self.is_night = value
-
-    # ----------------------------------------------------------------------
     # Convenience hooks for FrameProcessor (optional)
     # ----------------------------------------------------------------------
     def update_latest_frame(self, frame_bgr: NDArray[np.uint8]):

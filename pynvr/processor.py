@@ -124,7 +124,7 @@ class FrameProcessor:
                 dets = self.last_dets
 
             # --- BYTE TRACK UPDATE (always every frame) ---
-            self.camera.motion.update(dets, full_w, full_h, now)
+            self.camera.motion.update(dets, now, self.camera.is_night)
 
             # --- Class + color metadata ---
             self._update_class_color_metadata(frame_bgr, yolo_result)
