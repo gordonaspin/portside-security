@@ -190,8 +190,9 @@ class FrameRecorder:
 
         metadata = self._create_metadata()
 
-        if self.duration_seconds < self.recorder_config["pre_duration"] + self.recorder_config["post_duration"]:
+        if self.duration_seconds < (self.recorder_config["pre_duration"] + self.recorder_config["post_duration"]) * 5 / 6:
             log_event(message=f"auto-deleted recording with duration {self.duration_seconds:.2f} {self.final_media_filename}", level="info", camera=self.camera)
+            os.remove(self.final_media_filename)
         else:
             with open(self.final_metadata_filename, "w") as f:
                 json.dump(metadata, f, default=lambda o: o.__dict__, indent=4)
