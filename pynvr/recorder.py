@@ -236,12 +236,12 @@ class FrameRecorder:
 
 class OpenCVFrameRecorder(FrameRecorder):
     def __init__(self, camera: Camera, stop_event: Event, add_recording_callback: Callable, recorder_config: dict):
-        self.name = "OpenCV"
+        self.name = "OpenCVFrame"
         super().__init__(camera=camera, stop_event=stop_event, add_recording_callback=add_recording_callback, recorder_config=recorder_config)
 
     def _async_writer_worker(self):
         """Background thread that continuously drains the queue and writes to disk."""
-        current_thread().name = f" {self.camera.config.name} {self.name}FrameRecorder"
+        current_thread().name = f" {self.camera.config.name} {self.name}Recorder"
 
         fourcc = cv2.VideoWriter_fourcc(*'mp4v')
         video_writer = cv2.VideoWriter(
@@ -323,15 +323,15 @@ class OpenCVFrameRecorder(FrameRecorder):
 
 class AVFFmpegFrameRecorder(FrameRecorder):
     def __init__(self, camera: Camera, stop_event: Event, add_recording_callback: Callable, recorder_config: dict):
-        self.name = "AVFFmpeg"
+        self.name = "AVFFmpegFrame"
         super().__init__(camera=camera, stop_event=stop_event, add_recording_callback=add_recording_callback, recorder_config=recorder_config)
 
     def _async_writer_worker(self):
-        current_thread().name = f" {self.camera.config.name} {self.name}FrameRecorder"
+        current_thread().name = f" {self.camera.config.name} {self.name}Recorder"
 
         try:
             log_file = open(self.temporary_log_filename, "w")
-            log_file.write(f"{self.name} FrameRecorder started for {self.camera.config.name} at {make_readable_ts}\n")
+            log_file.write(f"{self.name}Recorder started for {self.camera.config.name} at {make_readable_ts}\n")
             log_file.write(f"writing to {self.temporary_media_filename}\n")
             output = av.open(
                 str(self.temporary_media_filename),
@@ -404,11 +404,11 @@ class AVFFmpegFrameRecorder(FrameRecorder):
 
 class FFmpegFrameRecorder(FrameRecorder):
     def __init__(self, camera: Camera, stop_event: Event, add_recording_callback: Callable, recorder_config: dict):
-        self.name = "FFmpeg"
+        self.name = "FFmpegFrame"
         super().__init__(camera=camera, stop_event=stop_event, add_recording_callback=add_recording_callback, recorder_config=recorder_config)
 
     def _async_writer_worker(self):
-        current_thread().name = f" {self.camera.config.name} {self.name}FrameRecorder"
+        current_thread().name = f" {self.camera.config.name} {self.name}Recorder"
 
         """Background thread that continuously drains the queue and writes to disk."""
         command = [
@@ -484,7 +484,7 @@ class FFmpegFrameRecorder(FrameRecorder):
         if self.stop_event.is_set():
             return
         
-        logger.debug(f"{self.camera.config.name} {self.name} FrameRecorder started")
+        logger.debug(f"{self.camera.config.name} {self.name}Recorder started")
         super().start_recording()  # This will set up the filename and log_filename
 
 
@@ -495,7 +495,7 @@ class FFmpegFrameRecorder(FrameRecorder):
 
 class FFmpegSegmentRecorder(FrameRecorder):
     def __init__(self, camera: Camera, stop_event: Event, add_recording_callback: Callable, recorder_config: dict):
-        self.name = "Segment"
+        self.name = "FFmpegSegment"
         super().__init__(camera=camera, stop_event=stop_event, add_recording_callback=add_recording_callback, recorder_config=recorder_config)
         self.segments: list[str] = []
         FileCleaner.add(self.camera.config.segments_dir, "*.ts", timedelta(seconds=TS_FILE_RING_SECONDS), timedelta(seconds=5))
@@ -523,7 +523,7 @@ class FFmpegSegmentRecorder(FrameRecorder):
         if self.stop_event.is_set():
             return
         
-        logger.debug(f"{self.camera.config.name} {self.name} FrameRecorder started. Waiting for event to capture segments")
+        logger.debug(f"{self.camera.config.name} {self.name}Recorder started. Waiting for event to capture segments")
         super().start_recording()  # This will set up the filename and log_filename
 
     @override
