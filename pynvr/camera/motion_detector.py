@@ -2,6 +2,7 @@ import time
 from collections import defaultdict
 from dataclasses import dataclass
 from logging import getLogger
+from threading import Lock
 
 import numpy as np
 
@@ -37,12 +38,10 @@ class MotionDetector:
         self.track_threshold: ConfigValue = ConfigValue(default=cfg["track_threshold"], min=0.1, max=1.0, step=0.01)
         self.match_threshold: ConfigValue = ConfigValue(default=cfg["match_threshold"], min=0.1, max=1.0, step=0.01)
         self.track_buffer: ConfigValue = ConfigValue(default=cfg["track_buffer"], min=30, max=300, step=1)
+        self.lock: Lock = Lock()
+
         # --- ByteTrack configuration ---
-        self.tracker = BYTETracker(
-            track_thresh=self.track_threshold.value,
-            match_thresh=self.match_threshold.value,
-            track_buffer=self.track_buffer.value,
-        )
+        self.tracker = self.create_tracker()
 
         # Minimum pixel velocity to consider an object "moving"
         self.minimum_relative_motion: ConfigValue = ConfigValue(default=cfg["minimum_relative_motion"], min=0.05, max=0.2, step=0.01)
@@ -63,6 +62,17 @@ class MotionDetector:
         self.moving_track_ids: set[int] = set()
         self.smoothed_speeds = {}  # tid → smoothed relative speed
 
+    def create_tracker(self):
+        """Recreate the BYTETracker with updated config values."""
+        with self.lock:
+            tracker = BYTETracker(
+                track_thresh=self.track_threshold.value,
+                match_thresh=self.match_threshold.value,
+                track_buffer=self.track_buffer.value,
+            )
+        self.tracker = tracker
+        return tracker
+    
     # ----------------------------------------------------------------------
     # PUBLIC API
     # ----------------------------------------------------------------------
@@ -73,10 +83,10 @@ class MotionDetector:
         """
 
         # Run ByteTrack
-        online_targets = self.tracker.update(
-            yolo_dets,
-            is_night=is_night
-        )
+        with self.lock:
+            online_targets = self.tracker.update(
+                yolo_dets,
+            )
 
         moving = False
         active_tracks = []

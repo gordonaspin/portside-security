@@ -286,10 +286,12 @@ def create_app(config: dict, nvr: NVR):
         camera = nvr.cameras[camera_name]
         if setting == "yolo_confidence":
             attr = getattr(camera.config, setting)
+            attr.value = payload.value
         else:
             attr = getattr(camera.motion, setting)
+            attr.value = payload.value
+            camera.motion.create_tracker()  # Ensure BYTETracker is recreated with new setting
 
-        attr.value = payload.value
         log_event(f"{setting} {attr.value:.2f} -> {payload.value:.2f}", camera=camera)
 
         return {
