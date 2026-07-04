@@ -41,10 +41,10 @@ class FrameRecorderFactory:
             case "FFmpegSegment":
                 return FFmpegSegmentRecorder(camera=camera, stop_event=stop_event, add_recording_callback=add_recording_callback, recorder_config=recorder_config)
             case _:
-                logger.warning(f"Unknown recorder factory '{recorder_name}', defaulting to AVFFmpegFrameRecorderFactory")
+                logger.warning(f"Unknown FrameRecorder factory '{recorder_name}', defaulting to AVFFmpegFrameRecorderFactory")
                 return AVFFmpegFrameRecorder(camera=camera, stop_event=stop_event, add_recording_callback=add_recording_callback, recorder_config=recorder_config)
 
-class Recorder:
+class FrameRecorder:
     def __init__(self, camera: Camera, stop_event: Event, add_recording_callback: Callable, recorder_config: dict):
         self.camera: Camera = camera
         self.stop_event = stop_event
@@ -154,7 +154,7 @@ class Recorder:
             daemon=False,  # Not daemon because we want to guarantee it finishes writing
         )
         self.thread.start()
-        logger.debug(f"recorder started")
+        logger.debug(f"FrameRecorder started")
 
     def stop_recording(self):
         """Signals the recording to stop. Main thread can keep running."""
@@ -234,14 +234,14 @@ class Recorder:
         return json_data | self._get_additional_metadata()
 
 
-class OpenCVFrameRecorder(Recorder):
+class OpenCVFrameRecorder(FrameRecorder):
     def __init__(self, camera: Camera, stop_event: Event, add_recording_callback: Callable, recorder_config: dict):
         self.name = "OpenCV"
         super().__init__(camera=camera, stop_event=stop_event, add_recording_callback=add_recording_callback, recorder_config=recorder_config)
 
     def _async_writer_worker(self):
         """Background thread that continuously drains the queue and writes to disk."""
-        current_thread().name = f"{self.name} {self.camera.config.name} recorder"
+        current_thread().name = f" {self.camera.config.name} {self.name}FrameRecorder"
 
         fourcc = cv2.VideoWriter_fourcc(*'mp4v')
         video_writer = cv2.VideoWriter(
@@ -313,7 +313,7 @@ class OpenCVFrameRecorder(Recorder):
         if self.stop_event.is_set():
             return
         
-        logger.debug(f"{self.camera.config.name} cv2 frame recorder started")
+        logger.debug(f"{self.camera.config.name} cv2 FrameRecorder started")
         super().start_recording()  # This will set up the filename and log_filename
 
     
@@ -321,17 +321,17 @@ class OpenCVFrameRecorder(Recorder):
     def report_complete(self):
         log_event(message=f"{self.name} recording available {self.formatted_duration}", level="record", camera=self.camera, file_path=self.final_metadata_filename)
 
-class AVFFmpegFrameRecorder(Recorder):
+class AVFFmpegFrameRecorder(FrameRecorder):
     def __init__(self, camera: Camera, stop_event: Event, add_recording_callback: Callable, recorder_config: dict):
         self.name = "AVFFmpeg"
         super().__init__(camera=camera, stop_event=stop_event, add_recording_callback=add_recording_callback, recorder_config=recorder_config)
 
     def _async_writer_worker(self):
-        current_thread().name = f"{self.name} {self.camera.config.name} recorder"
+        current_thread().name = f" {self.camera.config.name} {self.name}FrameRecorder"
 
         try:
             log_file = open(self.temporary_log_filename, "w")
-            log_file.write(f"{self.name} recorder started for {self.camera.config.name} at {make_readable_ts}\n")
+            log_file.write(f"{self.name} FrameRecorder started for {self.camera.config.name} at {make_readable_ts}\n")
             log_file.write(f"writing to {self.temporary_media_filename}\n")
             output = av.open(
                 str(self.temporary_media_filename),
@@ -393,7 +393,7 @@ class AVFFmpegFrameRecorder(Recorder):
         if self.stop_event.is_set():
             return
         
-        logger.debug(f"{self.camera.config.name} {self.name} recorder started")
+        logger.debug(f"{self.camera.config.name} {self.name} FrameRecorder started")
         super().start_recording()  # This will set up the filename and log_filename
 
 
@@ -402,13 +402,13 @@ class AVFFmpegFrameRecorder(Recorder):
         log_event(message=f"{self.name} recording available {self.formatted_duration}", level="record", camera=self.camera, file_path=self.final_metadata_filename)
 
 
-class FFmpegFrameRecorder(Recorder):
+class FFmpegFrameRecorder(FrameRecorder):
     def __init__(self, camera: Camera, stop_event: Event, add_recording_callback: Callable, recorder_config: dict):
         self.name = "FFmpeg"
         super().__init__(camera=camera, stop_event=stop_event, add_recording_callback=add_recording_callback, recorder_config=recorder_config)
 
     def _async_writer_worker(self):
-        current_thread().name = f"{self.name} {self.camera.config.name} recorder"
+        current_thread().name = f" {self.camera.config.name} {self.name}FrameRecorder"
 
         """Background thread that continuously drains the queue and writes to disk."""
         command = [
@@ -484,7 +484,7 @@ class FFmpegFrameRecorder(Recorder):
         if self.stop_event.is_set():
             return
         
-        logger.debug(f"{self.camera.config.name} {self.name} recorder started")
+        logger.debug(f"{self.camera.config.name} {self.name} FrameRecorder started")
         super().start_recording()  # This will set up the filename and log_filename
 
 
@@ -493,7 +493,7 @@ class FFmpegFrameRecorder(Recorder):
         log_event(message=f"{self.name} frame recording available {self.formatted_duration}", level="record", camera=self.camera, file_path=self.final_metadata_filename)
 
 
-class FFmpegSegmentRecorder(Recorder):
+class FFmpegSegmentRecorder(FrameRecorder):
     def __init__(self, camera: Camera, stop_event: Event, add_recording_callback: Callable, recorder_config: dict):
         self.name = "Segment"
         super().__init__(camera=camera, stop_event=stop_event, add_recording_callback=add_recording_callback, recorder_config=recorder_config)
@@ -523,7 +523,7 @@ class FFmpegSegmentRecorder(Recorder):
         if self.stop_event.is_set():
             return
         
-        logger.debug(f"{self.camera.config.name} {self.name} recorder started. Waiting for event to capture segments")
+        logger.debug(f"{self.camera.config.name} {self.name} FrameRecorder started. Waiting for event to capture segments")
         super().start_recording()  # This will set up the filename and log_filename
 
     @override
@@ -532,7 +532,7 @@ class FFmpegSegmentRecorder(Recorder):
         Capture everything needed to finalize this recording,
         without ever reading camera state again later.
         """
-        current_thread().name = f"{self.name} {self.camera.config.name} recorder"
+        current_thread().name = f"{self.camera.config.name} {self.name}Recorder"
 
         self.final_end_time = time.time()
 

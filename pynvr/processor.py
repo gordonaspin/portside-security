@@ -17,7 +17,7 @@ from ultralytics.engine.results import Results
 from .camera.camera import Camera
 from .debug_panel import draw_debug_panels
 from .logger import log_event
-from .recorder import Recorder
+from .recorder import FrameRecorder
 from .reader import Reader
 from .utils import (
     make_readable_ts,
@@ -33,14 +33,14 @@ class FrameProcessor:
         config: dict,
         camera: Camera,
         reader: Reader,
-        recorder: Recorder,
+        recorder: FrameRecorder,
         model_cfg: dict[str, str],
         stop_event: Event,
     ):
         self.config: dict = config
         self.camera: Camera = camera
         self.reader: Reader = reader
-        self.recorder: Recorder = recorder
+        self.recorder: FrameRecorder = recorder
         self.model: YOLO = YOLO(model_cfg["name"])
         classname_to_classindex: dict = {v: k for k, v in self.model.names.items()}
         self.selected_classes: list[int] = [
@@ -71,12 +71,12 @@ class FrameProcessor:
         self.thread.start()
 
     def stop(self):
-        log_event(message="stopping frame processor", level="info", camera=self.camera)
+        log_event(message="stopping FrameProcessor", level="info", camera=self.camera)
         if self.thread is not None:
             self.thread.join()
 
     def _process_frames(self):
-        current_thread().name = f"{self.camera.config.name} processor"
+        current_thread().name = f"{self.camera.config.name}FrameProcessor"
 
         while not self.stop_event.is_set():
             # --- FRAME ACQUISITION ---

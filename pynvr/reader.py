@@ -32,7 +32,7 @@ class Reader:
         pass
 
 
-class RTSPReader(Reader):
+class FrameReader(Reader):
     def __init__(
         self,
         camera: Camera,
@@ -84,7 +84,7 @@ class RTSPReader(Reader):
         - on stall/error → stop and reopen
         - loop until stop_event is set
         """
-        current_thread().name = f"{self.camera.config.name} RTSPReader"
+        current_thread().name = f"{self.camera.config.name}FrameReader"
 
         while not self.stop_event.is_set():
             try:
@@ -109,7 +109,7 @@ class RTSPReader(Reader):
             if not self.stop_event.is_set():
                 time.sleep(30.0)
 
-        logger.info(f"{self.camera.config.name} RTSPReader main loop exiting")
+        logger.info(f"{self.camera.config.name} FrameReader main loop exiting")
 
     def _cleanup_process(self):
         """
@@ -118,7 +118,7 @@ class RTSPReader(Reader):
         if self.process is not None:
             ret = self.process.poll()
             log_event(
-                message=f"stopping RTSP reader with ret {ret}",
+                message=f"stopping FrameReader with ret {ret}",
                 level="info",
                 camera=self.camera,
             )
@@ -225,7 +225,7 @@ class RTSPReader(Reader):
 
         if need_yolo_pipe:
             log_event(
-                message="starting dual-pipe RTSP reader",
+                message="starting dual-pipe FrameReader",
                 level="info",
                 camera=self.camera,
             )
@@ -247,7 +247,7 @@ class RTSPReader(Reader):
             self.yolo_pipe = os.fdopen(yolo_fd_read, "rb", buffering=0)
         else:
             log_event(
-                message="starting single-pipe RTSP reader",
+                message="starting single-pipe FrameReader",
                 level="info",
                 camera=self.camera,
             )
@@ -274,8 +274,6 @@ class RTSPReader(Reader):
         """
         if self.process is None or self.process.stdout is None:
             return
-
-        current_thread().name = f"{self.camera.config.name} frame reader"
 
         fail_count = 0
 
@@ -401,7 +399,7 @@ class RTSPReader(Reader):
             self.total_frames += 1
             self.drop_rate = self.total_drops / self.total_frames
 
-        logger.info(f"{self.camera.config.name} RTSPReader loop exiting")
+        logger.info(f"{self.camera.config.name} FrameReader loop exiting")
 
     def _read_exact(self, fd, view, size, timeout=2.0):
         """

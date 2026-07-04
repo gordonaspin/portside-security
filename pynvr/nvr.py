@@ -3,19 +3,15 @@ import json
 import os
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime, timedelta
+from datetime import timedelta
 from logging import getLogger
-from threading import Thread, Event, current_thread
-
-import cv2
-import numpy as np
-from numpy.typing import NDArray
+from threading import Event
 
 from .camera.camera import Camera
 from .logger import log_event
 from .file_cleaner import FileCleaner
 from .processor import FrameProcessor
-from .reader import Reader, RTSPReader
+from .reader import Reader, FrameReader
 from .recorder import FrameRecorderFactory
 from .thread_safe import ThreadSafeList
 from .utils import get_camera_resolution
@@ -56,7 +52,7 @@ class NVR:
                                         recordings_dir=self.recordings_dir,
                                         )
     
-            reader = self.frame_readers[name] = RTSPReader(
+            reader = self.frame_readers[name] = FrameReader(
                 camera=camera,
                 model_config=config["model"]["resolution"],
                 produce_segments=config["cameras"][name]["recorder"] == "FFmpegSegment",
