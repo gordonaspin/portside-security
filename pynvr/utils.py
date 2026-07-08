@@ -99,14 +99,23 @@ def detect_object_color_day(roi_bgr, k=2):
     if roi_bgr is None or roi_bgr.size == 0:
         return "unknown"
 
+    # Smooth noise
     roi = cv2.GaussianBlur(roi_bgr, (5, 5), 0)
 
+    # Convert to true LAB
     lab = cv2.cvtColor(roi, cv2.COLOR_BGR2LAB).astype(np.float32)
     lab[:, :, 1] -= 128.0
     lab[:, :, 2] -= 128.0
 
-    pixels = lab.reshape((-1, 3))
+    # Normalize LAB for k-means stability
+    lab_norm = np.empty_like(lab)
+    lab_norm[:, :, 0] = lab[:, :, 0] / 100.0      # L 0–100
+    lab_norm[:, :, 1] = lab[:, :, 1] / 128.0      # a -128–128
+    lab_norm[:, :, 2] = lab[:, :, 2] / 128.0      # b -128–128
 
+    pixels = lab_norm.reshape((-1, 3))
+
+    # K-means clustering
     _, labels, centers = cv2.kmeans(
         pixels.astype(np.float32), k, None,
         (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 20, 1.0),
@@ -124,7 +133,21 @@ def detect_object_color_day(roi_bgr, k=2):
         if counts[idx] < 0.05 * total:
             continue
 
-        lab_color = centers[idx]
+        # Convert normalized center back to LAB
+        L = centers[idx][0] * 100.0
+        a = centers[idx][1] * 128.0
+        b = centers[idx][2] * 128.0
+        lab_color = np.array([L, a, b], dtype=np.float32)
+
+        # Remove specular highlights
+        if L > 95 and abs(a) < 5 and abs(b) < 5:
+            continue
+
+        # Merge low-chroma colors
+        chroma = np.sqrt(a*a + b*b)
+        if chroma < 8:
+            return "gray"
+
         name = classify_color_lab(lab_color)
         if name != "unknown":
             return name
@@ -165,12 +188,12 @@ def classify_color_lab(lab_color):
         "pink":     np.array([75,   25,   -5]),
         "cyan":     np.array([91,  -48,  -14]),
 
-        # --- Earth tones (common in cars & clothing) ---
+        # --- Earth tones ---
         "brown":    np.array([40,   15,   20]),
         "beige":    np.array([78,    0,   18]),
         "tan":      np.array([70,    5,   30]),
 
-        # --- Metallics (approximate LAB reflectance centers) ---
+        # --- Metallics ---
         "silver":   np.array([82,    0,    0]),
         "gold":     np.array([75,    5,   55]),
 
@@ -183,7 +206,9 @@ def classify_color_lab(lab_color):
     L, a, b = lab_color
     chroma = sqrt(a*a + b*b)
 
-    # --- Neutral colors ---
+    # -----------------------------------------
+    # Neutral colors
+    # -----------------------------------------
     if L < 35:
         return "black"
 
@@ -192,7 +217,16 @@ def classify_color_lab(lab_color):
             return "white"
         return "gray"
 
-    # --- Metallics ---
+    # -----------------------------------------
+    # Blue safeguard (fixes blue→brown)
+    # -----------------------------------------
+    # Dark + negative b = blue/navy
+    if L < 55 and b < -5:
+        return "blue"
+
+    # -----------------------------------------
+    # Metallics
+    # -----------------------------------------
     # Silver: mid‑L, low chroma
     if 55 < L < 110 and chroma < 22:
         return "silver"
@@ -201,16 +235,21 @@ def classify_color_lab(lab_color):
     if 55 < L < 110 and 22 <= chroma < 45 and b > 15:
         return "gold"
 
-    # --- Earth tones ---
+    # -----------------------------------------
+    # Earth tones (corrected boundaries)
+    # -----------------------------------------
     if 35 < L < 80 and 12 < chroma < 40:
-        if b > 25:
-            return "tan"
+        # Brown must have positive b (fixes blue→brown)
+        if 0 <= b <= 10:
+            return "brown"
         if 10 < b <= 25:
             return "beige"
-        if b <= 10:
-            return "brown"
+        if b > 25:
+            return "tan"
 
-    # --- Standard colors (LAB distance) ---
+    # -----------------------------------------
+    # Standard colors (LAB distance)
+    # -----------------------------------------
     best = None
     best_dist = 1e9
 
