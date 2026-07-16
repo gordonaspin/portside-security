@@ -82,9 +82,9 @@ Configuration is provided in a nvr.json file. "model.resolution" specifies the [
             "width": 640,
             "height": 640
         },
-        "classes": ["person", "car", "truck", "bus", "cat", "dog", "bicycle", "motorcycle"],
+        "classes": {"person": true, "car": true, "truck": true, "bus": true, "cat": true, "dog": true, "bicycle": true, "motorcycle": true},
         "_comment": "yolo11n.pt  yolo11s.pt  yolov5su.pt yolov8n.pt",
-        "name": "backend/nodel/yolo11n.pt"
+        "name": "model/yolo11n.pt"
     },
     "processor": {
         "detect_every_nth_frame": 1,
@@ -183,7 +183,7 @@ FFmpegFrame or OpenCVFrame or AVFFmpegFrame are functionally equivalent, using d
 
 ```
 ### Technologies used
-`python` is used to create the backend server and all the video processing with the exception of ffmpeg.
+`python` is used to create the pynvr server and all the video processing with the exception of ffmpeg.
 `FastAPI and uvicorn` is used as the API to the server, by default it listens on port 7860.
 `ffmpeg` is used to connect to IP cameras using the url configured for the camera in nvr.json. `ffprobe` is used to detect the native resolution of the stream if possible, and that resolution will be used to stream video to the user-interface and make recordings. If the native resolution of the camera cannot be determined by ffprobe, the fallback is the configured resolution. If the resolution is different from the YOLO resolution, then a second rawvideo is output from ffmpeg at the configured resolution will be used for object detection.
 `YOLO` is used for object detection and classification. The expected model is yolo11n, and can be changed in the configuration file. YOLO processing will use the GPU for processing, if available and the configured processor.device is not "cpu". If "cpu" is specified, the processor.detect_every_nth_frame should be adjusted upwards to every 3rd or 4th frame, depending on your CPU.

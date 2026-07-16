@@ -42,10 +42,9 @@ class FrameProcessor:
         self.reader: Reader = reader
         self.recorder: FrameRecorder = recorder
         self.model: YOLO = YOLO(model_cfg["name"])
-        classname_to_classindex: dict = {v: k for k, v in self.model.names.items()}
-        self.selected_classes: list[int] = [
-            classname_to_classindex[n] for n in model_cfg["classes"]
-        ]
+        self.selected_classes: list[int] = []
+        self.classes = model_cfg["classes"]
+        self.set_selected_classes(self.classes)
         logger.info("CUDA is available: %s", torch.cuda.is_available())
         if torch.cuda.is_available() and config["device"] != "cpu":
             logger.info(f"{self.camera.config.name} using CUDA device {torch.cuda.get_device_name(torch.cuda.current_device())} for YOLO inference")
@@ -74,6 +73,12 @@ class FrameProcessor:
         log_event(message="stopping FrameProcessor", level="info", camera=self.camera)
         if self.thread is not None:
             self.thread.join()
+
+    def set_selected_classes(self, classes: dict[str, bool]):
+        classname_to_classindex: dict = {v: k for k, v in self.model.names.items()}
+        self.selected_classes: list[int] = [
+            classname_to_classindex[n] for n in classes if classes[n]
+        ]
 
     def _process_frames(self):
         current_thread().name = f"{self.camera.config.name}FrameProcessor"

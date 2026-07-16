@@ -14,7 +14,7 @@
     const res = await safeFetch('/api/logs', { credentials: "include" });
     const data = await res.json();
 
-    // Backend returns oldest → newest
+    // pynvr returns oldest → newest
     // We want newest at top, same as SSE
     for (const log of data.logs) {
       addLog(log);

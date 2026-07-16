@@ -92,11 +92,12 @@ class LoginForm(BaseModel):
     username: str
     password: str
 
-
 class SettingValue(BaseModel):
     value: float | bool
 
-
+class ClassToggle(BaseModel):
+    class_name: str
+    value: bool
 # -------------------------
 # APP FACTORY
 # -------------------------
@@ -181,7 +182,7 @@ def create_app(config: dict, nvr: NVR):
 
     @app.get("/api/classes")
     def get_classes(user=Depends(require_user)):
-        return {"classes": config["model"]["classes"]}
+        return {"classes": list(config["model"]["classes"])}
 
     @app.get("/api/system_name")
     def get_system_name():
@@ -278,6 +279,11 @@ def create_app(config: dict, nvr: NVR):
             if isinstance(value, ConfigValue):
                 settings[attr] = vars(value)
 
+        settings["classes"] = {}
+        for processor in nvr.frame_processors.values():
+            if processor.camera.config.name == camera_name:
+                settings["classes"] = processor.classes
+                break
         return settings
 
     @app.post("/api/cameras/{camera_name}/settings/{setting}")
@@ -298,6 +304,33 @@ def create_app(config: dict, nvr: NVR):
             "status": "ok",
             "camera": camera_name,
             "setting": setting,
+            "value": payload.value
+        }
+
+    @app.post("/api/processor/{camera_name}/class_toggle")
+    def update_class_toggle(camera_name: str, payload: ClassToggle):
+
+        camera = nvr.cameras[camera_name]
+
+        # Update the boolean toggle
+        for processor in nvr.frame_processors.values():
+            if processor.camera.config.name == camera_name:
+                processor.classes[payload.class_name] = payload.value
+                processor.set_selected_classes(processor.classes)
+                break
+
+        # Recreate tracker if class filters affect tracking
+        camera.motion.create_tracker()
+
+        log_event(
+            f"class {payload.class_name}: {payload.value}",
+            camera=camera
+        )
+
+        return {
+            "status": "ok",
+            "camera": camera_name,
+            "class_name": payload.class_name,
             "value": payload.value
         }
 

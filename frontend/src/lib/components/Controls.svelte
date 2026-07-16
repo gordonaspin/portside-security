@@ -65,6 +65,24 @@
     });
   }
 
+  async function updateClassToggle(className: string, value: boolean) {
+    if (!selectedCamera) return;
+
+    settings = {
+      ...settings,
+      classes: {
+        ...settings.classes,
+        [className]: value
+      }
+    };
+
+    await safeFetch(`/api/processor/${selectedCamera}/class_toggle`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ class_name: className, value })
+    });
+  }
+
   // -----------------------------
   // Switch camera
   // -----------------------------
@@ -194,6 +212,23 @@
           </div>
 
         </div>
+      </div>
+    </div>
+
+    <div class="controls-section">
+      <h3>Class Filters</h3>
+
+      <div class="class-toggle-row">
+        {#each Object.entries(settings.classes || {}) as [className, enabled]}
+          <label class="class-toggle-item">
+            <input
+              type="checkbox"
+              checked={enabled}
+              on:change={(e) => updateClassToggle(className, e.target.checked)}
+            />
+            {className}
+          </label>
+        {/each}
       </div>
     </div>
 
@@ -436,5 +471,18 @@ input[type="range"] {
   align-items: center;
   gap: 0.5rem;
   color: #eee;
+}
+
+.class-toggle-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin-bottom: 1rem;   /* <-- adds padding below the checkboxes */
+}
+.class-toggle-item {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  white-space: nowrap;
 }
 </style>

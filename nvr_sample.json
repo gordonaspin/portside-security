@@ -20,9 +20,9 @@
             "width": 640,
             "height": 640
         },
-        "classes": ["person", "car", "truck", "bus", "cat", "dog", "bicycle", "motorcycle"],
+        "classes": {"person": true, "car": true, "truck": true, "bus": true, "cat": false, "dog": true, "bicycle": true, "motorcycle": true},
         "_comment": "yolo11n.pt  yolo11s.pt  yolov5su.pt yolov8n.pt",
-        "name": "backend/nodel/yolo11n.pt"
+        "name": "pynvr/model/yolo11n.pt"
     },
     "processor": {
         "detect_every_nth_frame": 1,
