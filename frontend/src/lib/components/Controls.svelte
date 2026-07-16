@@ -218,9 +218,11 @@
     <div class="controls-section">
       <h3>Class Filters</h3>
 
-      <div class="class-toggle-row">
+      <!-- Shimmer wrapper identical to slider-row -->
+      <div class="class-toggle-row {loading ? 'loading' : 'loaded'}">
+
         {#each Object.entries(settings.classes || {}) as [className, enabled]}
-          <label class="class-toggle-item">
+          <label class="class-toggle-item shimmer-item">
             <input
               type="checkbox"
               checked={enabled}
@@ -229,9 +231,10 @@
             {className}
           </label>
         {/each}
+
       </div>
     </div>
-
+    
     <!-- Camera Debug -->
     <div class="controls-section">
       <h3>Camera Debug and Logging</h3>
@@ -485,4 +488,32 @@ input[type="range"] {
   gap: 0.25rem;
   white-space: nowrap;
 }
+
+/* ============================================================
+   CLASS FILTER SHIMMER (same as slider shimmer)
+   ============================================================ */
+.class-toggle-row.loading {
+  opacity: 0.25;
+}
+
+.class-toggle-row.loading .shimmer-item {
+  position: relative;
+  overflow: hidden;
+}
+
+.class-toggle-row.loading .shimmer-item::after {
+  content: "";
+  position: absolute;
+  top: 0; left: -150%;
+  width: 150%;
+  height: 100%;
+  background: linear-gradient(
+    90deg,
+    rgba(255,255,255,0) 0%,
+    rgba(255,255,255,0.15) 50%,
+    rgba(255,255,255,0) 100%
+  );
+  animation: shimmer 0.9s infinite;
+}
+
 </style>
