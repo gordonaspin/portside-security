@@ -488,6 +488,7 @@ class FrameReader(Reader):
         yolo_w = self.model_width
         yolo_h = self.model_height
 
+        # Do we need a separate YOLO pipe (i.e., a second branch)?
         need_yolo_pipe = not (actual_w == yolo_w and actual_h == yolo_h)
 
         if need_yolo_pipe and yolo_fd is None:
@@ -496,7 +497,8 @@ class FrameReader(Reader):
         full_block = actual_w * actual_h * 3
         yolo_block = yolo_w * yolo_h * 3
 
-        base = [
+        # Base input and global options
+        base: list[str] = [
             "ffmpeg",
             "-rtsp_transport", "tcp",
             "-max_delay", "0",
@@ -509,20 +511,19 @@ class FrameReader(Reader):
             "-nostats",
         ]
 
-        filters = []
+        # Build filter graph
+        filters: list[str] = []
 
-        # Split the input so FFmpeg does NOT merge filter chains incorrectly
-        filters.append("[0:v]split[full_in][yolo_in]")
-
-        # Full-resolution branch (no scaling)
-        filters.append("[full_in]format=bgr24[full]")
-
-        # YOLO branch
         if need_yolo_pipe:
+            # Two-branch graph: full + YOLO
+            filters.append("[0:v]split[full_in][yolo_in]")
+            filters.append("[full_in]format=bgr24[full]")
+
             if actual_w == yolo_w and actual_h == yolo_h:
+                # Same size, just format
                 filters.append("[yolo_in]format=bgr24[yolo]")
             else:
-                # Proper YOLO letterbox: preserve AR → scale → pad → BGR24
+                # Letterbox to YOLO size, then BGR24
                 filters.append(
                     "[yolo_in]"
                     f"scale={yolo_w}:-1:force_original_aspect_ratio=decrease,"
@@ -530,10 +531,14 @@ class FrameReader(Reader):
                     "color=#727272,"
                     "format=bgr24[yolo]"
                 )
+        else:
+            # Single-branch graph: only full
+            filters.append("[0:v]format=bgr24[full]")
 
         filter_graph = ";".join(filters)
 
-        cmd = base + [
+        # Full-resolution raw pipe
+        cmd: list[str] = base + [
             "-filter_complex", filter_graph,
             "-map", "[full]",
             "-f", "rawvideo",
@@ -541,7 +546,8 @@ class FrameReader(Reader):
             "pipe:1",
         ]
 
-        if filespec is not None:
+        # Optional segment recording (copy original encoded video)
+        if filespec is not None and segment_mode:
             cmd += [
                 "-map", "0:v",
                 "-c:v", "copy",
@@ -553,6 +559,7 @@ class FrameReader(Reader):
                 filespec,
             ]
 
+        # Optional YOLO raw pipe
         if need_yolo_pipe:
             cmd += [
                 "-map", "[yolo]",
@@ -562,7 +569,6 @@ class FrameReader(Reader):
             ]
 
         return cmd
-
 
     def _needs_yolo_pipe(self) -> bool:
         return not (

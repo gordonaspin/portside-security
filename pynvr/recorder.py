@@ -144,9 +144,9 @@ class FrameRecorder:
         self.start_thread()
 
     def seed_buffer(self):
-        # Seed the recording queue with a snapshot of the current pre-buffer
-        self.record_queue = deque(list(self.rolling_buffer)[:(self.fps.as_int() if self.fps.as_int() > 0 else 20) * self.recorder_config["pre_duration"]])
-            
+        N = (self.fps.as_int() if self.fps.as_int() > 0 else 20) * self.recorder_config["pre_duration"]
+        self.record_queue = deque(list(self.rolling_buffer)[-N:])
+           
     def start_thread(self):
         # Spawn the thread
         self.thread = threading.Thread(

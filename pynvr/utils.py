@@ -212,9 +212,11 @@ def classify_color_lab(lab_color):
     if L < 35:
         return "black"
 
-    if chroma < 12:
-        if L > 180:
+    if chroma < 10:
+        if L > 75:
             return "white"
+        if L > 40:
+            return "light_gray"
         return "gray"
 
     # -----------------------------------------

@@ -4,12 +4,10 @@
 FROM python:3.12-slim AS builder
 
 # 1. Install system tools and dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN apt-get update && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
     tzdata \
     bash \
-    vim \
-    git \
-    python3-tk \
     ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 

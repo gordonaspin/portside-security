@@ -89,7 +89,7 @@ Configuration is provided in a nvr.json file. "model.resolution" specifies the [
     "processor": {
         "detect_every_nth_frame": 1,
         "device": "cuda",
-        "night_check_period" :5,
+        "night_check_period": 5,
         "recorder": {
             "startup_delay": 15,
             "pre_duration": 3,
