@@ -48,7 +48,8 @@ class FrameReader(Reader):
 
         self.process: subprocess.Popen | None = None
         self.yolo_pipe: None | object = None  # file object for YOLO pipe
-        self.yolo_fd_write: int | None = None
+        self.yolo_read_fd: int | None = None
+        self.yolo_write_fd: int | None = None
         self.log_filename: str | None = None
         self.log_file: object | None = None
 
@@ -62,8 +63,9 @@ class FrameReader(Reader):
         self.dt: RollingAverage = RollingAverage()
 
         # For corruption detection
-        self._prev_full_mean: float = 0.0
-        self._prev_full_frame: NDArray[np.uint8] | None = None
+        self._prev_mean: float | None = None
+        self._prev_frame: NDArray[np.uint8] | None = None
+        self._diff_buf_row: NDArray[np.uint8] | None = None
 
     @override
     def start(self):
@@ -73,6 +75,7 @@ class FrameReader(Reader):
         if self.thread and self.thread.is_alive():
             return
 
+        self.stop_event.clear()
         self.thread = Thread(target=self._run, daemon=True)
         self.thread.start()
 
@@ -99,13 +102,9 @@ class FrameReader(Reader):
                 time.sleep(30.0)
                 continue
 
-            # Reader loop: runs until stall, EOF, or stop_event
             self._frame_reader_loop()
-
-            # Clean up process and pipes before next attempt
             self._cleanup_process()
 
-            # Small backoff to avoid tight restart loops
             if not self.stop_event.is_set():
                 time.sleep(30.0)
 
@@ -113,8 +112,9 @@ class FrameReader(Reader):
 
     def _cleanup_process(self):
         """
-        Internal cleanup: terminate FFmpeg, close pipes/logs, reset camera state.
+        Internal cleanup: terminate FFmpeg, close pipes/logs, reset state.
         """
+        # Process and stdout
         if self.process is not None:
             ret = self.process.poll()
             log_event(
@@ -122,25 +122,42 @@ class FrameReader(Reader):
                 level="info",
                 camera=self.camera,
             )
-
             try:
                 self.process.terminate()
                 self.process.wait(timeout=2)
             except Exception:
-                self.process.kill()
+                try:
+                    self.process.kill()
+                except Exception:
+                    pass
 
-            if self.process.stdout:
+            if self.process.stdout is not None:
                 try:
                     self.process.stdout.close()
                 except Exception:
                     pass
 
+        # YOLO file object
         if self.yolo_pipe is not None:
             try:
                 self.yolo_pipe.close()
             except Exception:
                 pass
 
+        # Raw YOLO FDs (in case fdopen/close never happened)
+        if self.yolo_read_fd is not None:
+            try:
+                os.close(self.yolo_read_fd)
+            except Exception:
+                pass
+
+        if self.yolo_write_fd is not None:
+            try:
+                os.close(self.yolo_write_fd)
+            except Exception:
+                pass
+
+        # Log file
         if self.log_file is not None:
             try:
                 self.log_file.close()
@@ -149,7 +166,8 @@ class FrameReader(Reader):
 
         self.process = None
         self.yolo_pipe = None
-        self.yolo_fd_write = None
+        self.yolo_read_fd = None
+        self.yolo_write_fd = None
         self.log_file = None
 
     @override
@@ -158,15 +176,14 @@ class FrameReader(Reader):
         Public stop: signal thread and clean up process.
         """
         self.stop_event.set()
-        self.thread.join()
+        if self.thread is not None:
+            self.thread.join()
+        self._cleanup_process()
 
     @override
     def get_frame(self) -> NDArray[np.uint8] | None:
         """
         Retrieve the latest frame from the camera queue.
-        - latest-frame-wins
-        - drop frames if queue is full
-        - timeout every 0.5s so thread can exit cleanly
         """
         try:
             frame: NDArray[np.uint8] = self.frame_queue.get(timeout=0.5)
@@ -178,34 +195,25 @@ class FrameReader(Reader):
         if self.stop_event.is_set():
             return
 
-        # Determine if we need a second pipe for YOLO frames
         need_yolo_pipe = self._needs_yolo_pipe()
 
-        # Segment file path (if enabled)
         filespec = (
             os.path.join(self.camera.config.segments_dir, "%Y%m%d_%H%M%S.ts")
             if self.produce_segments
             else None
         )
 
-        # ------------------------------------------------------------
-        # YOLO PIPE SETUP
-        # ------------------------------------------------------------
-        yolo_fd_read = None
-        yolo_fd_write = None
+        self.yolo_read_fd = None
+        self.yolo_write_fd = None
 
         if need_yolo_pipe:
-            yolo_fd_read, yolo_fd_write = self._make_yolo_pipe()
-            self.yolo_fd_write = yolo_fd_write
+            self.yolo_read_fd, self.yolo_write_fd = self._make_yolo_pipe()
 
-        # ------------------------------------------------------------
-        # BUILD FFMPEG COMMAND
-        # ------------------------------------------------------------
         ffmpeg_cmd = self.build_ffmpeg_cmd(
             url=self.camera.config.url,
             filespec=filespec,
             segment_mode=self.produce_segments,
-            yolo_fd=yolo_fd_write,
+            yolo_fd=self.yolo_write_fd,
         )
 
         self.log_filename = os.path.join(
@@ -223,54 +231,67 @@ class FrameReader(Reader):
         )
         self.log_file.flush()
 
-        if need_yolo_pipe:
-            log_event(
-                message="starting dual-pipe FrameReader",
-                level="info",
-                camera=self.camera,
-            )
+        try:
+            if need_yolo_pipe:
+                log_event(
+                    message="starting dual-pipe FrameReader",
+                    level="info",
+                    camera=self.camera,
+                )
 
-            process = subprocess.Popen(
-                ffmpeg_cmd,
-                stdin=subprocess.DEVNULL,
-                stdout=subprocess.PIPE,      # actual-res frames
-                stderr=self.log_file,             # FFmpeg logs
-                pass_fds=(yolo_fd_write,),   # yolo-res frames on separate pipe
-                bufsize=0,
-            )
+                process = subprocess.Popen(
+                    ffmpeg_cmd,
+                    stdin=subprocess.DEVNULL,
+                    stdout=subprocess.PIPE,
+                    stderr=self.log_file,
+                    pass_fds=(self.yolo_write_fd,),
+                    bufsize=0,
+                )
 
-            # Parent does not write to YOLO pipe
-            os.close(yolo_fd_write)
-            self.yolo_fd_write = None
+                # Parent does not write to YOLO pipe
+                if self.yolo_write_fd is not None:
+                    os.close(self.yolo_write_fd)
+                    self.yolo_write_fd = None
 
-            # Open read-end for Python
-            self.yolo_pipe = os.fdopen(yolo_fd_read, "rb", buffering=0)
-        else:
-            log_event(
-                message="starting single-pipe FrameReader",
-                level="info",
-                camera=self.camera,
-            )
+                # Wrap read-end
+                self.yolo_pipe = os.fdopen(self.yolo_read_fd, "rb", buffering=0)
+            else:
+                log_event(
+                    message="starting single-pipe FrameReader",
+                    level="info",
+                    camera=self.camera,
+                )
 
-            process = subprocess.Popen(
-                ffmpeg_cmd,
-                stdin=subprocess.DEVNULL,
-                stdout=subprocess.PIPE,    # actual-res frames (also used for YOLO in single-pipe mode)
-                stderr=self.log_file,             # FFmpeg logs
-                bufsize=0,
-            )
+                process = subprocess.Popen(
+                    ffmpeg_cmd,
+                    stdin=subprocess.DEVNULL,
+                    stdout=subprocess.PIPE,
+                    stderr=self.log_file,
+                    bufsize=0,
+                )
 
-            self.yolo_pipe = None
+                self.yolo_pipe = None
+        except Exception:
+            # On failure, ensure raw FDs are closed
+            if self.yolo_read_fd is not None:
+                try:
+                    os.close(self.yolo_read_fd)
+                except Exception:
+                    pass
+                self.yolo_read_fd = None
+            if self.yolo_write_fd is not None:
+                try:
+                    os.close(self.yolo_write_fd)
+                except Exception:
+                    pass
+                self.yolo_write_fd = None
+            raise
 
         self.process = process
 
     def _frame_reader_loop(self):
         """
-        Reads frames from FFmpeg until:
-        - stall (repeated timeouts)
-        - EOF / process exit
-        - stop_event set
-        Then returns to let _run() restart.
+        Reads frames from FFmpeg until stall/EOF/stop_event.
         """
         if self.process is None or self.process.stdout is None:
             return
@@ -283,10 +304,7 @@ class FrameReader(Reader):
             and self.process.stdout is not None
             and not self.process.stdout.closed
         ):
-
-            # ------------------------------------------------------------
-            # 1. Read FULL-RES frame (always required)
-            # ------------------------------------------------------------
+            # 1. Full-res frame
             raw_full = self._read_exact(
                 self.process.stdout.fileno(),
                 self.camera.buffers.read_view_full,
@@ -294,10 +312,8 @@ class FrameReader(Reader):
             )
 
             if raw_full is None:
-                # Soft failure: timeout or short read
                 fail_count += 1
 
-                # If FFmpeg actually died, bail out and let restart logic handle it
                 if self.process.poll() is not None:
                     log_event(
                         message="ffmpeg exited, breaking reader loop",
@@ -306,7 +322,6 @@ class FrameReader(Reader):
                     )
                     break
 
-                # Too many consecutive soft failures → restart
                 if fail_count >= 10:
                     log_event(
                         message="full-res reader stalled, restarting after repeated timeouts",
@@ -317,20 +332,15 @@ class FrameReader(Reader):
 
                 continue
 
-            # Got a good frame → reset failure counter
             fail_count = 0
 
-            # Copy raw bytes into preallocated NumPy frame
             self.camera.buffers.full_frame_bytes[:] = raw_full
             full_frame = self.camera.buffers.full_frame
 
-            # Optional corruption detection
             if self._looks_corrupted(full_frame):
                 continue
 
-            # ------------------------------------------------------------
-            # 2. Read YOLO frame (only in dual-pipe mode)
-            # ------------------------------------------------------------
+            # 2. YOLO frame
             if (
                 self.yolo_pipe is not None
                 and self.camera.buffers.read_view_yolo is not None
@@ -342,10 +352,8 @@ class FrameReader(Reader):
                 )
 
                 if raw_yolo is None:
-                    # Soft failure: timeout or short read
                     fail_count += 1
 
-                    # If FFmpeg actually died, bail out and let restart logic handle it
                     if self.process.poll() is not None:
                         log_event(
                             message="ffmpeg exited, breaking YOLO reader loop",
@@ -354,7 +362,6 @@ class FrameReader(Reader):
                         )
                         break
 
-                    # Too many consecutive soft failures → restart
                     if fail_count >= 10:
                         log_event(
                             message="yolo reader stalled, restarting after repeated timeouts",
@@ -365,18 +372,15 @@ class FrameReader(Reader):
 
                     continue
 
-                # Got a good frame → reset failure counter
+                    # if we continue, we skip this frame entirely
                 fail_count = 0
 
                 self.camera.buffers.yolo_frame_bytes[:] = raw_yolo
                 self.camera.buffers.yolo_frame = self.camera.buffers.yolo_frame
             else:
-                # Single-pipe mode: YOLO frame == full frame
                 self.camera.buffers.yolo_frame = full_frame
 
-            # ------------------------------------------------------------
-            # 3. FPS calculation
-            # ------------------------------------------------------------
+            # 3. FPS
             now = time.perf_counter()
             if self.last_frame_time > 0:
                 dt = now - self.last_frame_time
@@ -385,9 +389,7 @@ class FrameReader(Reader):
                     self.fps.update(1.0 / self.dt.value())
             self.last_frame_time = now
 
-            # ------------------------------------------------------------
-            # 4. Queue handling (latest-frame-wins)
-            # ------------------------------------------------------------
+            # 4. Queue (latest-frame-wins)
             if self.frame_queue.full():
                 try:
                     self.frame_queue.get_nowait()
@@ -403,12 +405,9 @@ class FrameReader(Reader):
 
     def _read_exact(self, fd, view, size, timeout=2.0):
         """
-        Reads exactly `size` bytes into the provided memoryview `view`.
-        Returns:
-            view[:size] on success
-            None on timeout or EOF
+        Reads exactly `size` bytes into `view`.
+        Returns view[:size] on success, None on timeout/EOF.
         """
-
         total = 0
         deadline = time.time() + timeout
 
@@ -436,8 +435,7 @@ class FrameReader(Reader):
 
     def _looks_corrupted(self, frame: NDArray[np.uint8]) -> bool:
         """
-        Lightweight corruption detector to skip obviously bad frames
-        caused by partial reads or mixed-frame boundaries.
+        Lightweight corruption detector to skip obviously bad frames.
         """
         mean = float(frame.mean())
 
@@ -449,19 +447,25 @@ class FrameReader(Reader):
             return True
 
         # Exposure jump / I-frame jump
-        if hasattr(self, '_prev_mean') and abs(mean - self._prev_mean) > 80:
-            logger.warning(f"{self.camera.config.name} exposure jump > 80 - Detected exposure jump, dropping")
+        if self._prev_mean is not None and abs(mean - self._prev_mean) > 80:
+            logger.warning(
+                f"{self.camera.config.name} exposure jump > 80 - Detected exposure jump, dropping"
+            )
+            self._prev_mean = mean
+            self._prev_frame = frame.copy()
             return True
 
-        if hasattr(self, "_prev_frame") and self._prev_frame is not None:
+        if self._prev_frame is not None:
             diff = cv2.absdiff(frame, self._prev_frame)
             if diff.mean() > 120.0:
                 logger.warning(
                     f"{self.camera.config.name} diff.mean={diff.mean():.2f} - Detected corrupted frame, dropping"
                 )
+                self._prev_mean = mean
+                self._prev_frame = frame.copy()
                 return True
 
-            if not hasattr(self, "_diff_buf_row"):
+            if self._diff_buf_row is None:
                 self._diff_buf_row = np.zeros((frame.shape[1], 3), dtype=np.uint8)
 
             cv2.absdiff(frame[0], self._prev_frame[0], dst=self._diff_buf_row)
@@ -470,6 +474,8 @@ class FrameReader(Reader):
                 logger.warning(
                     f"{self.camera.config.name} continuity_diff.mean={continuity_diff:.2f} - Detected corrupted frame, dropping"
                 )
+                self._prev_mean = mean
+                self._prev_frame = frame.copy()
                 return True
 
         self._prev_mean = mean
@@ -488,7 +494,6 @@ class FrameReader(Reader):
         yolo_w = self.model_width
         yolo_h = self.model_height
 
-        # Do we need a separate YOLO pipe (i.e., a second branch)?
         need_yolo_pipe = not (actual_w == yolo_w and actual_h == yolo_h)
 
         if need_yolo_pipe and yolo_fd is None:
@@ -497,7 +502,6 @@ class FrameReader(Reader):
         full_block = actual_w * actual_h * 3
         yolo_block = yolo_w * yolo_h * 3
 
-        # Base input and global options
         base: list[str] = [
             "ffmpeg",
             "-rtsp_transport", "tcp",
@@ -511,19 +515,15 @@ class FrameReader(Reader):
             "-nostats",
         ]
 
-        # Build filter graph
         filters: list[str] = []
 
         if need_yolo_pipe:
-            # Two-branch graph: full + YOLO
             filters.append("[0:v]split[full_in][yolo_in]")
             filters.append("[full_in]format=bgr24[full]")
 
             if actual_w == yolo_w and actual_h == yolo_h:
-                # Same size, just format
                 filters.append("[yolo_in]format=bgr24[yolo]")
             else:
-                # Letterbox to YOLO size, then BGR24
                 filters.append(
                     "[yolo_in]"
                     f"scale={yolo_w}:-1:force_original_aspect_ratio=decrease,"
@@ -532,12 +532,10 @@ class FrameReader(Reader):
                     "format=bgr24[yolo]"
                 )
         else:
-            # Single-branch graph: only full
             filters.append("[0:v]format=bgr24[full]")
 
         filter_graph = ";".join(filters)
 
-        # Full-resolution raw pipe
         cmd: list[str] = base + [
             "-filter_complex", filter_graph,
             "-map", "[full]",
@@ -546,7 +544,6 @@ class FrameReader(Reader):
             "pipe:1",
         ]
 
-        # Optional segment recording (copy original encoded video)
         if filespec is not None and segment_mode:
             cmd += [
                 "-map", "0:v",
@@ -559,7 +556,6 @@ class FrameReader(Reader):
                 filespec,
             ]
 
-        # Optional YOLO raw pipe
         if need_yolo_pipe:
             cmd += [
                 "-map", "[yolo]",

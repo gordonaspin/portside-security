@@ -543,9 +543,8 @@ class FFmpegSegmentRecorder(FrameRecorder):
             end_time=self.final_end_time,
         )
 
-        if self.segments:
-            logger.debug(f"{self.camera.config.name} {self.name} captured {len(self.segments)} segments for recording")
-            super().stop_recording()  # This will signal the worker to start merging
+        logger.debug(f"{self.camera.config.name} {self.name} captured {len(self.segments)} segments for recording")
+        super().stop_recording()  # This will signal the worker to start merging
 
 
     def _async_writer_worker(self):
@@ -557,12 +556,12 @@ class FFmpegSegmentRecorder(FrameRecorder):
         self.event.wait()
         self.event.clear()
 
+        self.list_filename = self.final_media_filename + ".list"
+
         if not self.segments:
             # Nothing to merge → nothing to record
             return
         
-        self.list_filename = self.final_media_filename + ".list"
-
         # Protect these segments from cleanup while we merge
         FileCleaner.do_not_delete_set.update(self.segments)
 
