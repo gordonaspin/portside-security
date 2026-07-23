@@ -219,7 +219,7 @@
         {#each cameras.filter(c => c.name === currentCamera) as cam}
           <div class="overlay-cell">
             <div class="overlay-text-block">
-              <div class="status-text { $cameraStatusStore[cam.name]?.recording ? 'recording' : 'live' }">
+              <div class="status-text { $cameraStatusStore[cam.name]?.streaming_state === 'STREAMING_NORMAL' ? ($cameraStatusStore[cam.name]?.recording ? 'recording' : 'live') : 'offline' }">
                 {$cameraStatusStore[cam.name]?.status}
               </div>
               {#if $cameraStatusStore[cam.name]?.objects?.length > 0}
@@ -234,7 +234,7 @@
         {#each cameras as cam}
           <div class="overlay-cell">
             <div class="overlay-text-block">
-              <div class="status-text { $cameraStatusStore[cam.name]?.recording ? 'recording' : 'live' }">
+              <div class="status-text { $cameraStatusStore[cam.name]?.streaming_state === 'STREAMING_NORMAL' ? ($cameraStatusStore[cam.name]?.recording ? 'recording' : 'live') : 'offline' }">
                 {$cameraStatusStore[cam.name]?.status}
               </div>
               {#if $cameraStatusStore[cam.name]?.objects?.length > 0}
@@ -317,5 +317,11 @@ video {
 }
 .status-text.live {
   background: rgba(0, 140, 0, 0.75); /* green */
+}
+.status-text.live {
+  background: rgba(0, 140, 0, 0.75); /* green */
+}
+.status-text.offline {
+  background: rgba(100, 100, 100, 0.75); /* gray */
 }
 </style>

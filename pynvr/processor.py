@@ -14,6 +14,8 @@ from numpy.typing import NDArray
 from ultralytics import YOLO
 from ultralytics.engine.results import Results
 
+from pynvr.constants import StreamingState
+
 from .camera.camera import Camera
 from .debug_panel import draw_debug_panels
 from .logger import log_event
@@ -59,7 +61,8 @@ class FrameProcessor:
         self.stop_event: Event = stop_event
         self.thread: Thread | None = None
         self.frame_count: int = 0
-        self.status_text: str = "Not streaming"
+        self.streaming_state: StreamingState = StreamingState.STREAMING_INIT
+        self.streaming_status_text: str = "Streaming not started"
         self.objects_text: str = ""
         self.last_night_time_check: float = time.time()
         self.last_yolo_result = None
@@ -87,8 +90,14 @@ class FrameProcessor:
             # --- FRAME ACQUISITION ---
             frame_bgr = self.reader.get_frame()
             if frame_bgr is None:
-                self.status_text: str = "Not streaming"
+                if self.streaming_state == StreamingState.STREAMING_INIT:
+                    pass
+                elif self.streaming_state == StreamingState.STREAMING_NORMAL:
+                    self.streaming_state = StreamingState.STREAMING_STOPPED
+                    self.streaming_status_text: str = "Streaming stopped (no frame)"
                 continue
+
+            self.streaming_state = StreamingState.STREAMING_NORMAL
 
             yolo_frame = self.camera.buffers.yolo_frame
             if yolo_frame is None:
@@ -174,7 +183,7 @@ class FrameProcessor:
         parts.append(make_readable_ts(time.time()))
 
         self.objects_text = tags_to_str(self.camera.motion.active_objects_dict)
-        self.status_text = " | ".join(parts)
+        self.streaming_status_text = " | ".join(parts)
 
     # ----------------------------------------------------------------------
     # Night/day detection (no gray_buf)

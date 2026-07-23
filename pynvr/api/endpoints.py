@@ -18,6 +18,7 @@ from ..utils import ConfigValue
 from ..logger import log_event, event_log
 from ..nvr import NVR
 from ..webrtc import CameraTrack, MosaicTrack
+from ..constants import StreamingState
 
 logger = getLogger("pynvr")
 
@@ -384,7 +385,9 @@ def create_app(config: dict, nvr: NVR):
                 for processor in nvr.frame_processors.values():
                     data = {
                         "name": processor.camera.config.name,
-                        "status": processor.status_text,
+                        "streaming_state": processor.streaming_state.name,
+                        "streaming_state_value": processor.streaming_state.value,
+                        "status": processor.streaming_status_text,
                         "objects": processor.objects_text,
                         "recording": processor.camera.recording_state.recording
                     }

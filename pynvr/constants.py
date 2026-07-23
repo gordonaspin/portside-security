@@ -19,3 +19,12 @@ class ExitCode(Enum):
     EXIT_FAILED_NOT_A_DIRECTORY: int = auto()
     EXIT_FAILED_MISSING_COMMAND: int = auto()
 
+
+class StreamingState(Enum):
+    """
+    StreamingState definitions
+    """
+    STREAMING_INIT: int = 0
+    STREAMING_NORMAL: int = auto()
+    STREAMING_STOPPED: int = auto()
+    STREAMING_FAILED: int = auto()
