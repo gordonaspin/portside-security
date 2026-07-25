@@ -27,6 +27,7 @@
     const source = new EventSource('/api/stream', { withCredentials: true });
     es = source;
 
+    log("Event stream started for user:", data.user);
     source.onopen = () => serverOffline.set(false);
 
     source.onerror = () => {
@@ -42,6 +43,7 @@
 
     source.addEventListener("newEvent", (ev) => {
       const event: RecordingEvent = JSON.parse(ev.data).data;
+      log("New event received:", event);
       addEvent(event);
       enqueueAuto(event)
     });

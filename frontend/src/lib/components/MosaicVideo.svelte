@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount, onDestroy } from "svelte";
-  import { debug, log, error } from "$lib/stores/logging";
+  import { log, error } from "$lib/stores/logging";
   import { safeFetch } from '$lib/network/safeFetch';
   import { cameraStatusStore } from "$lib/stores/cameraStatus";
   import { serverOffline } from '$lib/stores/connection';
@@ -22,6 +22,7 @@
 
   async function loadCameras() {
     try {
+      log("Loading cameras...");
       const res = await safeFetch("/api/cameras", { credentials: "include" });
       cameras = await res.json();
     } catch (err) {
@@ -35,14 +36,17 @@
       const dimensions = await res.json();
       mosaicRows = dimensions.rows;
       mosaicCols = dimensions.columns;
+      log("Loading mosaic dimensions:", dimensions);
 
     } catch (err) {
-      error("Failed to load cameras:", err);
+      error("Failed to load mosaic dimensions:", err);
     }
   }
 
   function attachVideoTrack(videoEl, stream) {
     if (!videoEl) return;
+
+    log("Attaching video stream:", stream);
     videoEl.srcObject = stream;
     videoEl.muted = true;
     videoEl.play().catch(() => {});
@@ -56,6 +60,7 @@
   async function startMosaic() {
     mosaicTitle = "All Cameras";
 
+    log("Starting mosaic view");
     if (focusPC) {
       focusPC.close();
       focusPC = null;
@@ -100,6 +105,7 @@
   async function startFocusedCamera(name) {
     mosaicTitle = name;
 
+    log("Starting focused camera:", name);
     if (mosaicPC) {
       mosaicPC.close();
       mosaicPC = null;

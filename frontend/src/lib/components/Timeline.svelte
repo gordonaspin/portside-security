@@ -58,6 +58,7 @@
   let tapStart: { x: number; y: number; time: number } | null = null;
 
   $: if (selectedEvent) {
+    log("Selected event:", selectedEvent);
     currentEvent.set(selectedEvent);
   }
 
@@ -107,6 +108,7 @@
     const res = await safeFetch("/api/server_time", { credentials: "include" });
     const data = await res.json();
     serverNow = data.epoch;
+    log("Loaded server time:", serverNow);
   }
 
   async function loadClasses() {
@@ -114,6 +116,7 @@
     const data = await res.json();
     classes = data.classes;
 
+    log("Loaded classes:", classes);
     const palette = [
       "#ff4444",
       "#4488ff",
@@ -133,6 +136,7 @@
 
   async function loadCameras() {
     const res = await safeFetch("/api/cameras", { credentials: "include" });
+    log("Loaded cameras:", res);
     cameras = await res.json();
   }
 
@@ -143,6 +147,7 @@
     const res = await safeFetch(url, { credentials: "include" });
     const data = await res.json();
 
+    log("Fetched events for window:", { start, end, count: data.events.length });
     eventStore.set(data.events);
   }
 
@@ -197,6 +202,14 @@
 
     ctx.clearRect(0, 0, w, h);
 
+    log("Drawing timeline:", {
+      width: w,
+      height: h,
+      zoomHours,
+      offsetSeconds,
+      serverNow,
+      selectedEventId
+    });
     drawBackground(w, h);
     drawLegend();
     drawTimeTicks(w);

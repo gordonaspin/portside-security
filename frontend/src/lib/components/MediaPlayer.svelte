@@ -35,6 +35,7 @@
 
     await tick();
 
+    log("Playing recording:", ev);
     // Load and play new video
     videoEl.src = ev.media_filename + `?t=${Date.now()}`;
 
@@ -57,6 +58,7 @@
     const ev  = $currentEvent;
     if (!ev) return;
 
+    log("Video ended for event:", ev);
     if (videoEl.src.includes(ev.media_filename)) {
       currentEvent.set(null);
     }

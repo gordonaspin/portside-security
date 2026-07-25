@@ -389,7 +389,9 @@ def create_app(config: dict, nvr: NVR):
                         "streaming_state_value": processor.streaming_state.value,
                         "status": processor.streaming_status_text,
                         "objects": processor.objects_text,
-                        "recording": processor.camera.recording_state.recording
+                        "recording": processor.camera.recording_state.recording,
+                        "reader_fps": processor.reader.fps.as_int(),
+                        "recorder_fps": processor.recorder.fps.as_int(),
                     }
                     payload = {"type": "cameraStatus", "data": data}
 

@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { safeFetch } from "$lib/network/safeFetch";
-  import { log } from "$lib/stores/logging";
+  import { debug, log } from "$lib/stores/logging";
 
   let cameras = [];
   let selectedCamera = null;
@@ -25,14 +25,23 @@
       selectedCamera = cameras[0].name;
       await loadCameraSettings(selectedCamera);
     }
+
+    await loadVerboseDebug();
   });
 
+  async function loadVerboseDebug() {
+    const res = await safeFetch("/api/settings/debug", { credentials: "include" });
+    const data = await res.json();
+
+    console.log("[PYNVR] Loaded verbose debug setting:", data.value);
+    debug.set(data.value);
+  }
   // -----------------------------
   // Load settings for a camera
   // -----------------------------
   async function loadCameraSettings(name) {
     loading = true;
-
+    log("Loading settings for camera", name);
     const res = await safeFetch(`/api/cameras/${name}/settings`);
     const s = await res.json();
 
@@ -48,6 +57,7 @@
   async function updateSetting(key, value) {
     if (!selectedCamera) return;
 
+    log("Updating setting for", selectedCamera, key, "to", value);
     // Update local state (reactive)
     settings = {
       ...settings,
@@ -68,6 +78,7 @@
   async function updateClassToggle(className: string, value: boolean) {
     if (!selectedCamera) return;
 
+    log("Updating class toggle for", selectedCamera, className, "to", value);
     settings = {
       ...settings,
       classes: {
@@ -94,16 +105,18 @@
   // -----------------------------
   // Debug toggles
   // -----------------------------
-  async function updateDebug() {
+  async function updateDebug(value) {
+    console.log("[PYNVR] Updating verbose debug to", value);
     await safeFetch("/api/settings/debug", {
       credentials: "include",
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ value: Boolean(verboseDebug) })
+      body: JSON.stringify({ value: value })
     });
   }
 
   async function updateCameraDebug(name) {
+    log("Updating camera debug for", name, "to", cameraDebug[name]);
     await safeFetch(`/api/settings/debug/${name}`, {
       credentials: "include",
       method: "POST",
@@ -254,8 +267,8 @@
         <label class="verbose-label">
           <input
             type="checkbox"
-            bind:checked={verboseDebug}
-            on:change={() => updateDebug()}
+            bind:checked={$debug}
+            on:change={() => updateDebug($debug)}
           />
           Verbose Logging
         </label>

@@ -25,8 +25,7 @@
     const link = e.target.closest("a");
     if (!link) return;
 
-    log("clicked event object:", e);
-    log("object identity:", e, "id:", e.id);
+    log("clicked event object identity:", e, "id:", e.id);
 
     e.preventDefault();
     const url = link.getAttribute("href");   // <-- sync only
@@ -44,6 +43,7 @@
   async function loadSelectedEvent(url) {
     await tick(); // ensure DOM stable
 
+    log("Loading event metadata for", url);
     // Fetch metadata for the clicked log entry
     const res = await safeFetch(url, { credentials: "include"});
     const meta: RecordingEvent = await res.json();

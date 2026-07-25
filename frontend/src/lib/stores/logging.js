@@ -1,6 +1,6 @@
 import { writable } from "svelte/store";
 
-export const debug = writable(true);
+export const debug = writable(false);
 
 export function log(...a) {
   debug.update(d => {
