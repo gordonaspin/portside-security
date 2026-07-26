@@ -9,7 +9,6 @@
   // All settings live here
   let settings = {};
   let cameraDebug = {};
-  let verboseDebug = false;
 
   let loading = false;
 

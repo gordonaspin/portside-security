@@ -201,6 +201,53 @@
     mosaicPC?.close();
     focusPC?.close();
   });
+
+
+  function getCameraStatus(camera) {
+    const status = $cameraStatusStore[camera.name];
+    if (!status) return [];   // store not ready yet
+
+    let parts = [];
+    
+    if (status?.state !== "STREAMING_NORMAL") {
+      parts.push('Offline');
+    }
+    else {
+      parts.push(`${status?.recording ? 'REC' : "LIVE"}`);
+      parts.push(`FPS ${status?.record_fps}/${status?.read_fps}`);
+      
+      if (status?.night) {
+        parts.push("Night");
+      }
+    }
+    const date = new Date(status?.ts * 1000);
+    parts.push(`${date.toLocaleTimeString()}`);
+
+    return parts.join(" | ");
+  }
+
+  function getCameraClass(camera) {
+    const status = $cameraStatusStore[camera.name];
+    if (!status) return "offline";
+
+    if (status.recording) {
+      log("Camera recording:", camera.name, ":", status);
+    }
+    if (status.state === "STREAMING_NORMAL") {
+      return status.recording ? "recording" : "live";
+    } else {
+      return "offline";
+    }
+  }
+
+  function getCameraObjects(camera) {
+    const status = $cameraStatusStore[camera.name];
+    if (!status || !status.objects_dict) return [];
+
+    return Object.entries(status.objects_dict)
+              .map(([label, colors]) => `${label}: ${colors.join(", ")}`)
+              .join("; ");
+  }
 </script>
 <h3 class="mosaic-title">{mosaicTitle}</h3>
 <div class="mosaic-container">
@@ -222,34 +269,38 @@
        grid-template-rows: repeat({isFocusMode ? 1 : mosaicRows}, 1fr);
      ">
       {#if isFocusMode}
-        {#each cameras.filter(c => c.name === currentCamera) as cam}
-          <div class="overlay-cell">
-            <div class="overlay-text-block">
-              <div class="status-text { $cameraStatusStore[cam.name]?.streaming_state === 'STREAMING_NORMAL' ? ($cameraStatusStore[cam.name]?.recording ? 'recording' : 'live') : 'offline' }">
-                {$cameraStatusStore[cam.name]?.status}
-              </div>
-              {#if $cameraStatusStore[cam.name]?.objects?.length > 0}
-                <div class="objects-text">
-                  {$cameraStatusStore[cam.name]?.objects}
+        {#each cameras.filter(c => c.name === currentCamera) as camera}
+          {#key $cameraStatusStore[camera.name]?.ts}
+            <div class="overlay-cell">
+              <div class="overlay-text-block">
+                <div class="status-text { getCameraClass(camera) }">
+                  {getCameraStatus(camera)}
                 </div>
-              {/if}
+                {#if getCameraObjects(camera)?.length > 0}
+                  <div class="objects-text">
+                    {getCameraObjects(camera)}
+                  </div>
+                {/if}
+              </div>
             </div>
-          </div>
+          {/key}
         {/each}
       {:else}
-        {#each cameras as cam}
-          <div class="overlay-cell">
-            <div class="overlay-text-block">
-              <div class="status-text { $cameraStatusStore[cam.name]?.streaming_state === 'STREAMING_NORMAL' ? ($cameraStatusStore[cam.name]?.recording ? 'recording' : 'live') : 'offline' }">
-                {$cameraStatusStore[cam.name]?.status}
-              </div>
-              {#if $cameraStatusStore[cam.name]?.objects?.length > 0}
-                <div class="objects-text">
-                  {$cameraStatusStore[cam.name]?.objects}
+        {#each cameras as camera}
+          {#key $cameraStatusStore[camera.name]?.ts}
+            <div class="overlay-cell">
+              <div class="overlay-text-block">
+                <div class="status-text { getCameraClass(camera) }">
+                  {getCameraStatus(camera)}
                 </div>
-              {/if}
+                {#if getCameraObjects(camera)?.length > 0}
+                  <div class="objects-text">
+                    {getCameraObjects(camera)}
+                  </div>
+                {/if}
+              </div>
             </div>
-          </div>
+          {/key}
         {/each}
       {/if}
     </div>

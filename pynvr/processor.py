@@ -152,7 +152,7 @@ class FrameProcessor:
                 self._update_recording_state(now)
 
             # 1. Build status text strings
-            self._update_status_strings()
+            #self._update_status_strings()
 
             # 2. Build debug UI if camera.debug
             self._render_debug_ui(frame_bgr, yolo_result)
@@ -193,6 +193,8 @@ class FrameProcessor:
             return
 
         self.camera.is_night = self._is_night_time(frame_bgr)
+        if isinstance(self.camera.is_night, np.bool_):
+            self.camera.is_night = bool(self.camera.is_night)
         self.last_night_time_check = now
 
     def _is_night_time(
@@ -211,7 +213,7 @@ class FrameProcessor:
         chroma = np.mean(np.abs(r - g)) + np.mean(np.abs(g - b))
         ir_mode_on = chroma < ir_chroma_threshold
 
-        return (avg_luma < luma_threshold) or ir_mode_on
+        return bool((avg_luma < luma_threshold) or ir_mode_on)
 
     # ----------------------------------------------------------------------
     # YOLO inference

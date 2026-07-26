@@ -164,6 +164,10 @@ class MotionDetector:
         """Called when recording stops."""
         self.active_objects_dict.clear()
 
+    def get_active_objects(self):
+        """Return a dict of active objects for the current recording."""
+        return {k: list(v) for k, v in self.active_objects_dict.items()}
+
     # ----------------------------------------------------------------------
     # DEBUG / INSPECTION
     # ----------------------------------------------------------------------

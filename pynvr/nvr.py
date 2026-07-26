@@ -31,7 +31,7 @@ class NVR:
 
         self.cameras: dict[str, Camera] = {}
         self.frame_readers: dict[str, Reader] = {}
-        self.frame_processors: dict[str, FrameProcessor] = {}
+        self.processors: dict[str, FrameProcessor] = {}
         self.recordings: ThreadSafeList = ThreadSafeList()
 
         camera_resolutions = self.get_all_camera_resolutions(config["cameras"])
@@ -57,7 +57,7 @@ class NVR:
                 model_config=config["model"]["resolution"],
                 produce_segments=config["cameras"][name]["recorder"] == "FFmpegSegment",
                 stop_event=self.stop_event)
-            self.frame_processors[name] = FrameProcessor(
+            self.processors[name] = FrameProcessor(
                 config=config["processor"],
                 camera=camera,
                 reader=reader,
@@ -91,7 +91,7 @@ class NVR:
             for camera in self.cameras.values():
                 if camera.config.enabled:
                     self.frame_readers[camera.config.name].start()
-                    self.frame_processors[camera.config.name].start()
+                    self.processors[camera.config.name].start()
 
 
     def stop(self):
@@ -99,7 +99,7 @@ class NVR:
         Stop the NVR
         """
         log_event(message="stopping NVR processors", level="info")
-        for processor in self.frame_processors.values():
+        for processor in self.processors.values():
             processor.stop()
         log_event(message="stopping NVR readers", level="info")
         for reader in self.frame_readers.values():
@@ -112,10 +112,10 @@ class NVR:
             name = camera.config.name
             if self.frame_readers[name].thread is not None:
                 threads.append(self.frame_readers[name].thread)
-            if self.frame_processors[name].thread is not None:
-                threads.append(self.frame_processors[name].thread)
-            if self.frame_processors[name].recorder.thread is not None:
-                threads.append(self.frame_processors[name].recorder.thread)
+            if self.processors[name].thread is not None:
+                threads.append(self.processors[name].thread)
+            if self.processors[name].recorder.thread is not None:
+                threads.append(self.processors[name].recorder.thread)
         if FileCleaner.thread is not None:
             threads.append(FileCleaner.thread)
 

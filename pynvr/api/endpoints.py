@@ -3,7 +3,7 @@ import bisect
 import json
 import secrets
 import time
-from datetime import datetime, timedelta
+from datetime import datetime
 from logging import getLogger
 
 from aiortc import RTCPeerConnection, RTCSessionDescription
@@ -18,7 +18,6 @@ from ..utils import ConfigValue
 from ..logger import log_event, event_log
 from ..nvr import NVR
 from ..webrtc import CameraTrack, MosaicTrack
-from ..constants import StreamingState
 
 logger = getLogger("pynvr")
 
@@ -281,7 +280,7 @@ def create_app(config: dict, nvr: NVR):
                 settings[attr] = vars(value)
 
         settings["classes"] = {}
-        for processor in nvr.frame_processors.values():
+        for processor in nvr.processors.values():
             if processor.camera.config.name == camera_name:
                 settings["classes"] = processor.classes
                 break
@@ -314,7 +313,7 @@ def create_app(config: dict, nvr: NVR):
         camera = nvr.cameras[camera_name]
 
         # Update the boolean toggle
-        for processor in nvr.frame_processors.values():
+        for processor in nvr.processors.values():
             if processor.camera.config.name == camera_name:
                 processor.classes[payload.class_name] = payload.value
                 processor.set_selected_classes(processor.classes)
@@ -382,22 +381,32 @@ def create_app(config: dict, nvr: NVR):
                     break;
 
                 # CAMERA STATUS
-                for processor in nvr.frame_processors.values():
+                for processor in nvr.processors.values():
                     data = {
-                        "name": processor.camera.config.name,
-                        "streaming_state": processor.streaming_state.name,
-                        "streaming_state_value": processor.streaming_state.value,
-                        "status": processor.streaming_status_text,
-                        "objects": processor.objects_text,
-                        "recording": processor.camera.recording_state.recording,
-                        "reader_fps": processor.reader.fps.as_int(),
-                        "recorder_fps": processor.recorder.fps.as_int(),
+                        "ts": time.time(),
+                        "name":         processor.camera.config.name,
+                        "state":        processor.streaming_state.name,
+                        "state_value":  processor.streaming_state.value,
+                        #"status":       processor.streaming_status_text,
+                        #"objects":      processor.objects_text,
+                        "objects_dict": processor.camera.motion.get_active_objects(),
+                        "night":        processor.camera.is_night,
+                        "recording":    processor.camera.recording_state.recording,
+                        "read_fps":     processor.reader.fps.as_int(),
+                        "record_fps":   processor.recorder.fps.as_int(),
                     }
                     payload = {"type": "cameraStatus", "data": data}
 
+                    try:
+                        data = json.dumps(payload)
+                        logger.debug(f"sending event: {data}")
+                    except Exception as e:
+                        logger.error(f"Error serializing camera status: {e}")
+                        continue
+
                     yield (
                         "event: cameraStatus\n"
-                        f"data: {json.dumps(payload)}\n\n"
+                        f"data: {data}\n\n"
                     )
 
                 # LOGS
@@ -436,7 +445,7 @@ def create_app(config: dict, nvr: NVR):
                 if recordings:
                     last_recording_time = recordings[-1]["start_time"]
 
-                await asyncio.sleep(0.5)
+                await asyncio.sleep(1.0)
 
         except asyncio.CancelledError:
             log_event("Client disconnected from SSE stream.")
