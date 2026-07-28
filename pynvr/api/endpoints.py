@@ -387,8 +387,6 @@ def create_app(config: dict, nvr: NVR):
                         "name":         processor.camera.config.name,
                         "state":        processor.streaming_state.name,
                         "state_value":  processor.streaming_state.value,
-                        #"status":       processor.streaming_status_text,
-                        #"objects":      processor.objects_text,
                         "objects_dict": processor.camera.motion.get_active_objects(),
                         "night":        processor.camera.is_night,
                         "recording":    processor.camera.recording_state.recording,

@@ -62,8 +62,6 @@ class FrameProcessor:
         self.thread: Thread | None = None
         self.frame_count: int = 0
         self.streaming_state: StreamingState = StreamingState.STREAMING_INIT
-        self.streaming_status_text: str = "Streaming not started"
-        self.objects_text: str = ""
         self.last_night_time_check: float = time.time()
         self.last_yolo_result = None
         self.last_dets = np.empty((0, 6), dtype=np.float32)
@@ -94,7 +92,6 @@ class FrameProcessor:
                     pass
                 elif self.streaming_state == StreamingState.STREAMING_NORMAL:
                     self.streaming_state = StreamingState.STREAMING_STOPPED
-                    self.streaming_status_text: str = "Streaming stopped (no frame)"
                 continue
 
             self.streaming_state = StreamingState.STREAMING_NORMAL
@@ -151,39 +148,15 @@ class FrameProcessor:
             ):
                 self._update_recording_state(now)
 
-            # 1. Build status text strings
-            #self._update_status_strings()
-
-            # 2. Build debug UI if camera.debug
+            # Build debug UI if camera.debug
             self._render_debug_ui(frame_bgr, yolo_result)
 
-            # 3. Finalize output (select debug > YOLO > raw)
+            # Finalize output (select debug > YOLO > raw)
             self._finalize_output(frame_bgr, yolo_result)
 
             # Recorder always gets latest_frame
             self.recorder.add_frame(self.camera.latest_frame)
 
-    # ----------------------------------------------------------------------
-    # Status text
-    # ----------------------------------------------------------------------
-    def _update_status_strings(self):
-        idx = int(time.time() * 4) % 4
-        record_cycle = ["*", "*", " ", " "]
-        pulse = record_cycle[idx] if self.camera.recording_state.recording else ""
-
-        status = f"{pulse}{'REC' if self.camera.recording_state.recording else 'LIVE'}"
-
-        parts = [status]
-        if self.camera.is_night:
-            parts.append("Night")
-
-        parts.append(
-            f"FPS {int(self.recorder.fps.as_int())}/{int(self.reader.fps.as_int())}"
-        )
-        parts.append(make_readable_ts(time.time()))
-
-        self.objects_text = tags_to_str(self.camera.motion.active_objects_dict)
-        self.streaming_status_text = " | ".join(parts)
 
     # ----------------------------------------------------------------------
     # Night/day detection (no gray_buf)
@@ -193,8 +166,6 @@ class FrameProcessor:
             return
 
         self.camera.is_night = self._is_night_time(frame_bgr)
-        if isinstance(self.camera.is_night, np.bool_):
-            self.camera.is_night = bool(self.camera.is_night)
         self.last_night_time_check = now
 
     def _is_night_time(
