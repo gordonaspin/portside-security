@@ -1,3 +1,6 @@
+"""
+Debug Panel functions
+"""
 import os
 import time
 from logging import getLogger
@@ -5,23 +8,27 @@ from logging import getLogger
 import cv2
 import numpy as np
 import PIL
-from numpy.typing import NDArray
 from PIL import Image, ImageDraw, ImageFont
-from ultralytics.engine.results import Results
 
-from .utils import tags_to_str
+from pynvr.utils import tags_to_str
 
 logger = getLogger("pynvr")
 
 FONT_PATH = os.path.join(os.path.dirname(PIL.__file__), "fonts", "DejaVuSansMono.ttf")
 
 def begin_pillow_draw(frame):
+    """
+    Create pillow image from bgr frame to draw on
+    """
     rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
     pil_img = Image.fromarray(rgb)
     draw = ImageDraw.Draw(pil_img)
     return pil_img, draw
 
 def end_pillow_draw(frame, pil_img):
+    """
+    Convert pillow image back to bgr frame
+    """
     bgr = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
     frame[:,:,:] = bgr
 
@@ -39,6 +46,9 @@ def draw_text(draw, text, x, y, font, color="yellow", bg=None):
     return th + padding*2
 
 class TextLayout:
+    """
+    TextLayout class to set font properties and size
+    """
     def __init__(self, panel_h, panel_w):
         self.panel_h = panel_h
         self.panel_w = panel_w
@@ -63,14 +73,19 @@ class TextLayout:
         return font_size, spacing
 
     def font(self, size):
+        """ return font """
         return ImageFont.truetype(self.font_path, size)
 
     def px(self, frac):
+        """ return x based on fraction of width """
         return int(self.panel_w * frac)
 
     def py(self, frac):
+        """ return y based on fraction of height """
         return int(self.panel_h * frac)
 
+#pylint: disable=too-many-branches
+#pylint: disable=too-many-statements
 def draw_debug_panels(
     camera,
     model_names,
@@ -112,7 +127,7 @@ def draw_debug_panels(
             x1, y1, x2, y2 = t.tlbr
 
         # Case 2: raw tuple (x1, y1, x2, y2)
-        elif isinstance(t, tuple) or isinstance(t, list):
+        elif isinstance(t, (list, tuple)):
             if len(t) >= 4:
                 x1, y1, x2, y2 = t[:4]
             else:
@@ -139,7 +154,7 @@ def draw_debug_panels(
             x1, y1, x2, y2 = t.tlbr
 
         # Case 2: raw tuple (x1, y1, x2, y2)
-        elif isinstance(t, tuple) or isinstance(t, list):
+        elif isinstance(t, (list, tuple)):
             if len(t) >= 4:
                 x1, y1, x2, y2 = t[:4]
             else:

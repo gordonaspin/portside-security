@@ -1,3 +1,7 @@
+"""
+MotionDetector uses ByteTrack to track YOLO detections and compute per-track velocity.
+It maintains a has_moving_object state based on minimum_track_speed_pxpf and linger time.
+"""
 import time
 from collections import defaultdict
 from dataclasses import dataclass
@@ -6,13 +10,16 @@ from threading import Lock
 
 import numpy as np
 
-from ..byte_track.byte_tracker import BYTETracker
-from ..utils import ConfigValue
+from pynvr.byte_track.byte_tracker import BYTETracker
+from pynvr.utils import ConfigValue
 
 logger = getLogger("pynvr")
 
 @dataclass
 class MotionTrack:
+    """
+    Represents a single tracked object with its properties.
+    """
     track_id: int
     cls: int
     conf: float
@@ -35,16 +42,31 @@ class MotionDetector:
 
     def __init__(self, cfg: dict, name: str):
         self.name = name
-        self.track_threshold: ConfigValue = ConfigValue(default=cfg["track_threshold"], min=0.1, max=1.0, step=0.01)
-        self.match_threshold: ConfigValue = ConfigValue(default=cfg["match_threshold"], min=0.1, max=1.0, step=0.01)
-        self.track_buffer: ConfigValue = ConfigValue(default=cfg["track_buffer"], min=30, max=300, step=1)
+        self.track_threshold: ConfigValue = ConfigValue(
+            default=cfg["track_threshold"],
+            minimum=0.1,
+            maximum=1.0,
+            step=0.01)
+        self.match_threshold: ConfigValue = ConfigValue(
+            default=cfg["match_threshold"],
+            minimum=0.1, maximum=1.0,
+            step=0.01)
+        self.track_buffer: ConfigValue = ConfigValue(
+            default=cfg["track_buffer"],
+            minimum=30,
+            maximum=300,
+            step=1)
         self.lock: Lock = Lock()
 
         # --- ByteTrack configuration ---
         self.tracker = self.create_tracker()
 
         # Minimum pixel velocity to consider an object "moving"
-        self.minimum_relative_motion: ConfigValue = ConfigValue(default=cfg["minimum_relative_motion"], min=0.05, max=0.2, step=0.01)
+        self.minimum_relative_motion: ConfigValue = ConfigValue(
+            default=cfg["minimum_relative_motion"],
+            minimum=0.05,
+            maximum=0.2,
+            step=0.01)
 
         # --- Motion state ---
         self.has_moving_object: bool = False
@@ -72,7 +94,7 @@ class MotionDetector:
             )
         self.tracker = tracker
         return tracker
-    
+
     # ----------------------------------------------------------------------
     # PUBLIC API
     # ----------------------------------------------------------------------
@@ -84,13 +106,22 @@ class MotionDetector:
 
         # Run ByteTrack
         with self.lock:
-            online_targets = self.tracker.update(
-                yolo_dets,
-            )
+            online_targets = self.tracker.update(yolo_dets)
 
         moving = False
         active_tracks = []
         self.moving_track_ids.clear()
+
+        # --- Night-aware parameters ---
+        # 1. Motion threshold (higher at night to reduce jitter false positives)
+        base_threshold = self.minimum_relative_motion.value
+        threshold = base_threshold * (1.6 if is_night else 1.0)
+
+        # 2. Smoothing factor (heavier smoothing at night)
+        alpha = 0.25 if not is_night else 0.15
+
+        # 3. Track persistence (longer at night)
+        linger_time = 3.0 if not is_night else 6.0
 
         for t in online_targets:
             tid = t.track_id
@@ -101,28 +132,26 @@ class MotionDetector:
             h = y2 - y1
             size = max(w, h)
 
-            # Compute velocity
             speed = 0.0
             relative_speed = 0.0
             smooth = 0.0
+
             if tid in self.last_positions:
                 px, py = self.last_positions[tid]
                 dx = cx - px
                 dy = cy - py
+
                 speed = float((dx * dx + dy * dy) ** 0.5)
                 relative_speed = float(speed / size if size > 0 else 0)
+
                 prev = self.smoothed_speeds.get(tid, 0.0)
-                alpha = 0.25
                 smooth = float(alpha * relative_speed + (1 - alpha) * prev)
                 self.smoothed_speeds[tid] = smooth
-                if smooth > self.minimum_relative_motion.value:
+
+                # Night-aware motion threshold
+                if smooth > threshold:
                     moving = True
                     self.moving_track_ids.add(tid)
-                    #logger.debug(f"{self.name} tid: {tid}: speed {speed:.2f} relative_speed: {relative_speed:.2f}")
-                else:
-                    pass
-                    # NEW: keep track alive even if stationary
-                    #moving = moving or (now - self.last_motion_time < 3.0)
 
             self.last_positions[tid] = (cx, cy)
 
@@ -136,10 +165,14 @@ class MotionDetector:
             ))
 
         self.active_tracks = active_tracks
-        self.has_moving_object = moving
 
+        # Night-aware persistence
         if moving:
             self.last_motion_time = now
+            self.has_moving_object = True
+        else:
+            self.has_moving_object = (now - self.last_motion_time) < linger_time
+
 
     # ----------------------------------------------------------------------
     # CLASS + COLOR METADATA

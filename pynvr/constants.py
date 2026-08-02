@@ -7,6 +7,7 @@ from enum import Enum, auto
 MAX_LOG_LINES = 1000
 TS_FILE_RING_SECONDS = 120
 
+KNUTH_MULTIPLIER = 2654435761
 
 class ExitCode(Enum):
     """

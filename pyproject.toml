@@ -36,6 +36,8 @@ exclude = ["logs*", "recordings*", "frontend*"]
 [tool.pylint]
 disable = [
     "import-error",
+    "logging-not-lazy",
+    "logging-fstring-interpolation",
     "no-member",
     "too-many-instance-attributes",
     "too-many-arguments",

@@ -1,3 +1,4 @@
+""" utility classes """
 import subprocess
 import time
 from collections import defaultdict, deque
@@ -8,19 +9,22 @@ import cv2
 import numpy as np
 
 class ConfigValue:
-    def __init__(self, default, min, max, step):
+    """ Class representing a configuration slider """
+    def __init__(self, default, minimum, maximum, step):
         self.default = default
-        self.min = min
+        self.min = minimum
         self.value = default
-        self.max = max
+        self.max = maximum
         self.step = step
 
 class RollingAverage:
+    """ Class to compute rolling average """
     def __init__(self, window_size=20):
         self.window = deque(maxlen=window_size)
         self.sum = 0.0
 
     def update(self, value):
+        """ update """
         # If full, remove oldest from sum
         if len(self.window) == self.window.maxlen:
             self.sum -= self.window[0]
@@ -29,37 +33,44 @@ class RollingAverage:
         self.sum += value
 
         return self.sum / len(self.window)
-    
+
     def value(self):
+        """ get value """
         if not self.window:
             return 0.0
         return self.sum / len(self.window)
-    
+
     def as_int(self):
+        """ get integer value """
         return int(self.value())
 
 
 def make_ts_string(epoch=None):
+    """ return YYYYMMDD_HHMMSS """
     if epoch is None:
         epoch = time.time()
     return datetime.fromtimestamp(epoch).strftime("%Y%m%d_%H%M%S")
 
 def make_ts_string_precise(epoch=None):
+    """ return YYYYMMDD_HHMMSS_mmm """
     if epoch is None:
         epoch = time.time()
     return datetime.fromtimestamp(epoch).strftime("%Y%m%d_%H%M%S_%f")
 
 def make_readable_ts(epoch=None):
+    """ return YYYY/MM/DD HH:MM:SS """
     if epoch is None:
         epoch = time.time()
     return datetime.fromtimestamp(epoch).strftime("%Y/%m/%d %H:%M:%S")
 
 def make_readable_hms(epoch=None):
+    """ return HH:MM:SS """
     if epoch is None:
         epoch = time.time()
     return datetime.fromtimestamp(epoch).strftime("%H:%M:%S")
 
 def tags_to_str(tags: defaultdict[set]):
+    """ Flattens tags to string """
     if not tags:
         return ""
 
@@ -71,12 +82,24 @@ def tags_to_str(tags: defaultdict[set]):
     return "_".join(parts)
 
 def get_camera_resolution(url: str):
-    ffprobe_cmd = f"timeout 5s ffprobe -v error -rtsp_transport tcp -analyzeduration 0 -probesize 32 -select_streams v:0 -show_entries stream=width,height -of csv=p=0 '{url}'"
+    """ run ffprobe to get camera stream resolution """
+    ffprobe_cmd = [
+        "timeout 5s ffprobe",
+        "-v error",
+        "-rtsp_transport tcp",
+        "-analyzeduration 0",
+        "-probesize 32",
+        "-select_streams v:0",
+        "-show_entries stream=width,height",
+        "-of csv=p=0",
+        f"'{url}'"
+    ]
+    ffprobe_cmd_str = " ".join(ffprobe_cmd)
     try:
-        output = subprocess.check_output(ffprobe_cmd, shell=True).decode().strip()
+        output = subprocess.check_output(ffprobe_cmd_str, shell=True).decode().strip()
         width, height = map(int, output.split(","))
         return width, height
-    except Exception as e:
+    except Exception:
         return None, None
 
 def detect_object_color(roi_bgr, is_night: bool):
@@ -91,11 +114,12 @@ def detect_object_color(roi_bgr, is_night: bool):
 
     if is_night:
         return detect_object_color_night(roi_bgr)
-    else:
-        return detect_object_color_day(roi_bgr)
+
+    return detect_object_color_day(roi_bgr)
 
 
 def detect_object_color_day(roi_bgr, k=2):
+    """ detect color of object in region """
     if roi_bgr is None or roi_bgr.size == 0:
         return "unknown"
 
@@ -134,13 +158,13 @@ def detect_object_color_day(roi_bgr, k=2):
             continue
 
         # Convert normalized center back to LAB
-        L = centers[idx][0] * 100.0
+        lab = centers[idx][0] * 100.0
         a = centers[idx][1] * 128.0
         b = centers[idx][2] * 128.0
-        lab_color = np.array([L, a, b], dtype=np.float32)
+        lab_color = np.array([lab, a, b], dtype=np.float32)
 
         # Remove specular highlights
-        if L > 95 and abs(a) < 5 and abs(b) < 5:
+        if lab > 95 and abs(a) < 5 and abs(b) < 5:
             continue
 
         # Merge low-chroma colors
@@ -156,6 +180,7 @@ def detect_object_color_day(roi_bgr, k=2):
 
 
 def detect_object_color_night(roi_bgr):
+    """ detect color of region at night """
     gray = cv2.cvtColor(roi_bgr, cv2.COLOR_BGR2GRAY)
     mean = float(np.mean(gray))
 
@@ -173,11 +198,14 @@ def detect_object_color_night(roi_bgr):
 
     return "white"
 
+#pylint: disable=too-many-return-statements
+#pylint: disable=too-many-branches
 def classify_color_lab(lab_color):
+    """ classify the LAB color """
     # -----------------------------------------
     # Reference LAB colors (approximate swatches)
     # -----------------------------------------
-    REF_COLORS = {
+    ref_colors = {
         # --- Primary automotive colors ---
         "red":      np.array([53,   80,   67]),
         "blue":     np.array([32,   79, -108]),
@@ -203,19 +231,19 @@ def classify_color_lab(lab_color):
         "navy":     np.array([20,   10,  -40]),
     }
 
-    L, a, b = lab_color
+    lab, a, b = lab_color
     chroma = sqrt(a*a + b*b)
 
     # -----------------------------------------
     # Neutral colors
     # -----------------------------------------
-    if L < 35:
+    if lab < 35:
         return "black"
 
     if chroma < 10:
-        if L > 75:
+        if lab > 75:
             return "white"
-        if L > 40:
+        if lab > 40:
             return "light_gray"
         return "gray"
 
@@ -223,24 +251,24 @@ def classify_color_lab(lab_color):
     # Blue safeguard (fixes blue→brown)
     # -----------------------------------------
     # Dark + negative b = blue/navy
-    if L < 55 and b < -5:
+    if lab < 55 and b < -5:
         return "blue"
 
     # -----------------------------------------
     # Metallics
     # -----------------------------------------
     # Silver: mid‑L, low chroma
-    if 55 < L < 110 and chroma < 22:
+    if 55 < lab < 110 and chroma < 22:
         return "silver"
 
     # Gold: warm b channel + moderate chroma
-    if 55 < L < 110 and 22 <= chroma < 45 and b > 15:
+    if 55 < lab < 110 and 22 <= chroma < 45 and b > 15:
         return "gold"
 
     # -----------------------------------------
     # Earth tones (corrected boundaries)
     # -----------------------------------------
-    if 35 < L < 80 and 12 < chroma < 40:
+    if 35 < lab < 80 and 12 < chroma < 40:
         # Brown must have positive b (fixes blue→brown)
         if 0 <= b <= 10:
             return "brown"
@@ -255,7 +283,7 @@ def classify_color_lab(lab_color):
     best = None
     best_dist = 1e9
 
-    for name, ref in REF_COLORS.items():
+    for name, ref in ref_colors.items():
         dist = np.linalg.norm(lab_color - ref)
         if dist < best_dist:
             best_dist = dist

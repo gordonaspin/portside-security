@@ -1,3 +1,4 @@
+""" parse command line, set up NVR and FastAPI application """
 from asyncio import CancelledError
 import json
 import logging
@@ -10,16 +11,17 @@ import uvicorn
 from click import version_option
 from passlib.context import CryptContext
 
-from .api.endpoints import create_app
-from .logger import setup_logging, KeywordFilter
-from .nvr import NVR
+from pynvr.api.endpoints import create_app
+from pynvr.logger import setup_logging, KeywordFilter
+from pynvr.nvr import NVR
 
-_NVR = None
+NVR_OBJ = None
 
-def shutdown(signum, frame):
-    _NVR.stop_event.set()
+def shutdown(signum, _):
+    """ called upon OS signal, set stop_event """
+    NVR_OBJ.stop_event.set()
     logger.info(f"caught {signum}, stop event is set")
-    _NVR.stop()
+    NVR_OBJ.stop()
 
 signal.signal(signal.SIGINT, shutdown)
 signal.signal(signal.SIGTERM, shutdown)
@@ -27,6 +29,7 @@ signal.signal(signal.SIGTERM, shutdown)
 logger = logging.getLogger("pynvr")
 
 def replace_url_credentials(url, new_username, new_password):
+    """ parses RTSP url and replaces username password """
     parsed = urlparse(url)
     hostname = parsed.hostname or ""
     port = f":{parsed.port}" if parsed.port else ""
@@ -50,19 +53,26 @@ def replace_url_credentials(url, new_username, new_password):
 @click.option("--gui-password")
 @click.option("-c", "--nvr-config", default="nvr.json")
 @version_option()
-def main(username, password, gui_username, gui_password,
-         nvr_config):
 
-    global _NVR
-    with open(nvr_config, "r") as f:
+def main(username,
+         password,
+         gui_username,
+         gui_password,
+         nvr_config):
+    """ main entrypoint """
+
+    #pylint: disable=global-statement
+    global NVR_OBJ
+
+    with open(nvr_config, "r", encoding="utf-8") as f:
         config = json.load(f)
-        
+
     with open(config["logging_config"], encoding="utf-8") as f:
         logging_config_json = json.load(f)
 
     log_path = setup_logging(config["logging_config"])
     config["logs_directory"] = log_path
-    
+
     if password.startswith("password://"):
         password = keyring.get_password(password, username)
         if password is not None:
@@ -76,7 +86,7 @@ def main(username, password, gui_username, gui_password,
     logger.info(f"password is set {password}")
 
     if gui_username is None:
-        logger.info(f"using username as gui_username")
+        logger.info("using username as gui_username")
         gui_username = username
 
     if gui_password is None:
@@ -101,7 +111,7 @@ def main(username, password, gui_username, gui_password,
     for camera in config["cameras"].values():
         camera["url"] = replace_url_credentials(camera["url"], username, password)
 
-    _NVR = nvr = NVR(config)
+    NVR_OBJ = nvr = NVR(config)
     app = create_app(config, nvr)
 
     nvr.start()
@@ -118,13 +128,12 @@ def main(username, password, gui_username, gui_password,
             )
     except CancelledError:
         logger.debug("uvicorn server stopped")
-        pass
 
     logger.info("waiting on NVR threads to finish...")
     for thread in nvr.threads():
         logger.info(f"waiting on thread {thread.name}")
         thread.join()
-    
+
     for handler in logger.handlers:
         handler.flush()
         handler.close()

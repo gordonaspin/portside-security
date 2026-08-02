@@ -1,3 +1,6 @@
+"""
+NVR is the controlling coordinator of readers and processors
+"""
 import glob
 import json
 import os
@@ -7,14 +10,14 @@ from datetime import timedelta
 from logging import getLogger
 from threading import Event
 
-from .camera.camera import Camera
-from .logger import log_event
-from .file_cleaner import FileCleaner
-from .processor import FrameProcessor
-from .reader import Reader, FrameReader
-from .recorder import FrameRecorderFactory
-from .thread_safe import ThreadSafeList
-from .utils import get_camera_resolution
+from pynvr.camera.camera import Camera
+from pynvr.logger import log_event
+from pynvr.file_cleaner import FileCleaner
+from pynvr.processor import FrameProcessor
+from pynvr.reader import Reader, FrameReader
+from pynvr.recorder import FrameRecorderFactory
+from pynvr.thread_safe import ThreadSafeList
+from pynvr.utils import get_camera_resolution
 
 logger = getLogger("pynvr")
 
@@ -22,6 +25,7 @@ logger = getLogger("pynvr")
 # NVR ENGINE
 # =========================
 class NVR:
+    """ Class representing the control center for the NVR """
     def __init__(self, config: dict):
 
         self.recordings_dir: str = config["recordings_directory"]
@@ -43,7 +47,11 @@ class NVR:
             if actual_width is None or actual_height is None:
                 actual_width = config["cameras"][name]["resolution"]["width"]
                 actual_height = config["cameras"][name]["resolution"]["height"]
-                log_event(message=f"{name} could not get resolution, falling back to configured resolution {actual_width}x{actual_height}", level="warn")
+                log_event(
+                    message=f"{name} could not get resolution, " +
+                            "falling back to configured resolution " +
+                            f"{actual_width}x{actual_height}",
+                    level="warn")
             camera = self.cameras[name] = Camera(name=name,
                                         width=actual_width,
                                         height=actual_height,
@@ -51,7 +59,7 @@ class NVR:
                                         logs_dir=self.logs_dir,
                                         recordings_dir=self.recordings_dir,
                                         )
-    
+
             reader = self.frame_readers[name] = FrameReader(
                 camera=camera,
                 model_config=config["model"]["resolution"],
@@ -62,7 +70,7 @@ class NVR:
                 camera=camera,
                 reader=reader,
                 recorder=FrameRecorderFactory.create(
-                    camera=camera, 
+                    camera=camera,
                     recorder_name=config["cameras"][name]["recorder"],
                     stop_event=self.stop_event,
                     add_recording_callback=self.add_recording,
@@ -72,17 +80,38 @@ class NVR:
                 stop_event=self.stop_event,
                 )
         FileCleaner.stop_event = self.stop_event
-        FileCleaner.add(self.recordings_dir, "*.mp4", timedelta(**config["keep_recordings_timedelta"]), timedelta(minutes=5))
-        FileCleaner.add(self.recordings_dir, "*.jpg", timedelta(**config["keep_recordings_timedelta"]), timedelta(minutes=5))
-        FileCleaner.add(self.recordings_dir, "*.json", timedelta(**config["keep_recordings_timedelta"]), timedelta(minutes=5))
-        FileCleaner.add(self.recordings_dir, "*.log", timedelta(**config["keep_logs_timedelta"]), timedelta(minutes=5))
-        FileCleaner.add(self.logs_dir, "*.log", timedelta(**config["keep_logs_timedelta"]), timedelta(minutes=5))
+        FileCleaner.add(
+            self.recordings_dir,
+            "*.mp4",
+            timedelta(**config["keep_recordings_timedelta"]),
+            timedelta(minutes=5))
+        FileCleaner.add(
+            self.recordings_dir,
+            "*.jpg",
+            timedelta(**config["keep_recordings_timedelta"]),
+            timedelta(minutes=5))
+        FileCleaner.add(
+            self.recordings_dir,
+            "*.json",
+            timedelta(**config["keep_recordings_timedelta"]),
+            timedelta(minutes=5))
+        FileCleaner.add(
+            self.recordings_dir,
+            "*.log",
+            timedelta(**config["keep_logs_timedelta"]),
+            timedelta(minutes=5))
+        FileCleaner.add(
+            self.logs_dir,
+            "*.log",
+            timedelta(**config["keep_logs_timedelta"]),
+            timedelta(minutes=5))
 
     def start(self):
         """
         Start the NVR processes. Threads created are:
         1 ffmpeg reader thread for each camera, writing to segment files and stdout
-        1 ffmpeg frame reader thread for each camera reading from stdout and writing frames to a queue
+        1 ffmpeg frame reader thread for each camera reading
+            from stdout and writing frames to a queue
         1 frame processor thread to read frames from the queue and do image processing
         """
         self._load_events()
@@ -107,6 +136,7 @@ class NVR:
 
 
     def threads(self):
+        """ return array of threads owned by the NVR """
         threads = []
         for camera in self.cameras.values():
             name = camera.config.name
@@ -122,12 +152,13 @@ class NVR:
         return threads
 
     def add_recording(self, metadata_file: str):
+        """ called by recorders to add a new recording """
         self.recordings.append(self._load_event(metadata_file=metadata_file))
 
     def _load_event(self, metadata_file:str) -> dict:
         event = None
 
-        with open(metadata_file) as fp:
+        with open(metadata_file, "r", encoding="utf-8") as fp:
             try:
                 event = json.load(fp)
                 for k in list(event):
@@ -172,6 +203,7 @@ class NVR:
 
 
     def get_all_camera_resolutions(self,camera_config):
+        """ return dictionary of camera resolutions """
         results = {}
 
         def task(name, url):
@@ -186,7 +218,9 @@ class NVR:
 
             for f in as_completed(futures):
                 name, res = f.result()
-                log_event(message=f"{name} camera resolution detected as {res[0]}x{res[1]}", level="info")
+                log_event(
+                    message=f"{name} camera resolution detected as {res[0]}x{res[1]}",
+                    level="info")
                 results[name] = res
 
         return results

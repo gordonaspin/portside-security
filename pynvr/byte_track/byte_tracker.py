@@ -1,11 +1,16 @@
+"""
+ ByteTrack tracker implementation.
+"""
 import numpy as np
 
-from .kalman_filter import KalmanFilter
-from .matching import iou_distance, linear_assignment
-from ..utils import tlbr_to_tlwh, tlwh_to_xyah
-
+from pynvr.byte_track.kalman_filter import KalmanFilter
+from pynvr.byte_track.matching import iou_distance, hungarian_assignment
+from pynvr.utils import tlbr_to_tlwh, tlwh_to_xyah
 
 class Track:
+    """
+    Represents a single tracked object with its properties and state.
+    """
     def __init__(self, tlbr, score, cls, track_id, kf):
         self.tlbr = np.array(tlbr, dtype=np.float32)
         self.score = float(score)
@@ -19,10 +24,16 @@ class Track:
         self.active = True
 
     def predict(self):
+        """
+        Predict the next state of the track using the Kalman filter.
+        """
         self.mean, self.cov = self.kf.predict(self.mean, self.cov)
         self.age += 1
 
     def update(self, det):
+        """
+        Update the track with a new detection.
+        """
         self.tlbr = det.tlbr
         self.score = det.score
         self.cls = det.cls
@@ -33,6 +44,9 @@ class Track:
 
 
 class Detection:
+    """
+    Represents a single detection with its properties and state.
+    """
     def __init__(self, tlbr, score, cls):
         self.tlbr = np.array(tlbr, dtype=np.float32)
         self.score = float(score)
@@ -40,6 +54,9 @@ class Detection:
 
 
 class BYTETracker:
+    """
+    BYTETracker implementation for multi-object tracking.
+    """
     def __init__(self, track_thresh=0.5, match_thresh=0.8, track_buffer=30):
         self.track_thresh = track_thresh
         self.match_thresh = match_thresh
@@ -66,7 +83,7 @@ class BYTETracker:
 
         # Match tracks to detections
         cost = iou_distance(self.tracks, detections)
-        matches, u_tracks, u_dets = linear_assignment(cost, 1 - self.match_thresh)
+        matches, _, u_dets = hungarian_assignment(cost, 1 - self.match_thresh)
 
         # Update matched tracks
         for ti, di in matches:

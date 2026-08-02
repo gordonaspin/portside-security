@@ -1,3 +1,11 @@
+"""
+ API endpoints for the pynvr application, including authentication,
+ camera management, and event streaming.
+ 
+ This module defines the FastAPI application and its routes,
+ handling user authentication, camera settings, event logs, and server time.
+ It also provides a Server-Sent Events (SSE) endpoint for real-time updates.
+"""
 import asyncio
 import bisect
 import json
@@ -14,10 +22,10 @@ from fastapi.responses import FileResponse, EventSourceResponse
 from passlib.context import CryptContext
 from pydantic import BaseModel
 
-from ..utils import ConfigValue
-from ..logger import log_event, event_log
-from ..nvr import NVR
-from ..webrtc import CameraTrack, MosaicTrack
+from pynvr.utils import ConfigValue
+from pynvr.logger import log_event, event_log
+from pynvr.nvr import NVR
+from pynvr.webrtc import CameraTrack, MosaicTrack
 
 logger = getLogger("pynvr")
 
@@ -29,19 +37,10 @@ pwd = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 SESSIONS = {}  # session_id -> username
 
-    # -------------------------
-    # PROTECT STATIC FILES
-    # -------------------------
-
-from starlette.staticfiles import StaticFiles
-from starlette.responses import Response
-from fastapi import HTTPException
-
-from starlette.staticfiles import StaticFiles
-from starlette.responses import Response
-from fastapi import HTTPException
-
 class AuthStaticFiles(StaticFiles):
+    """
+    Custom StaticFiles class that checks for a valid session cookie before serving files.
+    """
     async def __call__(self, scope, receive, send):
         path = scope["path"]
 
@@ -89,20 +88,33 @@ def require_user(session_id: str | None = Cookie(None)):
 
 
 class LoginForm(BaseModel):
+    """
+    Represents the login form data.
+    """
     username: str
     password: str
 
 class SettingValue(BaseModel):
+    """
+    Represents a setting value for camera or system configuration.
+    """
     value: float | bool
 
 class ClassToggle(BaseModel):
+    """
+    Represents a class toggle for camera or system configuration.
+    """
     class_name: str
     value: bool
 # -------------------------
 # APP FACTORY
 # -------------------------
 
+#pylint: disable=too-many-statements
 def create_app(config: dict, nvr: NVR):
+    """
+    Create and configure the FastAPI application.
+    """
     app = FastAPI()
 
     app.add_middleware(
@@ -119,10 +131,14 @@ def create_app(config: dict, nvr: NVR):
     @app.get("/login")
     async def login_page():
         return FileResponse("pynvr/frontend_dist/index.html")
-    
+
     @app.post("/login")
     async def login(payload: LoginForm, response: Response):
-        if payload.username != config["gui_username"] or not pwd.verify(payload.password, config["gui_password"]):
+        if (payload.username != config["gui_username"]
+            or not pwd.verify(
+                payload.password,
+                config["gui_password"])
+                ):
             raise HTTPException(status_code=401, detail="Invalid credentials")
 
         session_id = secrets.token_hex(32)
@@ -153,6 +169,7 @@ def create_app(config: dict, nvr: NVR):
     # PROTECTED ROUTES
     # -------------------------
 
+    #pylint: disable=unused-argument
     @app.post("/signal")
     async def signal(request: Request, user=Depends(require_user)):
         data = await request.json()
@@ -350,12 +367,12 @@ def create_app(config: dict, nvr: NVR):
         log_event(f"debug {payload.value}", camera=camera)
         camera.config.debug = payload.value
         return {"status": "ok", "camera": camera_name, "value": payload.value}
-    
+
     # Verbose debug
     @app.get("/api/settings/debug")
     def get_debug(user=Depends(require_user)):
         return {"value": nvr.debug}
-    
+
     @app.post("/api/settings/debug")
     def set_debug(payload: SettingValue, user=Depends(require_user)):
         log_event(f"verbose logging {payload.value}")
@@ -365,20 +382,19 @@ def create_app(config: dict, nvr: NVR):
     @app.get("/api/server_time")
     def server_time(user=Depends(require_user)):
         return {"epoch": time.time()}
-    
+
     async def event_generator(request: Request):
         last_log_time = time.time()
         last_recording_time = time.time()
 
         try:
             while True:
-            
                 if nvr.stop_event.is_set():
-                    break;
+                    break
 
                 if await request.is_disconnected():
                     logger.debug("SSE request is disconnected")
-                    break;
+                    break
 
                 # CAMERA STATUS
                 for processor in nvr.processors.values():
@@ -415,8 +431,8 @@ def create_app(config: dict, nvr: NVR):
                     index = bisect.bisect_right(timestamps, last_log_time)
                     logs_list = logs_list[index:]
 
-                for logLine in logs_list:
-                    payload = {"type": "logLine", "data": logLine}
+                for log_line in logs_list:
+                    payload = {"type": "logLine", "data": log_line}
                     yield (
                         "event: logLine\n"
                         f"data: {json.dumps(payload)}\n\n"
@@ -449,17 +465,30 @@ def create_app(config: dict, nvr: NVR):
             log_event("Client disconnected from SSE stream.")
             raise
 
-        pass
-
     @app.get("/api/stream")
     async def stream(request: Request, user=Depends(require_user)):
         return EventSourceResponse(
             event_generator(request)
         )
 
-    app.mount("/recordings", AuthStaticFiles(directory=config["recordings_directory"], check_dir=True), name="recordings")
-    app.mount("/logs", AuthStaticFiles(directory=config["logs_directory"], check_dir=True), name="recordings")
-    app.mount("/", AuthStaticFiles(directory="pynvr/frontend_dist", html=True), name="frontend")
+    app.mount(
+        "/recordings",
+        AuthStaticFiles(
+            directory=config["recordings_directory"],
+            check_dir=True),
+        name="recordings")
+    app.mount(
+        "/logs",
+        AuthStaticFiles(
+            directory=config["logs_directory"],
+            check_dir=True),
+        name="logs")
+    app.mount(
+        "/",
+        AuthStaticFiles(
+            directory="pynvr/frontend_dist",
+            html=True),
+        name="frontend")
 
     @app.get("/{path:path}")
     async def spa_fallback(path: str, user=Depends(require_user)):

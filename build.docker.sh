@@ -1,12 +1,6 @@
 #!/bin/bash
 set -euo pipefail
 
-cd frontend
-npm run build
-cd ..
-rm -f dist/*
-python -m build
-
 OWNER="gordonaspin"
 PROJECT=$(basename $(pwd))
 VERSION="$(cat pyproject.toml | grep version | cut -d'"' -f 2)"
@@ -15,6 +9,14 @@ echo "Repo: ${OWNER}"
 echo "Project: ${PROJECT}"
 echo "Current ${PROJECT} version: ${VERSION}"
 echo "Hash: ${REMOTE_HASH}"
+
+python -m pylint ${PROJECT}
+cd frontend
+npm run build
+cd ..
+rm -f dist/*
+python -m build
+
 
 docker build \
   --build-arg CACHE_BUST=${REMOTE_HASH} \

@@ -33,8 +33,7 @@ from pathlib import Path
 from types import TracebackType
 from typing import Any, Type, override
 
-from .constants import ExitCode, MAX_LOG_LINES
-from .utils import make_readable_hms
+from pynvr.constants import ExitCode, MAX_LOG_LINES
 
 logger = getLogger("pynvr")
 
@@ -44,12 +43,12 @@ event_log = deque(maxlen=MAX_LOG_LINES)
 # LOGGING
 # =========================
 def log_event(message, level="info", camera=None, file_path=None):
-    timestamp = make_readable_hms()
+    """Log an event to the event log and the standard logger."""
 
     fstr = camera.config.name + " " if camera else ""
     fstr += message
     fstr += " " + file_path if file_path else ""
-    
+
     match level:
         case "info": logger.info(fstr)
         case "debug": logger.debug(fstr)
@@ -128,16 +127,16 @@ def handle_unhandled_exception(exc_type: Type[BaseException],
 
     # Log the exception with the traceback
     # Using logger.exception() is a shortcut that automatically adds exc_info
-    logger: Logger = getLogger("unhandled")
-    logger.critical("unhandled exception occurred",
+    unhandled_logger: Logger = getLogger("unhandled")
+    unhandled_logger.critical("unhandled exception occurred",
                     exc_info=(exc_type, exc_value, exc_traceback))
 
 def handle_thread_exception(args: Any) -> None:
     """
     Custom exception hook to handle uncaught exceptions in threads.
     """
-    logger: Logger = getLogger("unhandled")
-    logger.critical("exception in thread: %s",
+    unhandled_logger: Logger = getLogger("unhandled")
+    unhandled_logger.critical("exception in thread: %s",
                     args.thread.name,
                     exc_info=(args.exc_type, args.exc_value, args.exc_traceback))
 

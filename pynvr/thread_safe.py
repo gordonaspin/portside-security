@@ -7,6 +7,7 @@ batch operations.
 """
 from threading import RLock
 
+#pylint: disable=missing-function-docstring
 class ThreadSafeSet:
     """A thread-safe set implementation using a threading.RLock."""
     def __init__(self, initial_data=None):
@@ -109,7 +110,6 @@ class ThreadSafeSet:
                 self._set -= set(other)
         return self
 
-from threading import RLock
 
 class ThreadSafeList:
     """A thread-safe list implementation using a threading.RLock."""

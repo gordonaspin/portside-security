@@ -1,3 +1,11 @@
+"""
+Camera representation and wiring for ByteTrack-only motion detection.
+- Owns FrameBuffers (full + YOLO frame)
+- Owns MotionDetector (ByteTrack + velocity-based motion)
+- Owns RecordingState
+- Tracks night/day state
+- Holds latest frames for UI/debug
+"""
 import os
 import time
 from dataclasses import dataclass
@@ -6,13 +14,15 @@ from queue import Queue
 import numpy as np
 from numpy.typing import NDArray
 
-from .frame_buffers import FrameBuffers
-from .motion_detector import MotionDetector
-from ..utils import ConfigValue
-
+from pynvr.camera.frame_buffers import FrameBuffers
+from pynvr.camera.motion_detector import MotionDetector
+from pynvr.utils import ConfigValue
 
 @dataclass
 class RecordingState:
+    """
+    Represents the recording state of a camera.
+    """
     recording: bool = False
     recording_start_time: float = 0.0
     should_record: bool = False
@@ -23,6 +33,9 @@ class RecordingState:
 
 
 class CameraConfig:
+    """
+    Represents the configuration for a camera.
+    """
     def __init__(self, config: dict,
                  name: str,
                  logs_dir: str,
@@ -31,7 +44,11 @@ class CameraConfig:
 
         width = cfg["resolution"]["width"]
         height = cfg["resolution"]["height"]
-        self.yolo_confidence: ConfigValue = ConfigValue(default=cfg["yolo_confidence"], min=0.1, max=1.0, step=0.01)
+        self.yolo_confidence: ConfigValue = ConfigValue(
+            default=cfg["yolo_confidence"],
+            minimum=0.1,
+            maximum=1.0,
+            step=0.01)
         self.name = name
         self.max_pixels = width * height
         self.width = width
@@ -114,10 +131,13 @@ class Camera:
     # Convenience hooks for FrameProcessor (optional)
     # ----------------------------------------------------------------------
     def update_latest_frame(self, frame_bgr: NDArray[np.uint8]):
+        """Update the latest frame for UI/debug purposes."""
         self.latest_frame = frame_bgr
 
     def update_yolo_frame(self, frame_bgr: NDArray[np.uint8]):
+        """Update the YOLO frame for UI/debug purposes."""
         self.yolo_frame = frame_bgr
 
     def update_debug_motion_image(self, frame_bgr: NDArray[np.uint8]):
+        """Update the debug motion image for UI/debug purposes."""
         self.debug_motion_image = frame_bgr

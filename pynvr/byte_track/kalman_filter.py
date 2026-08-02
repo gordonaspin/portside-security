@@ -1,3 +1,7 @@
+""" 
+Kalman filter implementation for tracking bounding boxes.
+State vector (8D):
+    [cx, cy, area, ratio, vx, vy, va, vr]"""
 import numpy as np
 
 class KalmanFilter:
@@ -76,9 +80,9 @@ class KalmanFilter:
         )
 
         innovation = measurement - projected_mean
-        S = projected_cov
-        K = covariance @ self._update_mat.T @ np.linalg.inv(S)
+        innovation_covariance = projected_cov
+        kalman_gain = covariance @ self._update_mat.T @ np.linalg.inv(innovation_covariance)
 
-        new_mean = mean + K @ innovation
-        new_cov = covariance - K @ S @ K.T
+        new_mean = mean + kalman_gain @ innovation
+        new_cov = covariance - kalman_gain @ innovation_covariance @ kalman_gain.T
         return new_mean, new_cov

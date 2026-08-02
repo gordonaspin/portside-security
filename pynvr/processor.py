@@ -1,3 +1,8 @@
+"""
+FrameProcessor handles the main processing loop for a camera.
+It reads frames from the camera, runs YOLO inference, updates motion tracking,
+manages recording state, and prepares the final output frame.
+"""
 import os
 import time
 from datetime import datetime
@@ -14,15 +19,14 @@ from numpy.typing import NDArray
 from ultralytics import YOLO
 from ultralytics.engine.results import Results
 
-from pynvr.constants import StreamingState
+from pynvr.constants import StreamingState, KNUTH_MULTIPLIER
 
-from .camera.camera import Camera
-from .debug_panel import draw_debug_panels
-from .logger import log_event
-from .recorder import FrameRecorder
-from .reader import Reader
-from .utils import (
-    make_readable_ts,
+from pynvr.camera.camera import Camera
+from pynvr.debug_panel import draw_debug_panels
+from pynvr.logger import log_event
+from pynvr.recorder import FrameRecorder
+from pynvr.reader import Reader
+from pynvr.utils import (
     tags_to_str,
     detect_object_color,
 )
@@ -30,6 +34,11 @@ from .utils import (
 logger = getLogger("pynvr.processor")
 
 class FrameProcessor:
+    """
+    FrameProcessor handles the main processing loop for a camera.
+    It reads frames from the camera, runs YOLO inference, updates motion tracking,
+    manages recording state, and prepares the final output frame.
+    """
     def __init__(
         self,
         config: dict,
@@ -49,7 +58,10 @@ class FrameProcessor:
         self.set_selected_classes(self.classes)
         logger.info("CUDA is available: %s", torch.cuda.is_available())
         if torch.cuda.is_available() and config["device"] != "cpu":
-            logger.info(f"{self.camera.config.name} using CUDA device {torch.cuda.get_device_name(torch.cuda.current_device())} for YOLO inference")
+            logger.info(self.camera.config.name +
+                        " using CUDA device " +
+                        torch.cuda.get_device_name(torch.cuda.current_device()) +
+                        " for YOLO inference")
             self.device = -1
         elif platform.system() == "Darwin" and config["device"] == "mps":
             logger.info(f"{self.camera.config.name} using MPS for YOLO inference")
@@ -67,15 +79,24 @@ class FrameProcessor:
         self.last_dets = np.empty((0, 6), dtype=np.float32)
 
     def start(self):
+        """
+        Start the frame processing thread.
+        """
         self.thread = Thread(target=self._process_frames, daemon=True)
         self.thread.start()
 
     def stop(self):
+        """
+        Stop the frame processing thread.
+        """
         log_event(message="stopping FrameProcessor", level="info", camera=self.camera)
         if self.thread is not None:
             self.thread.join()
 
     def set_selected_classes(self, classes: dict[str, bool]):
+        """
+        Set the selected classes for YOLO inference.
+        """
         classname_to_classindex: dict = {v: k for k, v in self.model.names.items()}
         self.selected_classes: list[int] = [
             classname_to_classindex[n] for n in classes if classes[n]
@@ -165,7 +186,14 @@ class FrameProcessor:
         if now - self.last_night_time_check <= self.config["night_check_period"]:
             return
 
+        was_night = self.camera.is_night
         self.camera.is_night = self._is_night_time(frame_bgr)
+        if was_night != self.camera.is_night:
+            log_event(
+                message=f"night/day change: is_night={self.camera.is_night}",
+                level="info",
+                camera=self.camera,
+            )
         self.last_night_time_check = now
 
     def _is_night_time(
@@ -419,12 +447,13 @@ class FrameProcessor:
 
         if yolo_result is None:
             return frame_bgr
-        
+
         if self.camera.config.render_annotations == "never":
             return frame_bgr
-        
+
         # Only draw YOLO boxes if ByteTrack says something is moving
-        if self.camera.config.render_annotations == "motion" and not self.camera.motion.has_moving_object:
+        if (self.camera.config.render_annotations == "motion"
+            and not self.camera.motion.has_moving_object):
             return frame_bgr
 
         return self.draw_yolo_boxes_fullres(
@@ -433,6 +462,7 @@ class FrameProcessor:
             self.model.names,
         )
 
+    #pylint: disable=too-many-statements
     def draw_yolo_boxes_fullres(
         self,
         frame,
@@ -451,7 +481,7 @@ class FrameProcessor:
         if result is None or result.boxes is None or len(result.boxes) == 0:
             return frame
 
-        H, W = frame.shape[:2]
+        height, width = frame.shape[:2]
 
         boxes = result.boxes
         xyxy = boxes.xyxy.cpu().numpy()
@@ -463,7 +493,7 @@ class FrameProcessor:
         moving_ids = self.camera.motion.moving_track_ids
 
         def yolo_color(cid: int):
-            h = (cid * 2654435761) & 0xFFFFFFFF
+            h = (cid * KNUTH_MULTIPLIER) & 0xFFFFFFFF
             r = (h >> 16) & 255
             g = (h >> 8) & 255
             b = h & 255
@@ -502,10 +532,10 @@ class FrameProcessor:
             if conf < min_conf:
                 continue
 
-            x1 = int(max(0, min(W - 1, x1)))
-            y1 = int(max(0, min(H - 1, y1)))
-            x2 = int(max(0, min(W - 1, x2)))
-            y2 = int(max(0, min(H - 1, y2)))
+            x1 = int(max(0, min(width - 1, x1)))
+            y1 = int(max(0, min(height - 1, y1)))
+            x2 = int(max(0, min(width - 1, x2)))
+            y2 = int(max(0, min(height - 1, y2)))
             if x2 <= x1 or y2 <= y1:
                 continue
 

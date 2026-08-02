@@ -1,4 +1,11 @@
+"""
+Hungarian matching and IoU distance computation for object tracking.
+This module provides functions to compute the Intersection over Union (IoU)
+distance between tracked objects and detections, as well as to perform
+Hungarian matching based on the computed cost matrix.
+"""
 import numpy as np
+from scipy.optimize import linear_sum_assignment
 
 def iou(b1, b2):
     """
@@ -27,11 +34,10 @@ def iou_distance(tracks, detections):
     return cost
 
 
-def linear_assignment(cost_matrix, thresh):
+def hungarian_assignment(cost_matrix, thresh):
     """
     Hungarian matching with threshold.
     """
-    from scipy.optimize import linear_sum_assignment
 
     if cost_matrix.size == 0:
         return [], list(range(cost_matrix.shape[0])), list(range(cost_matrix.shape[1]))

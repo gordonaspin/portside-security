@@ -1,3 +1,6 @@
+"""
+Frame reader for handling video stream processing.
+"""
 import os
 import subprocess
 import select
@@ -11,28 +14,35 @@ import cv2
 import numpy as np
 from numpy.typing import NDArray
 
-from .logger import log_event
-from .camera.camera import Camera
-from .utils import RollingAverage
+from pynvr.logger import log_event
+from pynvr.camera.camera import Camera
+from pynvr.utils import RollingAverage
 
 logger = getLogger("pynvr.reader")
 
-
 class Reader:
+    """ Reader ABC """
     def __init__(self):
-        pass
+        raise NotImplementedError()
 
     def start(self):
-        pass
+        """ start """
+        raise NotImplementedError()
 
     def stop(self):
-        pass
+        """ stop """
+        raise NotImplementedError()
 
     def get_frame(self):
-        pass
+        """ get frame """
+        raise NotImplementedError()
 
 
 class FrameReader(Reader):
+    """
+    Frame reader that handles video stream processing, including reading frames,
+    detecting corrupted frames, and managing FFmpeg subprocesses.
+    """
     def __init__(
         self,
         camera: Camera,
@@ -110,6 +120,7 @@ class FrameReader(Reader):
 
         logger.info(f"{self.camera.config.name} FrameReader main loop exiting")
 
+    #pylint: disable=too-many-branches
     def _cleanup_process(self):
         """
         Internal cleanup: terminate FFmpeg, close pipes/logs, reset state.
@@ -220,7 +231,8 @@ class FrameReader(Reader):
             self.camera.config.logs_dir,
             f"{self.camera.config.name}_ffmpeg.log",
         )
-        self.log_file = open(self.log_filename, "a")
+        #pylint: disable=consider-using-with
+        self.log_file = open(self.log_filename, "a", encoding="utf-8", buffering=1)
         for item in ffmpeg_cmd:
             if item.startswith("-"):
                 self.log_file.write("\n")
@@ -289,6 +301,7 @@ class FrameReader(Reader):
 
         self.process = process
 
+    #pylint: disable=too-many-statements
     def _frame_reader_loop(self):
         """
         Reads frames from FFmpeg until stall/EOF/stop_event.
@@ -399,7 +412,6 @@ class FrameReader(Reader):
 
             self.frame_queue.put(full_frame)
             self.total_frames += 1
-            self.drop_rate = self.total_drops / self.total_frames
 
         logger.info(f"{self.camera.config.name} FrameReader loop exiting")
 
@@ -459,7 +471,9 @@ class FrameReader(Reader):
             diff = cv2.absdiff(frame, self._prev_frame)
             if diff.mean() > 120.0:
                 logger.warning(
-                    f"{self.camera.config.name} diff.mean={diff.mean():.2f} - Detected corrupted frame, dropping"
+                    self.camera.config.name +
+                    f" diff.mean={diff.mean():.2f}" +
+                    " - Detected corrupted frame, dropping"
                 )
                 self._prev_mean = mean
                 self._prev_frame = frame.copy()
@@ -472,7 +486,9 @@ class FrameReader(Reader):
             continuity_diff = self._diff_buf_row.mean()
             if continuity_diff > 150:
                 logger.warning(
-                    f"{self.camera.config.name} continuity_diff.mean={continuity_diff:.2f} - Detected corrupted frame, dropping"
+                    self.camera.config.name +
+                    f" continuity_diff.mean={continuity_diff:.2f}" +
+                    " - Detected corrupted frame, dropping"
                 )
                 self._prev_mean = mean
                 self._prev_frame = frame.copy()
@@ -482,6 +498,7 @@ class FrameReader(Reader):
         self._prev_frame = frame.copy()
         return False
 
+    #pylint: disable=too-many-statements
     def build_ffmpeg_cmd(
         self,
         url: str,
@@ -489,6 +506,11 @@ class FrameReader(Reader):
         segment_mode: bool,
         yolo_fd: int | None,
     ) -> list[str]:
+        """
+        Build the FFmpeg command for reading the camera stream, optionally producing
+        segments and a YOLO pipe.
+        """
+
         actual_w = self.camera.width
         actual_h = self.camera.height
         yolo_w = self.model_width
