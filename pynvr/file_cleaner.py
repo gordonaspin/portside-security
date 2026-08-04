@@ -40,11 +40,10 @@ class FileCleaner():
             f"adding cleaner folder={folder}, filespec={filespec}, age={age}, period={period}"
             )
         with FileCleaner.lock:
-            with FileCleaner.lock:
-                FileCleaner.cleaner_config[str(folder)+filespec] = config
-            FileCleaner.min_sleep_seconds = min(
-                FileCleaner.min_sleep_seconds,
-                period.total_seconds())
+            FileCleaner.cleaner_config[str(folder)+filespec] = config
+        FileCleaner.min_sleep_seconds = min(
+            FileCleaner.min_sleep_seconds,
+            period.total_seconds())
         if FileCleaner.thread is None and FileCleaner.stop_event is not None:
             FileCleaner.start()
 
@@ -98,4 +97,4 @@ class FileCleaner():
 
                     config.last_cleanup_time = now
 
-                time.sleep(FileCleaner.min_sleep_seconds)
+            time.sleep(FileCleaner.min_sleep_seconds)

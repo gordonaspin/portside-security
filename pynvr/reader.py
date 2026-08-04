@@ -14,7 +14,6 @@ import cv2
 import numpy as np
 from numpy.typing import NDArray
 
-from pynvr.logger import log_event
 from pynvr.camera.camera import Camera
 from pynvr.utils import RollingAverage
 
@@ -103,11 +102,7 @@ class FrameReader(Reader):
             try:
                 self._open_stream()
             except Exception as e:
-                log_event(
-                    message=f"failed to open stream: {e}",
-                    level="error",
-                    camera=self.camera,
-                )
+                logger.error(f"{self.camera.config.name} failed to open stream: {e}")
                 self._cleanup_process()
                 time.sleep(30.0)
                 continue
@@ -128,11 +123,7 @@ class FrameReader(Reader):
         # Process and stdout
         if self.process is not None:
             ret = self.process.poll()
-            log_event(
-                message=f"stopping FrameReader with ret {ret}",
-                level="info",
-                camera=self.camera,
-            )
+            logger.info(f"{self.camera.config.name} stopping FrameReader with ret {ret}")
             try:
                 self.process.terminate()
                 self.process.wait(timeout=2)
@@ -245,11 +236,7 @@ class FrameReader(Reader):
 
         try:
             if need_yolo_pipe:
-                log_event(
-                    message="starting dual-pipe FrameReader",
-                    level="info",
-                    camera=self.camera,
-                )
+                logger.info(f"{self.camera.config.name} starting dual-pipe FrameReader")
 
                 process = subprocess.Popen(
                     ffmpeg_cmd,
@@ -268,11 +255,7 @@ class FrameReader(Reader):
                 # Wrap read-end
                 self.yolo_pipe = os.fdopen(self.yolo_read_fd, "rb", buffering=0)
             else:
-                log_event(
-                    message="starting single-pipe FrameReader",
-                    level="info",
-                    camera=self.camera,
-                )
+                logger.info(f"{self.camera.config.name} starting single-pipe FrameReader")
 
                 process = subprocess.Popen(
                     ffmpeg_cmd,
@@ -328,19 +311,15 @@ class FrameReader(Reader):
                 fail_count += 1
 
                 if self.process.poll() is not None:
-                    log_event(
-                        message="ffmpeg exited, breaking reader loop",
-                        level="warn",
-                        camera=self.camera,
-                    )
+                    logger.warning(
+                        self.camera.config.name +
+                        " ffmpeg exited, breaking reader loop")
                     break
 
                 if fail_count >= 10:
-                    log_event(
-                        message="full-res reader stalled, restarting after repeated timeouts",
-                        level="warn",
-                        camera=self.camera,
-                    )
+                    logger.warning(
+                        self.camera.config.name +
+                        " full-res reader stalled, restarting after repeated timeouts")
                     break
 
                 continue
@@ -368,18 +347,16 @@ class FrameReader(Reader):
                     fail_count += 1
 
                     if self.process.poll() is not None:
-                        log_event(
-                            message="ffmpeg exited, breaking YOLO reader loop",
-                            level="warn",
-                            camera=self.camera,
+                        logger.warning(
+                            self.camera.config.name +
+                            " ffmpeg exited, breaking YOLO reader loop"
                         )
                         break
 
                     if fail_count >= 10:
-                        log_event(
-                            message="yolo reader stalled, restarting after repeated timeouts",
-                            level="warn",
-                            camera=self.camera,
+                        logger.warning(
+                            self.camera.config.name +
+                            " yolo reader stalled, restarting after repeated timeouts"
                         )
                         break
 

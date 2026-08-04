@@ -15,7 +15,6 @@ import atexit
 import json
 import sys
 import threading
-import time
 from collections import deque
 from datetime import datetime, timezone
 from logging import (
@@ -34,6 +33,7 @@ from types import TracebackType
 from typing import Any, Type, override
 
 from pynvr.constants import ExitCode, MAX_LOG_LINES
+from pynvr.api.types import LogEntry
 
 logger = getLogger("pynvr")
 
@@ -42,34 +42,6 @@ event_log = deque(maxlen=MAX_LOG_LINES)
 # =========================
 # LOGGING
 # =========================
-def log_event(message, level="info", camera=None, file_path=None):
-    """Log an event to the event log and the standard logger."""
-
-    fstr = camera.config.name + " " if camera else ""
-    fstr += message
-    fstr += " " + file_path if file_path else ""
-
-    match level:
-        case "info": logger.info(fstr)
-        case "debug": logger.debug(fstr)
-        case "warn": logger.warning(fstr)
-        case "error": logger.error(fstr)
-        case "record": logger.info(fstr)
-
-    path = None
-    if file_path:
-        path = Path(file_path)
-
-    entry = {
-        "timestamp": time.time(),
-        "level": level,
-        "camera": camera.config.name if camera else "",
-        "message": message,
-        "file_path": file_path if file_path else "",
-        "anchor": f"{path.parent.name}/{path.name}" if path else "" 
-    }
-    event_log.append(entry)
-
 
 def setup_logging(config_path: Path) -> Path:
     """Configure logging using a JSON config file.
@@ -109,7 +81,7 @@ def setup_logging(config_path: Path) -> Path:
 
     sys.excepthook = handle_unhandled_exception
     threading.excepthook = handle_thread_exception
-    getLogger().info("logging configured")
+    getLogger().info("logging configured", extra={"camera": "B1"})
 
     return folder_path
 
@@ -267,3 +239,40 @@ class KeywordFilter(Filter):
     def add_keywords(cls, keywords: list[str]) -> None:
         """Register multiple keywords to be masked in future log messages."""
         cls._keywords.extend(keywords)
+
+class LogEventHandler(Handler):
+    """Custom logging handler that stores log records in an in-memory deque.
+
+    This handler is intended for capturing log events for later retrieval,
+    such as for displaying recent logs in a web interface.
+    """
+    def __init__(self, level: int = INFO) -> "LogEventHandler":
+        """Initialize the handler with an optional logging level."""
+        super().__init__(level)
+
+    @override
+    def emit(self, record: LogRecord) -> None:
+        """Emit a log record by appending it to the global event log."""
+        try:
+
+            recording = getattr(record, "recording", False)
+            file_path = getattr(record, "file_path", None)
+            message = getattr(record, "message", "")
+
+            fstr = message
+            path = None
+            if file_path:
+                fstr += " " + file_path
+                path = Path(file_path)
+
+            entry = LogEntry(
+                timestamp=record.created,
+                level="recording" if recording else record.levelname.lower(),
+                message=message,
+                file_path=file_path if file_path else "",
+                anchor=f"{path.parent.name}/{path.name}" if path else ""
+            )
+            event_log.append(entry)
+
+        except Exception:
+            self.handleError(record)

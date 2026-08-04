@@ -23,7 +23,6 @@ from pynvr.constants import StreamingState, KNUTH_MULTIPLIER
 
 from pynvr.camera.camera import Camera
 from pynvr.debug_panel import draw_debug_panels
-from pynvr.logger import log_event
 from pynvr.recorder import FrameRecorder
 from pynvr.reader import Reader
 from pynvr.utils import (
@@ -54,7 +53,7 @@ class FrameProcessor:
         self.recorder: FrameRecorder = recorder
         self.model: YOLO = YOLO(model_cfg["name"])
         self.selected_classes: list[int] = []
-        self.classes = model_cfg["classes"]
+        self.classes: dict[str, bool] = model_cfg["classes"]
         self.set_selected_classes(self.classes)
         logger.info("CUDA is available: %s", torch.cuda.is_available())
         if torch.cuda.is_available() and config["device"] != "cpu":
@@ -89,7 +88,7 @@ class FrameProcessor:
         """
         Stop the frame processing thread.
         """
-        log_event(message="stopping FrameProcessor", level="info", camera=self.camera)
+        logger.info(f"{self.camera.config.name} stopping FrameProcessor")
         if self.thread is not None:
             self.thread.join()
 
@@ -189,11 +188,9 @@ class FrameProcessor:
         was_night = self.camera.is_night
         self.camera.is_night = self._is_night_time(frame_bgr)
         if was_night != self.camera.is_night:
-            log_event(
-                message=f"night/day change: is_night={self.camera.is_night}",
-                level="info",
-                camera=self.camera,
-            )
+            logger.info(
+                self.camera.config.name +
+                f" night/day change: is_night={self.camera.is_night}")
         self.last_night_time_check = now
 
     def _is_night_time(
@@ -210,9 +207,11 @@ class FrameProcessor:
 
         b, g, r = cv2.split(frame.astype(np.float32))
         chroma = np.mean(np.abs(r - g)) + np.mean(np.abs(g - b))
-        ir_mode_on = chroma < ir_chroma_threshold
 
-        return bool((avg_luma < luma_threshold) or ir_mode_on)
+        ir_mode_on = bool((avg_luma < luma_threshold) and (chroma < ir_chroma_threshold))
+        is_night = bool((avg_luma < luma_threshold) or ir_mode_on)
+
+        return is_night
 
     # ----------------------------------------------------------------------
     # YOLO inference
@@ -310,10 +309,9 @@ class FrameProcessor:
             rec.recording_start_time = now
             motion.active_objects_dict = deepcopy(motion.classes_in_frame_dict)
             self.recorder.start_recording()
-            log_event(
-                message=f"recording start {tags_to_str(motion.active_objects_dict)}",
-                level="info",
-                camera=self.camera,
+            logger.info(
+                self.camera.config.name +
+                f" recording start {tags_to_str(motion.active_objects_dict)}"
             )
 
         if rec.recording:

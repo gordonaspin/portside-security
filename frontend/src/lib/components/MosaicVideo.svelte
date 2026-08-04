@@ -4,21 +4,23 @@
   import { safeFetch } from '$lib/network/safeFetch';
   import { cameraStatusStore } from "$lib/stores/cameraStatus";
   import { serverOffline } from '$lib/stores/connection';
+  import type { components } from '$lib/types/api';
 
-  let cameras = [];
-  let isFocusMode = false;
-  let currentCamera = null;
+  type Camera = components['schemas']['CameraResponse'];
+  type MosaicDimensions = components['schemas']['MosaicDimensionsResponse'];
 
-  let mosaicPC = null;
-  let focusPC = null;
+  let cameras: Camera[] = [];
+  let isFocusMode: boolean = false;
+  let currentCamera: Camera | null = null;
 
-  let mosaicVideo; // bind:this
-  let mosaicTitle = "";
-  let mosaicRows = 0;
-  let mosaicCols = 0;
-  let videoWidth = 3840;
-  let videoHeight = 1046;
+  let mosaicPC: RTCPeerConnection | null = null;
+  let focusPC: RTCPeerConnection | null = null;
 
+  let mosaicVideo: HTMLVideoElement | null = null; // bind:this
+  let mosaicTitle: string = "";
+  let mosaicDimensions: MosaicDimensions | null = null;
+  let videoWidth: number = 1;
+  let videoHeight: number = 1;
 
   async function loadCameras() {
     try {
@@ -33,9 +35,11 @@
   async function loadMosaicDimensions() {
     try {
       const res = await safeFetch("/api/mosaic_dimensions", { credentials: "include" });
-      const dimensions = await res.json();
-      mosaicRows = dimensions.rows;
-      mosaicCols = dimensions.columns;
+      const dimensions: MosaicDimensions = await res.json();
+
+      mosaicDimensions = dimensions;
+      videoWidth = dimensions.width;
+      videoHeight = dimensions.height;
       log("Loading mosaic dimensions:", dimensions);
 
     } catch (err) {
@@ -43,7 +47,7 @@
     }
   }
 
-  function attachVideoTrack(videoEl, stream) {
+  function attachVideoTrack(videoEl: HTMLVideoElement | null, stream: MediaStream) {
     if (!videoEl) return;
 
     log("Attaching video stream:", stream);
@@ -52,7 +56,7 @@
     videoEl.play().catch(() => {});
   }
 
-  function setVideoDimensions(settings) {
+  function setVideoDimensions(settings: any) {
     videoWidth = settings.width;
     videoHeight = settings.height;
   }
@@ -102,10 +106,10 @@
 
   }
 
-  async function startFocusedCamera(name) {
-    mosaicTitle = name;
+  async function startFocusedCamera(camera: Camera) {
+    mosaicTitle = camera.name;
 
-    log("Starting focused camera:", name);
+    log("Starting focused camera:", camera.name);
     if (mosaicPC) {
       mosaicPC.close();
       mosaicPC = null;
@@ -137,7 +141,7 @@
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         mode: "focus",
-        name,
+        name:camera.name,
         sdp: offer.sdp,
         type: offer.type
       })
@@ -148,7 +152,7 @@
 
   }
 
-  function handleMosaicClick(event) {
+  function handleMosaicClick(event: MouseEvent<HTMLVideoElement>) {
     if (!mosaicVideo) return;
 
     // If already focused → return to mosaic
@@ -164,8 +168,8 @@
     const x = event.clientX - rect.left;
     const y = event.clientY - rect.top;
 
-    const cols = mosaicCols;
-    const rows = mosaicRows;
+    const cols = mosaicDimensions?.columns || 1;
+    const rows = mosaicDimensions?.rows || 1;
 
     const cellWidth = rect.width / cols;
     const cellHeight = rect.height / rows;
@@ -182,8 +186,8 @@
     const cameraName = cameras[index].name;
 
     isFocusMode = true;
-    currentCamera = cameraName;
-    startFocusedCamera(cameraName);
+    currentCamera = cameras[index];
+    startFocusedCamera(currentCamera);
   }
 
   onMount(async () => {
@@ -259,17 +263,19 @@
       on:click={handleMosaicClick}
       autoplay
       playsinline
-    ></video>
+    >
+      <track label="English" kind="captions" srclang="en" src="silent.vtt" default>
+    </video>
 
     <div class="overlay-grid"
      style="
-       --cols: {isFocusMode ? 1 : mosaicCols};
-       --rows: {isFocusMode ? 1 : mosaicRows};
-       grid-template-columns: repeat({isFocusMode ? 1 : mosaicCols}, 1fr);
-       grid-template-rows: repeat({isFocusMode ? 1 : mosaicRows}, 1fr);
+       --cols: {isFocusMode ? 1 : mosaicDimensions?.columns || 1};
+       --rows: {isFocusMode ? 1 : mosaicDimensions?.rows || 1};
+       grid-template-columns: repeat({isFocusMode ? 1 : mosaicDimensions?.columns || 1}, 1fr);
+       grid-template-rows: repeat({isFocusMode ? 1 : mosaicDimensions?.rows || 1}, 1fr);
      ">
       {#if isFocusMode}
-        {#each cameras.filter(c => c.name === currentCamera) as camera}
+        {#each cameras.filter(c => c.name === currentCamera?.name) as camera}
           {#key $cameraStatusStore[camera.name]?.ts}
             <div class="overlay-cell">
               <div class="overlay-text-block">

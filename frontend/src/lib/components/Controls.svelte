@@ -2,14 +2,16 @@
   import { onMount } from "svelte";
   import { safeFetch } from "$lib/network/safeFetch";
   import { debug, log } from "$lib/stores/logging";
+  import type { components } from '$lib/types/api';
 
-  let cameras = [];
-  let selectedCamera = null;
+  type Camera = components['schemas']['CameraResponse'];
+  type CameraSettings = components['schemas']['CameraSettingsResponse'];
+
+  let cameras: Camera[] = [];
+  let selectedCamera: Camera | null = null;
 
   // All settings live here
-  let settings = {};
-  let cameraDebug = {};
-
+  let selectedCameraSettings: CameraSettings = null;
   let loading = false;
 
   // -----------------------------
@@ -18,10 +20,8 @@
   onMount(async () => {
     cameras = await (await safeFetch("/api/cameras", { credentials: "include" })).json();
 
-    cameras.forEach(c => cameraDebug[c.name] = c.debug);
-
     if (cameras.length > 0) {
-      selectedCamera = cameras[0].name;
+      selectedCamera = cameras[0];
       await loadCameraSettings(selectedCamera);
     }
 
@@ -38,14 +38,14 @@
   // -----------------------------
   // Load settings for a camera
   // -----------------------------
-  async function loadCameraSettings(name) {
+  async function loadCameraSettings(camera: Camera) {
     loading = true;
-    log("Loading settings for camera", name);
-    const res = await safeFetch(`/api/cameras/${name}/settings`);
+    log("Loading settings for camera", camera.name);
+    const res = await safeFetch(`/api/cameras/${camera.name}/settings`);
     const s = await res.json();
 
     // Replace entire settings object → guaranteed reactivity
-    settings = { ...s };
+    selectedCameraSettings = { ...s };
 
     setTimeout(() => loading = false, 150);
   }
@@ -56,18 +56,18 @@
   async function updateSetting(key, value) {
     if (!selectedCamera) return;
 
-    log("Updating setting for", selectedCamera, key, "to", value);
+    log("Updating setting for", selectedCamera.name, key, "to", value);
     // Update local state (reactive)
-    settings = {
-      ...settings,
+    selectedCameraSettings = {
+      ...selectedCameraSettings,
       [key]: {
-        ...settings[key],
+        ...selectedCameraSettings[key],
         value
       }
     };
 
     // Send to backend
-    await safeFetch(`/api/cameras/${selectedCamera}/settings/${key}`, {
+    await safeFetch(`/api/cameras/${selectedCamera.name}/settings/${key}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ value })
@@ -77,16 +77,16 @@
   async function updateClassToggle(className: string, value: boolean) {
     if (!selectedCamera) return;
 
-    log("Updating class toggle for", selectedCamera, className, "to", value);
-    settings = {
-      ...settings,
+    log("Updating class toggle for", selectedCamera.name, className, "to", value);
+    selectedCameraSettings = {
+      ...selectedCameraSettings,
       classes: {
-        ...settings.classes,
+        ...selectedCameraSettings.classes,
         [className]: value
       }
     };
 
-    await safeFetch(`/api/processor/${selectedCamera}/class_toggle`, {
+    await safeFetch(`/api/processor/${selectedCamera.name}/class_toggle`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ class_name: className, value })
@@ -96,9 +96,9 @@
   // -----------------------------
   // Switch camera
   // -----------------------------
-  function selectCamera(name) {
-    selectedCamera = name;
-    loadCameraSettings(name);
+  function selectCamera(camera: Camera) {
+    selectedCamera = camera;
+    loadCameraSettings(camera);
   }
 
   // -----------------------------
@@ -114,13 +114,13 @@
     });
   }
 
-  async function updateCameraDebug(name) {
-    log("Updating camera debug for", name, "to", cameraDebug[name]);
-    await safeFetch(`/api/settings/debug/${name}`, {
+  async function updateCameraDebug(camera: Camera) {
+    log("Updating camera debug for", camera.name, "to", camera.debug);
+    await safeFetch(`/api/settings/debug/${camera.name}`, {
       credentials: "include",
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ value: cameraDebug[name] })
+      body: JSON.stringify({ value: camera.debug })
     });
   }
 
@@ -147,12 +147,12 @@
         <div class="slider-block camera-pill-block">
           <label>Cameras</label>
           <div class="camera-pill-row">
-            {#each cameras as cam}
+            {#each cameras as camera}
               <div
-                class="camera-pill {selectedCamera === cam.name ? 'active' : ''}"
-                on:click={() => selectCamera(cam.name)}
+                class="camera-pill {selectedCamera === camera ? 'active' : ''}"
+                on:click={() => selectCamera(camera)}
               >
-                {cam.name}
+                {camera.name}
               </div>
             {/each}
           </div>
@@ -165,62 +165,62 @@
 
           <!-- YOLO confidence -->
           <div class="slider-block shimmer-item">
-            <label for="yolo_confidence">YOLO Confidence: {settings.yolo_confidence.value.toFixed(2)}</label>
+            <label for="yolo_confidence">YOLO Confidence: {selectedCameraSettings.yolo_confidence.value.toFixed(2)}</label>
             <input type="range"
               id="yolo_confidence"
-              min={settings.yolo_confidence.min}
-              max={settings.yolo_confidence.max}
-              step={settings.yolo_confidence.step}
-              bind:value={settings.yolo_confidence.value}
-              on:change={() => updateSetting("yolo_confidence", settings.yolo_confidence.value)} />
+              min={selectedCameraSettings.yolo_confidence.minimum}
+              max={selectedCameraSettings.yolo_confidence.maximum}
+              step={selectedCameraSettings.yolo_confidence.step}
+              bind:value={selectedCameraSettings.yolo_confidence.value}
+              on:change={() => updateSetting("yolo_confidence", selectedCameraSettings.yolo_confidence.value)} />
           </div>
 
           <!-- track_threshold -->
           <div class="slider-block shimmer-item">
-            <label for="track_threshold">Track Threshold: {settings.track_threshold.value.toFixed(2)}</label>
+            <label for="track_threshold">Track Threshold: {selectedCameraSettings.track_threshold.value.toFixed(2)}</label>
             <input type="range"
               id="track_threshold"
-              min={settings.track_threshold.min}
-              max={settings.track_threshold.max}
-              step={settings.track_threshold.step}
-              bind:value={settings.track_threshold.value}
-              on:change={() => updateSetting("track_threshold", settings.track_threshold.value)} />
+              min={selectedCameraSettings.track_threshold.minimum}
+              max={selectedCameraSettings.track_threshold.maximum}
+              step={selectedCameraSettings.track_threshold.step}
+              bind:value={selectedCameraSettings.track_threshold.value}
+              on:change={() => updateSetting("track_threshold", selectedCameraSettings.track_threshold.value)} />
           </div>
 
           <!-- match_threshold -->
           <div class="slider-block shimmer-item">
-            <label for="match_threshold">Match Threshold: {settings.match_threshold.value.toFixed(2)}</label>
+            <label for="match_threshold">Match Threshold: {selectedCameraSettings.match_threshold.value.toFixed(2)}</label>
             <input type="range"
               id="match_threshold"
-              min={settings.match_threshold.min}
-              max={settings.match_threshold.max}
-              step={settings.match_threshold.step}
-              bind:value={settings.match_threshold.value}
-              on:change={() => updateSetting("match_threshold", settings.match_threshold.value)} />
+              min={selectedCameraSettings.match_threshold.minimum}
+              max={selectedCameraSettings.match_threshold.maximum}
+              step={selectedCameraSettings.match_threshold.step}
+              bind:value={selectedCameraSettings.match_threshold.value}
+              on:change={() => updateSetting("match_threshold", selectedCameraSettings.match_threshold.value)} />
           </div>
 
           <!-- track_buffer -->
           <div class="slider-block shimmer-item">
-            <label for="track_buffer">Track Buffer: {settings.track_buffer.value}</label>
+            <label for="track_buffer">Track Buffer: {selectedCameraSettings.track_buffer.value}</label>
             <input type="range"
               id="track_buffer"
-              min={settings.track_buffer.min}
-              max={settings.track_buffer.max}
-              step={settings.track_buffer.step}
-              bind:value={settings.track_buffer.value}
-              on:change={() => updateSetting("track_buffer", settings.track_buffer.value)} />
+              min={selectedCameraSettings.track_buffer.minimum}
+              max={selectedCameraSettings.track_buffer.maximum}
+              step={selectedCameraSettings.track_buffer.step}
+              bind:value={selectedCameraSettings.track_buffer.value}
+              on:change={() => updateSetting("track_buffer", selectedCameraSettings.track_buffer.value)} />
           </div>
 
           <!-- minimum_relative_motion -->
           <div class="slider-block shimmer-item">
-            <label for="minimum_relative_motion">Min Relative Motion: {settings.minimum_relative_motion.value}</label>
+            <label for="minimum_relative_motion">Min Relative Motion: {selectedCameraSettings.minimum_relative_motion.value}</label>
             <input type="range"
               id="minimum_relative_motion"
-              min={settings.minimum_relative_motion.min}
-              max={settings.minimum_relative_motion.max}
-              step={settings.minimum_relative_motion.step}
-              bind:value={settings.minimum_relative_motion.value}
-              on:change={() => updateSetting("minimum_relative_motion", settings.minimum_relative_motion.value)} />
+              min={selectedCameraSettings.minimum_relative_motion.minimum}
+              max={selectedCameraSettings.minimum_relative_motion.maximum}
+              step={selectedCameraSettings.minimum_relative_motion.step}
+              bind:value={selectedCameraSettings.minimum_relative_motion.value}
+              on:change={() => updateSetting("minimum_relative_motion", selectedCameraSettings.minimum_relative_motion.value)} />
           </div>
 
         </div>
@@ -233,7 +233,7 @@
       <!-- Shimmer wrapper identical to slider-row -->
       <div class="class-toggle-row {loading ? 'loading' : 'loaded'}">
 
-        {#each Object.entries(settings.classes || {}) as [className, enabled]}
+        {#each Object.entries(selectedCameraSettings.classes || {}) as [className, enabled]}
           <label class="class-toggle-item shimmer-item">
             <input
               type="checkbox"
@@ -252,15 +252,15 @@
       <h3>Camera Debug and Logging</h3>
 
       <div class="camera-debug-row">
-        {#each cameras as cam}
-          <label for="camera_debug_{cam.name}" class="camera-debug-item">
+        {#each cameras as camera}
+          <label for="camera_debug_{camera.name}" class="camera-debug-item">
             <input
-              id="camera_debug_{cam.name}"
+              id="camera_debug_{camera.name}"
               type="checkbox"
-              bind:checked={cameraDebug[cam.name]}
-              on:change={() => updateCameraDebug(cam.name)}
+              bind:checked={camera.debug}
+              on:change={() => updateCameraDebug(camera)}
             />
-            {cam.name}
+            {camera.name}
           </label>
         {/each}
         <label class="verbose-label">

@@ -73,6 +73,8 @@ def main(username,
     log_path = setup_logging(config["logging_config"])
     config["logs_directory"] = log_path
 
+    logger.info("starting pynvr")
+
     if password.startswith("password://"):
         password = keyring.get_password(password, username)
         if password is not None:

@@ -218,3 +218,5 @@ nohup.out
 restart.sh
 stop.sh
 node_modules/
+frontend/src/lib/types/api.ts
+openapi.json

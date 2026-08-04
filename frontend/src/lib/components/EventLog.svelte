@@ -1,11 +1,14 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { logStore, addLog } from "$lib/stores/logs"
+  import { logStore, pushLogEntry } from "$lib/stores/logs"
   import { safeFetch } from "$lib/network/safeFetch"
   import { currentEvent } from "$lib/stores/playQueue"
   import type { RecordingEvent } from '$lib/stores/events'
   import { tick } from 'svelte'
   import { log } from '$lib/stores/logging'
+  import type { components } from '$lib/types/api';
+
+  type LogEntry = components['schemas']['LogEntry'];
 
   let container;
   let selectedUrl = null;
@@ -16,8 +19,8 @@
 
     // pynvr returns oldest → newest
     // We want newest at top, same as SSE
-    for (const log of data.logs) {
-      addLog(log);
+    for (const logEntry of data.log_entries) {
+      pushLogEntry(logEntry);
     }
   })
 
@@ -62,15 +65,14 @@
 <h3 class="event-log-title">Event Log</h3>
 
 <div class="event-log" bind:this={container} on:click={handleClick}>
-  {#each $logStore as log}
-    <div class="log-entry log-{log.level}">
-      <span class="log-time">{fmt(log.timestamp)}</span>
-      <span class="log-{log.level.toLowerCase()}">{log.level.toUpperCase()}</span>
-      <span class="log-camera">{log.camera}</span>
-      <span class="log-message">{log.message}</span>
+  {#each $logStore as log_entry}
+    <div class="log-entry log-{log_entry.level}">
+      <span class="log-time">{fmt(log_entry.timestamp)}</span>
+      <span class="log-{log_entry.level.toLowerCase()}">{log_entry.level.toUpperCase()}</span>
+      <span class="log-message">{log_entry.message}</span>
 
-      {#if log.file_path}
-        <a class="log-file" href={log.file_path} target="_blank">{log.anchor}</a>
+      {#if log_entry.file_path}
+        <a class="log-file" href={log_entry.file_path} target="_blank">{log_entry.anchor}</a>
       {/if}
     </div>
   {/each}
@@ -106,7 +108,7 @@
     font-size: 0.7rem;
     color: #AA0088;
   }
-  .log-warn {
+  .log-warning {
     font-size: 0.7rem;
     color: #ffd600;
   }
@@ -114,15 +116,15 @@
     font-size: 0.7rem;
     color: #ff5252;
   }
-  .log-record {
+  .log-recording {
     font-size: 0.7rem;
     color: #17e8ff;
   }
   .log-info a,
   .log-debug a,
-  .log-warn a,
+  .log-warning a,
   .log-error a,
-  .log-record a {
+  .log-recording a {
     font-size: 0.7rem;
     color: #eee;
     text-decoration: underline;

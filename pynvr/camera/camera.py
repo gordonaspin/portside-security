@@ -16,7 +16,7 @@ from numpy.typing import NDArray
 
 from pynvr.camera.frame_buffers import FrameBuffers
 from pynvr.camera.motion_detector import MotionDetector
-from pynvr.utils import ConfigValue
+from pynvr.api.types import ConfigValue
 
 @dataclass
 class RecordingState:

@@ -25,7 +25,6 @@ import cv2
 from pynvr.camera.camera import Camera
 from pynvr.constants import TS_FILE_RING_SECONDS
 from pynvr.file_cleaner import FileCleaner
-from pynvr.logger import log_event
 from pynvr.utils import make_readable_ts, make_ts_string, tags_to_str, RollingAverage
 
 logger = getLogger("pynvr.recorder")
@@ -249,32 +248,30 @@ class FrameRecorder:
         pre = self.recorder_config["pre_duration"]
         post = self.recorder_config["post_duration"]
         if self.duration_seconds < (pre + post) * 5 / 6:
-            log_event(
-                message=f"auto-deleted {self.duration_seconds:.2f} {self.final_media_filename}",
-                level="info",
-                camera=self.camera)
+            logger.info(f"auto-deleted {self.duration_seconds:.2f} {self.final_media_filename}")
             os.remove(self.final_media_filename)
         else:
             with open(self.final_metadata_filename, "w", encoding="utf-8") as f:
                 json.dump(metadata, f, default=lambda o: o.__dict__, indent=4)
 
             if self.duration_seconds <= 0.0:
-                log_event(
-                    message=f"recording broken {self.formatted_duration}",
-                    level="error",
-                    camera=self.camera,
-                    file_path=self.final_metadata_filename)
+                logger.error(f"recording broken {self.formatted_duration}")
+
             else:
                 self.report_complete()
                 self.add_recording_callback(self.final_metadata_filename)
 
     def report_complete(self):
         """Override this method in subclasses to report that the recording is complete."""
-        log_event(
-            message=f"recording available {self.formatted_duration}",
-            level="record",
-            camera=self.camera,
-            file_path=self.final_metadata_filename)
+        logger.info(
+            self.name + " " +
+            self.camera.config.name +
+            " recording available "
+            + self.formatted_duration,
+            extra = {
+                "recording": True,
+                "file_path": self.final_metadata_filename
+            })
 
     def _finalize_media_file(self):
         shutil.move(self.temporary_media_filename, self.final_media_filename)
@@ -399,13 +396,6 @@ class OpenCVFrameRecorder(FrameRecorder):
         logger.debug(f"{self.camera.config.name} cv2 FrameRecorder started")
         super().start_recording()  # This will set up the filename and log_filename
 
-    @override
-    def report_complete(self):
-        log_event(
-            message=f"{self.name} recording available {self.formatted_duration}",
-            level="record",
-            camera=self.camera,
-            file_path=self.final_metadata_filename)
 
 class AVFFmpegFrameRecorder(FrameRecorder):
     """A recorder that uses PyAV (FFmpeg bindings) to encode frames into a video file."""
@@ -500,15 +490,6 @@ class AVFFmpegFrameRecorder(FrameRecorder):
 
         logger.debug(f"{self.camera.config.name} {self.name} FrameRecorder started")
         super().start_recording()  # This will set up the filename and log_filename
-
-    @override
-    def report_complete(self):
-        log_event(
-            message=f"{self.name} recording available {self.formatted_duration}",
-            level="record",
-            camera=self.camera,
-            file_path=self.final_metadata_filename
-        )
 
 
 class FFmpegFrameRecorder(FrameRecorder):
@@ -609,16 +590,6 @@ class FFmpegFrameRecorder(FrameRecorder):
 
         logger.debug(f"{self.camera.config.name} {self.name}Recorder started")
         super().start_recording()  # This will set up the filename and log_filename
-
-
-    @override
-    def report_complete(self):
-        log_event(
-            message=f"{self.name} frame recording available {self.formatted_duration}",
-            level="record",
-            camera=self.camera,
-            file_path=self.final_metadata_filename
-        )
 
 
 class FFmpegSegmentRecorder(FrameRecorder):
@@ -829,12 +800,3 @@ class FFmpegSegmentRecorder(FrameRecorder):
 
         # Timeout → proceed anyway
         return
-
-    @override
-    def report_complete(self):
-        log_event(
-            message=f"{self.name} recording available {self.formatted_duration}",
-            level="record",
-            camera=self.camera,
-            file_path=self.final_metadata_filename
-        )

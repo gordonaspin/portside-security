@@ -5,6 +5,10 @@
   import { eventStore } from "$lib/stores/events";
   import { currentEvent } from "$lib/stores/playQueue"
   import type { RecordingEvent } from "$lib/stores/events";
+  import type { components } from '$lib/types/api';
+
+  type Class = components['schemas']['ClassesResponse'];
+  type Camera = components['schemas']['CameraResponse'];
 
   let selectedEvent: RecordingEvent | null = null;
   
@@ -19,8 +23,8 @@
   const MIN_ZOOM = 1 / 60;
   const MAX_ZOOM = isMobile ? 4 : 24;
 
-  let cameras = [];
-  let classes = [];
+  let cameras: Camera[] = [];
+  let classes: Class[] = [];
   let classColors = {};
   let selectedClasses = new Set();
   let canvas: HTMLCanvasElement;
@@ -129,8 +133,8 @@
     ];
 
     classColors = {};
-    classes.forEach((cls, i) => {
-      classColors[cls] = palette[i % palette.length];
+    Object.entries(classes).forEach(([cls, value]) => {
+      classColors[cls] = palette[Object.keys(classes).indexOf(cls) % palette.length];
     });
   }
 
@@ -275,7 +279,7 @@
 
     legendItems = [];
 
-    classes.forEach((cls) => {
+    Object.entries(classes).forEach(([cls, value]) => {
       const textWidth = ctx.measureText(cls).width;
       const paddingX = 8;
       const paddingY = 4;
@@ -283,7 +287,7 @@
       const h = 20;
       const r = 6;
 
-      const isSelected = selectedClasses.has(cls);
+      const isSelected = value;
 
       const bx = x;
       const by = y - h / 2;

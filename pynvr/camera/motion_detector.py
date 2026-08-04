@@ -11,7 +11,7 @@ from threading import Lock
 import numpy as np
 
 from pynvr.byte_track.byte_tracker import BYTETracker
-from pynvr.utils import ConfigValue
+from pynvr.api.types import ConfigValue
 
 logger = getLogger("pynvr")
 
@@ -56,17 +56,16 @@ class MotionDetector:
             minimum=30,
             maximum=300,
             step=1)
-        self.lock: Lock = Lock()
-
-        # --- ByteTrack configuration ---
-        self.tracker = self.create_tracker()
-
-        # Minimum pixel velocity to consider an object "moving"
         self.minimum_relative_motion: ConfigValue = ConfigValue(
             default=cfg["minimum_relative_motion"],
             minimum=0.05,
             maximum=0.2,
             step=0.01)
+
+        self.lock: Lock = Lock()
+
+        # --- ByteTrack configuration ---
+        self.tracker = self.create_tracker()
 
         # --- Motion state ---
         self.has_moving_object: bool = False

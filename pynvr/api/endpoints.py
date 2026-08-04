@@ -8,7 +8,7 @@
 """
 import asyncio
 import bisect
-import json
+from collections import deque
 import secrets
 import time
 from datetime import datetime
@@ -20,13 +20,30 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, EventSourceResponse
 from passlib.context import CryptContext
-from pydantic import BaseModel
 
-from pynvr.utils import ConfigValue
-from pynvr.logger import log_event, event_log
+from pynvr.logger import event_log
 from pynvr.nvr import NVR
 from pynvr.webrtc import CameraTrack, MosaicTrack
-
+from pynvr.api.types import (
+    CameraDebugResponse,
+    CameraResponse,
+    CameraSettingResponse,
+    CameraSettingsResponse,
+    CameraStatus,
+    ClassesResponse,
+    ClassToggle,
+    ClassToggleResponse,
+    DimensionsResponse,
+    EventsResponse,
+    LogsResponse,
+    LoginForm,
+    LogEntry,
+    ServerTimeResponse,
+    SettingValue,
+    SettingValueResponse,
+    SSEEvent,
+    SystemNameResponse,
+)
 logger = getLogger("pynvr")
 
 # -------------------------
@@ -87,25 +104,6 @@ def require_user(session_id: str | None = Cookie(None)):
     return SESSIONS[session_id]
 
 
-class LoginForm(BaseModel):
-    """
-    Represents the login form data.
-    """
-    username: str
-    password: str
-
-class SettingValue(BaseModel):
-    """
-    Represents a setting value for camera or system configuration.
-    """
-    value: float | bool
-
-class ClassToggle(BaseModel):
-    """
-    Represents a class toggle for camera or system configuration.
-    """
-    class_name: str
-    value: bool
 # -------------------------
 # APP FACTORY
 # -------------------------
@@ -180,7 +178,7 @@ def create_app(config: dict, nvr: NVR):
 
         if mode == "mosaic":
             cameras = [camera for camera in nvr.cameras.values() if camera.config.enabled]
-            track = MosaicTrack(cameras, config["mosaic"]["rows"], config["mosaic"]["columns"])
+            track = MosaicTrack(cameras, config["mosaic"])
         else:
             camera = nvr.cameras[name]
             track = CameraTrack(camera)
@@ -192,25 +190,29 @@ def create_app(config: dict, nvr: NVR):
 
         return {"sdp": pc.localDescription.sdp, "type": pc.localDescription.type}
 
-    @app.get("/api/cameras")
+    @app.get("/api/cameras", response_model=list[CameraResponse])
     def get_cameras(user=Depends(require_user)):
-        return [{"name": camera.config.name, "debug": camera.config.debug}
+        return [CameraResponse(name=camera.config.name, debug=camera.config.debug)
                 for camera in nvr.cameras.values() if camera.config.enabled]
 
-    @app.get("/api/classes")
+    @app.get("/api/classes", response_model=ClassesResponse)
     def get_classes(user=Depends(require_user)):
-        return {"classes": list(config["model"]["classes"])}
+        return ClassesResponse(classes=config["model"]["classes"])
 
-    @app.get("/api/system_name")
+    @app.get("/api/system_name", response_model=SystemNameResponse)
     def get_system_name():
-        return {"system_name": config["system_name"]}
+        return SystemNameResponse(system_name=config["system_name"])
 
-    @app.get("/api/mosaic_dimensions")
+    @app.get("/api/mosaic_dimensions", response_model=DimensionsResponse)
     def get_mosaic_dimensions(user=Depends(require_user)):
-        return config["mosaic"]
+        return DimensionsResponse(
+            rows=config["mosaic"]["rows"],
+            columns=config["mosaic"]["columns"],
+            width=config["mosaic"]["width"],
+            height=config["mosaic"]["height"]
+        )
 
-
-    @app.get("/api/events")
+    @app.get("/api/events", response_model=EventsResponse)
     def api_events(
         start: float | None = Query(None),
         end: float | None = Query(None),
@@ -235,20 +237,20 @@ def create_app(config: dict, nvr: NVR):
         # ------------------------------------------------------------
         if mobile:
             cutoff = datetime.now().timestamp() - 4 * 3600
-            end_times = [ev["end_time"] for ev in events]
+            end_times = [ev.end_time for ev in events]
             idx = bisect.bisect_left(end_times, cutoff)
-            return {"events": events[idx:]}
+            return EventsResponse(events=events[idx:])
 
         # ------------------------------------------------------------
         # DESKTOP MODE: window-based filtering
         # ------------------------------------------------------------
         if start is not None and end is not None:
             # 1. Find first event whose end_time >= start
-            end_times = [ev["end_time"] for ev in events]
+            end_times = [ev.end_time for ev in events]
             left = bisect.bisect_left(end_times, start)
 
             # 2. Find last event whose start_time <= end
-            start_times = [ev["start_time"] for ev in events]
+            start_times = [ev.start_time for ev in events]
             right = bisect.bisect_right(start_times, end)
 
             # 3. Slice and return only overlapping events
@@ -257,74 +259,73 @@ def create_app(config: dict, nvr: NVR):
             # 4. Final overlap check (safety)
             window_events = [
                 ev for ev in window_events
-                if ev["end_time"] >= start and ev["start_time"] <= end
+                if ev.end_time >= start and ev.start_time <= end
             ]
 
-            return {"events": window_events}
+            return EventsResponse(events=window_events)
 
         # ------------------------------------------------------------
         # FALLBACK: return everything
         # ------------------------------------------------------------
-        return {"events": events}
+        return EventsResponse(events=events)
 
 
-    @app.get("/api/logs")
+    @app.get("/api/logs", response_model=LogsResponse)
     def get_logs(
         since: float | None = None,
         user=Depends(require_user)
         ):
 
-        logs = event_log
+        log_entries: deque[LogEntry] = event_log
 
         if since is not None:
-            timestamps = [obj["timestamp"] for obj in event_log]
+            timestamps = [log_entry.timestamp for log_entry in event_log]
             index = bisect.bisect_right(timestamps, since)
-            logs = event_log[index:]
+            log_entries = event_log[index:]
 
-        return {"logs": logs}
+        return LogsResponse(log_entries=log_entries)
 
-    @app.get("/api/cameras/{camera_name}/settings")
+    @app.get("/api/cameras/{camera_name}/settings", response_model=CameraSettingsResponse)
     def get_camera_settings(camera_name: str):
         camera = nvr.cameras[camera_name]
+        processor = nvr.processors[camera_name]
 
-        settings = {}
-        for attr, value in vars(camera.config).items():
-            if isinstance(value, ConfigValue):
-                settings[attr] = vars(value)
+        return CameraSettingsResponse(
+            yolo_confidence=vars(camera.config.yolo_confidence),
+            track_threshold=vars(camera.motion.track_threshold),
+            match_threshold=vars(camera.motion.match_threshold),
+            track_buffer=vars(camera.motion.track_buffer),
+            minimum_relative_motion=vars(camera.motion.minimum_relative_motion),
+            classes=processor.classes
+        )
 
-        for attr, value in vars(camera.motion).items():
-            if isinstance(value, ConfigValue):
-                settings[attr] = vars(value)
-
-        settings["classes"] = {}
-        for processor in nvr.processors.values():
-            if processor.camera.config.name == camera_name:
-                settings["classes"] = processor.classes
-                break
-        return settings
-
-    @app.post("/api/cameras/{camera_name}/settings/{setting}")
+    @app.post("/api/cameras/{camera_name}/settings/{setting}", response_model=CameraSettingResponse)
     def update_camera_setting(camera_name: str, setting: str, payload: SettingValue):
 
         camera = nvr.cameras[camera_name]
+        old_value = None
+
         if setting == "yolo_confidence":
             attr = getattr(camera.config, setting)
+            old_value = attr.value
             attr.value = payload.value
         else:
             attr = getattr(camera.motion, setting)
+            old_value = attr.value
             attr.value = payload.value
             camera.motion.create_tracker()  # Ensure BYTETracker is recreated with new setting
 
-        log_event(f"{setting} {attr.value:.2f} -> {payload.value:.2f}", camera=camera)
+        logger.info(f"{camera_name} {setting} {old_value:.2f} -> {payload.value:.2f}")
 
-        return {
-            "status": "ok",
-            "camera": camera_name,
-            "setting": setting,
-            "value": payload.value
-        }
+        return CameraSettingResponse(
+            status="ok",
+            camera=camera_name,
+            setting=setting,
+            value=payload.value
+        )
 
-    @app.post("/api/processor/{camera_name}/class_toggle")
+
+    @app.post("/api/processor/{camera_name}/class_toggle", response_model=ClassToggleResponse)
     def update_class_toggle(camera_name: str, payload: ClassToggle):
 
         camera = nvr.cameras[camera_name]
@@ -339,49 +340,55 @@ def create_app(config: dict, nvr: NVR):
         # Recreate tracker if class filters affect tracking
         camera.motion.create_tracker()
 
-        log_event(
-            f"class {payload.class_name}: {payload.value}",
-            camera=camera
+        logger.info(
+            camera_name + " class " + payload.class_name + ": " + str(payload.value)
         )
 
-        return {
-            "status": "ok",
-            "camera": camera_name,
-            "class_name": payload.class_name,
-            "value": payload.value
-        }
+        return ClassToggleResponse(
+            status="ok",
+            camera=camera_name,
+            class_name=payload.class_name,
+            value=payload.value
+        )
 
     # camera debug
-    @app.get("/api/settings/debug/{camera_name}")
+    @app.get("/api/settings/debug/{camera_name}", response_model=CameraResponse)
     def get_camera_debug(camera_name: str):
         camera = nvr.cameras.get(camera_name)
 
-        return {
-            "camera": camera_name,
-            "debug": camera.config.debug if camera else False
-        }
+        return CameraResponse(
+            name=camera_name,
+            debug=camera.config.debug if camera else False
+        )
 
-    @app.post("/api/settings/debug/{camera_name}")
+    @app.post("/api/settings/debug/{camera_name}", response_model=CameraDebugResponse)
     def set_camera_debug(camera_name: str, payload: SettingValue, user=Depends(require_user)):
         camera = nvr.cameras.get(camera_name)
-        log_event(f"debug {payload.value}", camera=camera)
+        logger.info(camera_name + " debug " + str(payload.value))
         camera.config.debug = payload.value
-        return {"status": "ok", "camera": camera_name, "value": payload.value}
+        return CameraDebugResponse(
+            status="ok",
+            camera=camera_name,
+            debug=payload.value
+            )
 
     # Verbose debug
-    @app.get("/api/settings/debug")
+    @app.get("/api/settings/debug", response_model=SettingValue)
     def get_debug(user=Depends(require_user)):
-        return {"value": nvr.debug}
+        return SettingValue(value=nvr.debug)
 
-    @app.post("/api/settings/debug")
+    @app.post("/api/settings/debug", response_model=SettingValueResponse)
     def set_debug(payload: SettingValue, user=Depends(require_user)):
-        log_event(f"verbose logging {payload.value}")
+        logger.info(f"verbose logging {payload.value}")
         nvr.debug = payload.value
-        return {"status": "ok", "value": payload.value}
+        return SettingValueResponse(
+            status="ok",
+            value=payload.value
+        )
 
-    @app.get("/api/server_time")
+    @app.get("/api/server_time", response_model=ServerTimeResponse)
     def server_time(user=Depends(require_user)):
-        return {"epoch": time.time()}
+        return ServerTimeResponse(epoch=time.time())
 
     async def event_generator(request: Request):
         last_log_time = time.time()
@@ -398,71 +405,56 @@ def create_app(config: dict, nvr: NVR):
 
                 # CAMERA STATUS
                 for processor in nvr.processors.values():
-                    data = {
-                        "ts": time.time(),
-                        "name":         processor.camera.config.name,
-                        "state":        processor.streaming_state.name,
-                        "state_value":  processor.streaming_state.value,
-                        "objects_dict": processor.camera.motion.get_active_objects(),
-                        "night":        processor.camera.is_night,
-                        "recording":    processor.camera.recording_state.recording,
-                        "read_fps":     processor.reader.fps.as_int(),
-                        "record_fps":   processor.recorder.fps.as_int(),
-                    }
-                    payload = {"type": "cameraStatus", "data": data}
-
-                    try:
-                        data = json.dumps(payload)
-                        logger.debug(f"sending event: {data}")
-                    except Exception as e:
-                        logger.error(f"Error serializing camera status: {e}")
-                        continue
-
-                    yield (
-                        "event: cameraStatus\n"
-                        f"data: {data}\n\n"
+                    camera_status = CameraStatus(
+                        ts=time.time(),
+                        name=processor.camera.config.name,
+                        state=processor.streaming_state.name,
+                        state_value=processor.streaming_state.value,
+                        objects_dict=processor.camera.motion.get_active_objects(),
+                        night=processor.camera.is_night,
+                        recording=processor.camera.recording_state.recording,
+                        read_fps=processor.reader.fps.as_int(),
+                        record_fps=processor.recorder.fps.as_int(),
                     )
+
+                    yield SSEEvent(
+                        type="cameraStatus",
+                        data=camera_status).to_sse()
 
                 # LOGS
                 logs_list = list(event_log)
 
                 if last_log_time is not None:
-                    timestamps = [obj["timestamp"] for obj in logs_list]
+                    timestamps = [log.timestamp for log in logs_list]
                     index = bisect.bisect_right(timestamps, last_log_time)
                     logs_list = logs_list[index:]
 
                 for log_line in logs_list:
-                    payload = {"type": "logLine", "data": log_line}
-                    yield (
-                        "event: logLine\n"
-                        f"data: {json.dumps(payload)}\n\n"
-                    )
+                    yield SSEEvent(
+                        type="logLine",
+                        data=log_line).to_sse()
 
                 last_log_time = time.time()
 
                 # RECORDINGS
                 recordings = list(nvr.recordings)
-                start_times = None
                 if last_recording_time is not None:
-                    start_times = [obj["start_time"] for obj in recordings]
+                    start_times = [recording.start_time for recording in recordings]
                     index = bisect.bisect_right(start_times, last_recording_time)
                     recordings = recordings[index:]
 
-                for recording in recordings:
-                    payload = {"type": "newEvent", "data": recording}
-                    logger.debug(f"sending event: {payload}")
-                    yield (
-                        "event: newEvent\n"
-                        f"data: {json.dumps(payload)}\n\n"
-                    )
+                for recording_event in recordings:
+                    yield SSEEvent(
+                        type="newEvent",
+                        data=recording_event).to_sse()
 
                 if recordings:
-                    last_recording_time = recordings[-1]["start_time"]
+                    last_recording_time = recordings[-1].start_time
 
                 await asyncio.sleep(1.0)
 
         except asyncio.CancelledError:
-            log_event("Client disconnected from SSE stream.")
+            logger.info("Client disconnected from SSE stream.")
             raise
 
     @app.get("/api/stream")
@@ -471,24 +463,25 @@ def create_app(config: dict, nvr: NVR):
             event_generator(request)
         )
 
-    app.mount(
-        "/recordings",
-        AuthStaticFiles(
-            directory=config["recordings_directory"],
-            check_dir=True),
-        name="recordings")
-    app.mount(
-        "/logs",
-        AuthStaticFiles(
-            directory=config["logs_directory"],
-            check_dir=True),
-        name="logs")
-    app.mount(
-        "/",
-        AuthStaticFiles(
-            directory="pynvr/frontend_dist",
-            html=True),
-        name="frontend")
+    if config:
+        app.mount(
+            "/recordings",
+            AuthStaticFiles(
+                directory=config["recordings_directory"],
+                check_dir=True),
+            name="recordings")
+        app.mount(
+            "/logs",
+            AuthStaticFiles(
+                directory=config["logs_directory"],
+                check_dir=True),
+            name="logs")
+        app.mount(
+            "/",
+            AuthStaticFiles(
+                directory="pynvr/frontend_dist",
+                html=True),
+            name="frontend")
 
     @app.get("/{path:path}")
     async def spa_fallback(path: str, user=Depends(require_user)):

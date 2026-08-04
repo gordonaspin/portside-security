@@ -8,15 +8,6 @@ from math import sqrt
 import cv2
 import numpy as np
 
-class ConfigValue:
-    """ Class representing a configuration slider """
-    def __init__(self, default, minimum, maximum, step):
-        self.default = default
-        self.min = minimum
-        self.value = default
-        self.max = maximum
-        self.step = step
-
 class RollingAverage:
     """ Class to compute rolling average """
     def __init__(self, window_size=20):

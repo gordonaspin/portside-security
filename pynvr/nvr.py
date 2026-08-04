@@ -11,13 +11,13 @@ from logging import getLogger
 from threading import Event
 
 from pynvr.camera.camera import Camera
-from pynvr.logger import log_event
 from pynvr.file_cleaner import FileCleaner
 from pynvr.processor import FrameProcessor
 from pynvr.reader import Reader, FrameReader
 from pynvr.recorder import FrameRecorderFactory
 from pynvr.thread_safe import ThreadSafeList
 from pynvr.utils import get_camera_resolution
+from pynvr.api.types import RecordingEvent
 
 logger = getLogger("pynvr")
 
@@ -41,17 +41,16 @@ class NVR:
         camera_resolutions = self.get_all_camera_resolutions(config["cameras"])
         for name, _ in config["cameras"].items():
             if not config["cameras"][name]["enabled"]:
-                log_event(message=f"{name} camera is disabled", level="info")
+                logger.info(f"{name} camera is disabled")
                 continue
             actual_width, actual_height = camera_resolutions[name]
             if actual_width is None or actual_height is None:
                 actual_width = config["cameras"][name]["resolution"]["width"]
                 actual_height = config["cameras"][name]["resolution"]["height"]
-                log_event(
-                    message=f"{name} could not get resolution, " +
-                            "falling back to configured resolution " +
-                            f"{actual_width}x{actual_height}",
-                    level="warn")
+                logger.warning(
+                    f"{name} could not get resolution, " +
+                    "falling back to configured resolution " +
+                    f"{actual_width}x{actual_height}")
             camera = self.cameras[name] = Camera(name=name,
                                         width=actual_width,
                                         height=actual_height,
@@ -127,10 +126,10 @@ class NVR:
         """
         Stop the NVR
         """
-        log_event(message="stopping NVR processors", level="info")
+        logger.info("stopping NVR processors")
         for processor in self.processors.values():
             processor.stop()
-        log_event(message="stopping NVR readers", level="info")
+        logger.info("stopping NVR readers")
         for reader in self.frame_readers.values():
             reader.stop()
 
@@ -155,30 +154,27 @@ class NVR:
         """ called by recorders to add a new recording """
         self.recordings.append(self._load_event(metadata_file=metadata_file))
 
-    def _load_event(self, metadata_file:str) -> dict:
-        event = None
+    def _load_event(self, metadata_file:str) -> RecordingEvent:
+        recording_event = None
 
         with open(metadata_file, "r", encoding="utf-8") as fp:
             try:
                 event = json.load(fp)
-                for k in list(event):
-                    # only send necessary event data to gui
-                    if k not in ["camera",
-                                    "tags",
-                                    "media_filename",
-                                    "start_time",
-                                    "end_time",
-                                    "start_fmt",
-                                    "end_fmt",
-                                    "metadata_filename",
-                                    "recorder_type"
-                                    ]:
-                        event.pop(k, None)
+                recording_event = RecordingEvent(
+                    camera=event["camera"],
+                    tags=event["tags"],
+                    media_filename=event["media_filename"],
+                    start_time=event["start_time"],
+                    end_time=event["end_time"],
+                    start_fmt=event["start_fmt"],
+                    end_fmt=event["end_fmt"],
+                    metadata_filename=event["metadata_filename"],
+                    recorder_type=event["recorder_type"])
 
             except json.JSONDecodeError:
                 logger.warning(f"invalid JSON in file {metadata_file}, deleting the file")
                 os.remove(metadata_file)
-        return event
+        return recording_event
 
     def _load_events(self):
         events = []
@@ -196,7 +192,7 @@ class NVR:
                         pass # it's possible a clean-up job whacked the file
 
         # Sort globally by start_time
-        events.sort(key=lambda x: x["start_time"])
+        events.sort(key=lambda e: e.start_time)
         self.recordings.extend(events)
 
         logger.debug(f"loaded {len(events)} events in {(time.time() - start):.2f} seconds")
@@ -218,9 +214,7 @@ class NVR:
 
             for f in as_completed(futures):
                 name, res = f.result()
-                log_event(
-                    message=f"{name} camera resolution detected as {res[0]}x{res[1]}",
-                    level="info")
+                logger.info(f"{name} camera resolution detected as {res[0]}x{res[1]}")
                 results[name] = res
 
         return results

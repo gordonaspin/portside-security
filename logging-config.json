@@ -37,6 +37,12 @@
       "maxBytes": 10000000,
       "backupCount": 3,
       "filters": ["KeywordFilter"]
+    },
+    "log_event_handler": {
+      "class": "pynvr.logger.LogEventHandler",
+      "level": "INFO",
+      "formatter": "thread detailed",
+      "filters": ["KeywordFilter"]
     }
   },
   "loggers": {
@@ -51,7 +57,8 @@
       "level": "INFO",
       "handlers": [
         "stderr", 
-        "file"
+        "file",
+        "log_event_handler"
       ]
     },
     "uvicorn.error": {
@@ -74,7 +81,8 @@
       "level": "INFO",
       "handlers": [
         "stderr",
-        "file"
+        "file",
+        "log_event_handler"
       ],
       "propagate": false
     },
@@ -90,7 +98,8 @@
       "level": "INFO",
       "handlers": [
         "stderr",
-        "file"
+        "file",
+        "log_event_handler"
       ],
       "propagate": false
     },
@@ -98,7 +107,8 @@
       "level": "INFO",
       "handlers": [
         "stderr",
-        "file"
+        "file",
+        "log_event_handler"
       ],
       "propagate": false
     },
@@ -106,7 +116,8 @@
       "level": "INFO",
       "handlers": [
         "stderr",
-        "file"
+        "file",
+        "log_event_handler"
       ],
       "propagate": false
     },

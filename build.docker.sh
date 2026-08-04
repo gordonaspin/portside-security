@@ -10,14 +10,6 @@ echo "Project: ${PROJECT}"
 echo "Current ${PROJECT} version: ${VERSION}"
 echo "Hash: ${REMOTE_HASH}"
 
-python -m pylint ${PROJECT}
-cd frontend
-npm run build
-cd ..
-rm -f dist/*
-python -m build
-
-
 docker build \
   --build-arg CACHE_BUST=${REMOTE_HASH} \
   --build-arg PROJECT=${PROJECT} \

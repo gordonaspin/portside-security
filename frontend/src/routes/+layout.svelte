@@ -5,7 +5,7 @@
   import { onDestroy } from 'svelte';
   import { cameraStatusStore } from '$lib/stores/cameraStatus';
   import { addEvent } from "$lib/stores/events";
-  import { addLog } from "$lib/stores/logs";
+  import { pushLogEntry } from "$lib/stores/logs";
   import { serverOffline } from '$lib/stores/connection';
   import { enqueueAuto } from '$lib/stores/playQueue.js';
   import type { RecordingEvent } from '$lib/stores/events';
@@ -49,7 +49,7 @@
     });
 
     source.addEventListener("logLine", (ev) => {
-      addLog(JSON.parse(ev.data).data);
+      pushLogEntry(JSON.parse(ev.data).data);
     });
 
   }
