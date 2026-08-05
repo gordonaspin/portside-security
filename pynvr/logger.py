@@ -269,8 +269,8 @@ class LogEventHandler(Handler):
                 timestamp=record.created,
                 level="recording" if recording else record.levelname.lower(),
                 message=message,
-                file_path=file_path if file_path else "",
-                anchor=f"{path.parent.name}/{path.name}" if path else ""
+                file_path=file_path if file_path else None,
+                anchor=f"{path.parent.name}/{path.name}" if path else None
             )
             event_log.append(entry)
 

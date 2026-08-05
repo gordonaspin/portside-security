@@ -10,7 +10,7 @@ def export_schema():
     # Save to local json file
     output_path = Path("./openapi.json")
     output_path.write_text(json.dumps(schema, indent=2))
-    print(f"✅ Successfully wrote OpenAPI schema to {output_path.absolute()}")
+    print(f"successfully wrote OpenAPI schema to {output_path.absolute()}")
 
 if __name__ == "__main__":
     export_schema()

@@ -3,6 +3,7 @@
     These are Pydantic models that define the structure
     of the data returned by the API endpoints.
 """
+from pathlib import Path
 from typing import Literal, Union
 from pydantic import BaseModel
 
@@ -69,12 +70,12 @@ class RecordingEvent(BaseModel):
     """
     camera: str
     tags: dict[str, list[str]]
-    media_filename: str
+    media_filename: Path
     start_time: float
     end_time: float | None
     start_fmt: str
     end_fmt: str | None
-    metadata_filename: str
+    metadata_filename: Path
     recorder_type: str
 
 class EventsResponse(BaseModel):
@@ -88,8 +89,8 @@ class LogEntry(BaseModel):
     timestamp: float
     level: str
     message: str
-    file_path: str
-    anchor: str
+    file_path: Path | None
+    anchor: Path | None
 
 class LogsResponse(BaseModel):
     """

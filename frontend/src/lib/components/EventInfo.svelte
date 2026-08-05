@@ -1,7 +1,9 @@
 <script lang="ts">
   import { currentEvent } from '$lib/stores/playQueue';
-  import type { RecordingEvent } from '$lib/stores/events';
   import { debug, log, error } from "$lib/stores/logging";
+  import type { components } from '$lib/types/api';
+
+  type RecordingEvent = components['schemas']['RecordingEvent'];
   
   let event: RecordingEvent | null = null;
 

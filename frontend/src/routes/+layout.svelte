@@ -8,8 +8,10 @@
   import { pushLogEntry } from "$lib/stores/logs";
   import { serverOffline } from '$lib/stores/connection';
   import { enqueueAuto } from '$lib/stores/playQueue.js';
-  import type { RecordingEvent } from '$lib/stores/events';
   import { log } from '$lib/stores/logging.js'
+  import type { components } from '$lib/types/api';
+
+  type RecordingEvent = components['schemas']['RecordingEvent'];
 
   let es: EventSource | null = null;
   let interval: ReturnType<typeof setInterval>;

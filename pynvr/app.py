@@ -3,6 +3,7 @@ from asyncio import CancelledError
 import json
 import logging
 import signal
+import socket
 from urllib.parse import urlparse, urlunparse
 
 import click
@@ -20,7 +21,7 @@ NVR_OBJ = None
 def shutdown(signum, _):
     """ called upon OS signal, set stop_event """
     NVR_OBJ.stop_event.set()
-    logger.info(f"caught {signum}, stop event is set")
+    logger.info(f"caught signal {signum}, stop event is set")
     NVR_OBJ.stop()
 
 signal.signal(signal.SIGINT, shutdown)
@@ -45,6 +46,15 @@ def replace_url_credentials(url, new_username, new_password):
     new_parsed = parsed._replace(netloc=new_netloc)
     return urlunparse(new_parsed)
 
+def socket_available(host, port):
+    """ checks if socket is available """
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        try:
+            sock.bind((host, port))
+        except OSError:
+            logger.error(f"socket {host}:{port} is already in use")
+            return False
+    return True
 
 @click.command()
 @click.option("-u", "--username", default="admin")
@@ -54,6 +64,7 @@ def replace_url_credentials(url, new_username, new_password):
 @click.option("-c", "--nvr-config", default="nvr.json")
 @version_option()
 
+# pylint: disable=too-many-branches, too-many-statements
 def main(username,
          password,
          gui_username,
@@ -113,6 +124,9 @@ def main(username,
     for camera in config["cameras"].values():
         camera["url"] = replace_url_credentials(camera["url"], username, password)
 
+    if not socket_available(config["bind_address"], config["port"]):
+        return
+
     NVR_OBJ = nvr = NVR(config)
     app = create_app(config, nvr)
 
@@ -130,6 +144,8 @@ def main(username,
             )
     except CancelledError:
         logger.debug("uvicorn server stopped")
+    except Exception as e:
+        logger.error(f"uvicorn server error {e}")
 
     logger.info("waiting on NVR threads to finish...")
     for thread in nvr.threads():

@@ -15,9 +15,9 @@ python -m pylint ${PROJECT}
 echo "generating openapi.json..."
 python generate_api.py 
 
-echo "building GUI..."
+echo "building frontend..."
 cd frontend
-npm run build -- --clearScreen false
+npm run build
 cd ..
 
 echo "building wheel..."

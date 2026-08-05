@@ -3,12 +3,12 @@
   import { logStore, pushLogEntry } from "$lib/stores/logs"
   import { safeFetch } from "$lib/network/safeFetch"
   import { currentEvent } from "$lib/stores/playQueue"
-  import type { RecordingEvent } from '$lib/stores/events'
   import { tick } from 'svelte'
   import { log } from '$lib/stores/logging'
   import type { components } from '$lib/types/api';
 
   type LogEntry = components['schemas']['LogEntry'];
+  type RecordingEvent = components['schemas']['RecordingEvent'];
 
   let container;
   let selectedUrl = null;
@@ -56,7 +56,7 @@
 
   }
 
-  function fmt(ts) {
+  function fmt(ts: number): string {
     return new Date(ts * 1000).toLocaleTimeString();
   }
 

@@ -38,6 +38,7 @@ from pynvr.api.types import (
     LogsResponse,
     LoginForm,
     LogEntry,
+    RecordingEvent,
     ServerTimeResponse,
     SettingValue,
     SettingValueResponse,
@@ -457,7 +458,7 @@ def create_app(config: dict, nvr: NVR):
             logger.info("Client disconnected from SSE stream.")
             raise
 
-    @app.get("/api/stream")
+    @app.get("/api/stream", response_model=CameraStatus | LogEntry | RecordingEvent)
     async def stream(request: Request, user=Depends(require_user)):
         return EventSourceResponse(
             event_generator(request)

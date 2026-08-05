@@ -1,5 +1,5 @@
 {
-    "system_name": "My Cameras",
+    "system_name": "Security Cameras",
     "recordings_directory": "recordings",
     "keep_recordings_timedelta": {
         "days": 3
@@ -13,7 +13,9 @@
     "debug": false,
     "mosaic": {
         "rows": 2,
-        "columns": 5
+        "columns": 2,
+        "width": 3840,
+        "height": 1046
     },
     "model": {
         "resolution": {
@@ -35,7 +37,7 @@
         }
     },
     "cameras": {
-        "B1": {
+        "C1": {
             "enabled": true,
             "url": "rtsp://username:password@hostname.com:554/cam/realmonitor?channel=3&subtype=1",
             "resolution": {
@@ -54,7 +56,7 @@
             "render_annotations": "always",
             "debug": false
         },
-        "B2": {
+        "C2": {
             "enabled": true,
             "url": "rtsp://username:password@hostname.com:554/cam/realmonitor?channel=4&subtype=1",
             "resolution": {
@@ -71,7 +73,7 @@
             "render_annotations": "always",
             "debug": false
         },
-        "B3": {
+        "C3": {
             "enabled": true,
             "url": "rtsp://username:password@hostname.com:554/cam/realmonitor?channel=5&subtype=1",
             "resolution": {
@@ -88,113 +90,7 @@
             "render_annotations": "always",
             "debug": false
         },
-        "Entry": {
-            "enabled": true,
-            "url": "rtsp://username:password@hostname.com:554/cam/realmonitor?channel=2&subtype=1",
-            "resolution": {
-                "width": 704,
-                "height": 480,
-                "_width": 3840,
-                "_height": 2160
-            },
-            "recorder": "FFmpegFrame",
-            "yolo_confidence": 0.4,
-            "track_threshold": 0.35,
-            "match_threshold": 0.4,
-            "track_buffer": 120,
-            "minimum_relative_motion": 0.08, 
-            "_render_annotations_comment": "never or motion",
-            "render_annotations": "always",
-            "debug": false
-        },
-        "Exit": {
-            "enabled": true,
-            "url": "rtsp://username:password@hostname.com:554/cam/realmonitor?channel=1&subtype=1",
-            "resolution": {
-                "width": 704,
-                "height": 480,
-                "_width": 3840,
-                "_height": 2160
-            },
-            "recorder": "FFmpegFrame",
-            "yolo_confidence": 0.4,
-            "track_threshold": 0.35,
-            "match_threshold": 0.4,
-            "track_buffer": 120,
-            "minimum_relative_motion": 0.08, 
-            "_render_annotations_comment": "never or motion",
-            "render_annotations": "always",
-            "debug": false
-        },
-        "B45": {
-            "enabled": true,
-            "url": "rtsp://username:password@hostname.com:554/cam/realmonitor?channel=3&subtype=1",
-            "resolution": {
-                "width": 704,
-                "height": 480
-            },
-            "recorder": "FFmpegFrame",
-            "yolo_confidence": 0.4,
-            "track_threshold": 0.35,
-            "match_threshold": 0.4,
-            "track_buffer": 120,
-            "minimum_relative_motion": 0.08, 
-            "_render_annotations_comment": "never or motion",
-            "render_annotations": "always",
-            "debug": false
-        },
-        "B56": {
-            "enabled": true,
-            "url": "rtsp://username:password@hostname.com:554/cam/realmonitor?channel=2&subtype=1",
-            "resolution": {
-                "width": 704,
-                "height": 480
-            },
-            "recorder": "FFmpegFrame",
-            "yolo_confidence": 0.4,
-            "track_threshold": 0.35,
-            "match_threshold": 0.4,
-            "track_buffer": 120,
-            "minimum_relative_motion": 0.08, 
-            "_render_annotations_comment": "never or motion",
-            "render_annotations": "always",
-            "debug": false
-        },
-        "B67": {
-            "enabled": true,
-            "url": "rtsp://username:password@hostname.com:554/cam/realmonitor?channel=1&subtype=1",
-            "resolution": {
-                "width": 704,
-                "height": 480
-            },
-            "recorder": "FFmpegFrame",
-            "yolo_confidence": 0.4,
-            "track_threshold": 0.35,
-            "match_threshold": 0.4,
-            "track_buffer": 120,
-            "minimum_relative_motion": 0.08, 
-            "_render_annotations_comment": "never or motion",
-            "render_annotations": "always",
-            "debug": false
-        },
-        "Pool": {
-            "enabled": true,
-            "url": "rtsp://username:password@hostname.com:554/cam/realmonitor?channel=1&subtype=1",
-            "resolution": {
-                "width": 704,
-                "height": 480
-            },
-            "recorder": "FFmpegFrame",
-            "yolo_confidence": 0.4,
-            "track_threshold": 0.35,
-            "match_threshold": 0.4,
-            "track_buffer": 120,
-            "minimum_relative_motion": 0.08, 
-            "_render_annotations_comment": "never or motion",
-            "render_annotations": "always",
-            "debug": false
-        },
-        "PGate": {
+        "C4": {
             "enabled": true,
             "url": "rtsp://username:password@hostname.com:554/cam/realmonitor?channel=2&subtype=1",
             "resolution": {

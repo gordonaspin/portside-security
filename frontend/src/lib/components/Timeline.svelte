@@ -4,11 +4,11 @@
   import { safeFetch } from "$lib/network/safeFetch";
   import { eventStore } from "$lib/stores/events";
   import { currentEvent } from "$lib/stores/playQueue"
-  import type { RecordingEvent } from "$lib/stores/events";
   import type { components } from '$lib/types/api';
 
   type Class = components['schemas']['ClassesResponse'];
   type Camera = components['schemas']['CameraResponse'];
+  type RecordingEvent = components['schemas']['RecordingEvent'];
 
   let selectedEvent: RecordingEvent | null = null;
   

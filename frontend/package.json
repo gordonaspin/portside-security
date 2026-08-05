@@ -5,8 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite dev",
-    "gen-types": "openapi-typescript ../openapi.json --output src/lib/types/api.ts",
-    "build": "npm run gen-types && vite build --logLevel warn",
+    "prebuild": "openapi-typescript ../openapi.json --output src/lib/types/api.ts",
+    "build": "vite build --logLevel warn",
     "preview": "vite preview"
   },
   "devDependencies": {

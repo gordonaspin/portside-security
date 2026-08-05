@@ -7,7 +7,8 @@
   import type { components } from '$lib/types/api';
 
   type Camera = components['schemas']['CameraResponse'];
-  type MosaicDimensions = components['schemas']['MosaicDimensionsResponse'];
+  type MosaicDimensions = components['schemas']['DimensionsResponse'];
+  type CameraStatus = components['schemas']['CameraStatus'];
 
   let cameras: Camera[] = [];
   let isFocusMode: boolean = false;
@@ -207,8 +208,8 @@
   });
 
 
-  function getCameraStatus(camera) {
-    const status = $cameraStatusStore[camera.name];
+  function getCameraStatus(camera: Camera) {
+    const status: CameraStatus = $cameraStatusStore[camera.name];
     if (!status) return [];   // store not ready yet
 
     let parts = [];
@@ -230,8 +231,8 @@
     return parts.join(" | ");
   }
 
-  function getCameraClass(camera) {
-    const status = $cameraStatusStore[camera.name];
+  function getCameraClass(camera: Camera) {
+    const status: CameraStatus = $cameraStatusStore[camera.name];
     if (!status) return "offline";
 
     if (status.recording) {
@@ -244,8 +245,8 @@
     }
   }
 
-  function getCameraObjects(camera) {
-    const status = $cameraStatusStore[camera.name];
+  function getCameraObjects(camera: Camera) {
+    const status: CameraStatus = $cameraStatusStore[camera.name];
     if (!status || !status.objects_dict) return [];
 
     return Object.entries(status.objects_dict)

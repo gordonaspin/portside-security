@@ -18,12 +18,24 @@ Install the required python libraries
 ```bash
 pip install -r requirements.txt
 ```
+Install the python build module
+```bash
+pip install build
+```
+Run the python build
+```bash
+python -m build
+```
+Generate the OpenAPI spec
+```bash
+python generate_api.py
+```
 Install nodejs and npm, if needed
 ```bash
 curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
 sudo apt-get install -y nodejs
 ```
-Install project dependencies
+Install frontend project dependencies
 ```bash
 cd frontend
 npm install
@@ -58,10 +70,10 @@ docker run -it -d --restart=always --network host --ipc=host --gpus all --name p
 ```
 
 ## Config
-Configuration is provided in a nvr.json file. "model.resolution" specifies the [x, y] dimensions in pixels to resize frames to for YOLO processing and rendering on the GUI. "model.name" specifies the name of the YOLO model to use. "model.classes" is an array of coco names of object classes to detect in the image processing. Each camera is named and specifies the RTSP URL and per-camera resolution, motion detection parameters, enabled and debug flags and which recorder type to use.
+Configuration is provided in a nvr.json file. "model.resolution" specifies the [x, y] dimensions in pixels to resize frames to for YOLO processing and rendering on the GUI. "model.name" specifies the name of the YOLO model to use. "model.classes" is an array of COCO names of object classes to detect in the image processing. Each camera is named and specifies the RTSP URL and per-camera resolution, motion detection parameters, enabled and debug flags and which recorder type to use.
 ```json
 {
-    "system_name": "My Cameras",
+    "system_name": "Security Cameras",
     "recordings_directory": "recordings",
     "keep_recordings_timedelta": {
         "days": 3
@@ -74,17 +86,19 @@ Configuration is provided in a nvr.json file. "model.resolution" specifies the [
     "logging_config": "logging-config.json",
     "debug": false,
     "mosaic": {
-        "rows": 2,
-        "columns": 5
+        "rows": 1,
+        "columns": 2,
+        "width": 3840,
+        "height": 1046
     },
     "model": {
         "resolution": {
             "width": 640,
             "height": 640
         },
-        "classes": {"person": true, "car": true, "truck": true, "bus": true, "cat": true, "dog": true, "bicycle": true, "motorcycle": true},
+        "classes": {"person": true, "car": true, "truck": true, "bus": true, "cat": false, "dog": true, "bicycle": true, "motorcycle": true},
         "_comment": "yolo11n.pt  yolo11s.pt  yolov5su.pt yolov8n.pt",
-        "name": "model/yolo11n.pt"
+        "name": "pynvr/model/yolo11n.pt"
     },
     "processor": {
         "detect_every_nth_frame": 1,
@@ -97,7 +111,7 @@ Configuration is provided in a nvr.json file. "model.resolution" specifies the [
         }
     },
     "cameras": {
-        "B1": {
+        "C1": {
             "enabled": true,
             "url": "rtsp://username:password@hostname.com:554/cam/realmonitor?channel=3&subtype=1",
             "resolution": {
@@ -116,8 +130,24 @@ Configuration is provided in a nvr.json file. "model.resolution" specifies the [
             "render_annotations": "always",
             "debug": false
         },
+        "C2": {
+            "enabled": true,
+            "url": "rtsp://username:password@hostname.com:554/cam/realmonitor?channel=4&subtype=1",
+            "resolution": {
+                "width": 704,
+                "height": 480
+            },
+            "recorder": "FFmpegFrame",
+            "yolo_confidence": 0.4,
+            "track_threshold": 0.35,
+            "match_threshold": 0.4,
+            "track_buffer": 120,
+            "minimum_relative_motion": 0.08, 
+            "_render_annotations_comment": "never or motion",
+            "render_annotations": "always",
+            "debug": false
+        },
         ...
-    }
 }
 
 ```
@@ -135,7 +165,7 @@ Options:
   -h, --help                      Show this message and exit.
 ```
 ### Video Frames
-`pynvr` displays yolo boxes when there is motion that includes a recognized object. `pynvr` displays the current state of recording and fps information on the top left of the frame in the UI.
+`pynvr` displays yolo boxes when there is motion that is of a recognized object. `pynvr` displays the current state of recording and fps information on the top left of the frame in the UI.
 
 ### Recordings and Metadata
 `pynvr` creates recordings using ffmpeg .ts segment files or frames. `pynvr` creates .json metadata for each recording which details the start/stop time, the objects captured, etc.
@@ -167,11 +197,11 @@ FFmpegFrame or OpenCVFrame or AVFFmpegFrame are functionally equivalent, using d
                          +---------------------------------------+
                                             |
                                             v
-                         +---------------------------------------+      +--------------------------------------+
-                         |       frame processor thread          +      + Svelte UI and WebRTC GUI uses frame  +
-                         | gets frame from queue                 + <--- + from memory and renders frame to GUI +
-                         | detects motion and objects.           +      + receives realtime events from server +
-                         +---------------------------------------+      +--------------------------------------+
+                         +---------------------------------------+      +--------------------------------------+      +--------------------------------------+
+                         |       frame processor thread          +      +      FastAPI uvicorn application.    +      + Svelte UI and WebRTC GUI uses frame  +
+                         | gets frame from queue                 + <--- + hosts REST endpoints, serves static  + <--- + from server and renders frame to GUI +
+                         | detects motion and objects.           +      + files, sends SSE events to browser   +      + receives realtime events from server +
+                         +---------------------------------------+      +--------------------------------------+      +--------------------------------------+
                                             |
                                             v
                          +---------------------------------------+
@@ -189,6 +219,6 @@ FFmpegFrame or OpenCVFrame or AVFFmpegFrame are functionally equivalent, using d
 `YOLO` is used for object detection and classification. The expected model is yolo11n, and can be changed in the configuration file. YOLO processing will use the GPU for processing, if available and the configured processor.device is not "cpu". If "cpu" is specified, the processor.detect_every_nth_frame should be adjusted upwards to every 3rd or 4th frame, depending on your CPU.
 `OpenCV` is used for frame manipulation, blurring, grayscaling etc. as needed to detect and measure motion
 `PyAV` is used (with ffmpeg under the covers) to make recordings from frames.
-`Svelte` (typescript/javascript) is used to create the user interface with Javascript, HTML markup and CSS.
+`SvelteKit` (typescript/javascript) is used to create the user interface with Javascript, HTML markup and CSS.
 `WebRTC` is used to stream video content to the Mosaic.svelte component in the browser.
 `SSE or Server Side Events` is used to push updates to the browser. It is used for camera status displayed as a <div> overlay on the camera image in the Mosaic.svelte component. It is also used to push server logs to the browser EventLog component and recording event metadata to the browser that are subsequently fed to the EventInfo.svelte component and the MediaPlayer component.
