@@ -3,7 +3,6 @@
   import { log, error } from "$lib/stores/logging";
   import { safeFetch } from '$lib/network/safeFetch';
   import { cameraStatusStore } from "$lib/stores/cameraStatus";
-  import { serverOffline } from '$lib/stores/connection';
   import type { components } from '$lib/types/api';
 
   type Camera = components['schemas']['CameraResponse'];

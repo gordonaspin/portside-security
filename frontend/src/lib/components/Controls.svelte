@@ -6,6 +6,8 @@
 
   type Camera = components['schemas']['CameraResponse'];
   type CameraSettings = components['schemas']['CameraSettingsResponse'];
+  type SettingValue = components['schemas']['SettingValue'];
+  type ClassToggle = components['schemas']['ClassToggle'];
 
   let cameras: Camera[] = [];
   let selectedCamera: Camera | null = null;
@@ -67,10 +69,12 @@
     };
 
     // Send to backend
+    const body: SettingValue = { value };
+
     await safeFetch(`/api/cameras/${selectedCamera.name}/settings/${key}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ value })
+      body: JSON.stringify(body)
     });
   }
 
@@ -86,10 +90,12 @@
       }
     };
 
+    const body: ClassToggle = { class_name: className, value };
+
     await safeFetch(`/api/processor/${selectedCamera.name}/class_toggle`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ class_name: className, value })
+      body: JSON.stringify(body)
     });
   }
 
@@ -106,21 +112,27 @@
   // -----------------------------
   async function updateDebug(value) {
     console.log("[PYNVR] Updating verbose debug to", value);
+
+    const body: SettingValue = { value };
+
     await safeFetch("/api/settings/debug", {
       credentials: "include",
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ value: value })
+      body: JSON.stringify(body)
     });
   }
 
   async function updateCameraDebug(camera: Camera) {
     log("Updating camera debug for", camera.name, "to", camera.debug);
+
+    const body: SettingValue = { value: camera.debug };
+
     await safeFetch(`/api/settings/debug/${camera.name}`, {
       credentials: "include",
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ value: camera.debug })
+      body: JSON.stringify(body)
     });
   }
 

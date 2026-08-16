@@ -97,7 +97,7 @@
     flex-direction: column;
 
     /* ⭐ NEW: constrain height + scroll */
-    max-height: 300px;      /* adjust to taste */
+    max-height: 140px;      /* adjust to taste */
     overflow-y: auto;
   }
   .log-info {
